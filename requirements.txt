@@ -1,0 +1,5 @@
+pyTelegramBotAPI
+famgateway
+flask
+werkzeug
+requests

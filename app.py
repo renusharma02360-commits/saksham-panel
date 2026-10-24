@@ -23,7 +23,6 @@ RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
 MASTER_KEY       = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
 # ============================================
 
-# Ensure directories and files exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 for file, default in [(DB_FILE, {"users": {}, "utrs": [], "deposits": {}, "orders": []}), 
                       (PRODUCTS_FILE, {}), 

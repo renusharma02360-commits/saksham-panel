@@ -300,11 +300,20 @@ def process_android_id(msg, p_id, duration, price):
 
 def execute_api_buy(chat_id, msg_id, uid, p_id, duration, price, android_id=None):
     product = load_products()[p_id]
-    data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': product["pid"], 'duration': duration, 'quantity': 1}
+    
+    clean_pid = str(product["pid"]).strip()
+    clean_dur = str(duration).strip()
+    
+    data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': clean_pid, 'duration': clean_dur, 'quantity': 1}
     if android_id: data['android_id'] = android_id
     headers = {'Content-Type': 'application/x-www-form-urlencoded', 'x-master-key': MASTER_KEY}
-    try: result = requests.post(RESELLER_API_URL, data=data, headers=headers, timeout=20).json()
-    except: result = {"status": "error", "message": "Network Error"}
+    
+    try: 
+        res = requests.post(RESELLER_API_URL, data=data, headers=headers, timeout=20)
+        result = res.json()
+    except Exception as e: 
+        result = {"status": "error", "message": str(e)}
+    
     if result.get("status") == "success" or "keys" in result:
         if deduct_balance(uid, price):
             keys = result.get("keys", ["Key not found"])
@@ -312,8 +321,13 @@ def execute_api_buy(chat_id, msg_id, uid, p_id, duration, price, android_id=None
             log_order(uid, product['name'], keys[0], price)
             kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("📋 Copy Key", callback_data=f"copykey_{keys[0]}"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back"))
             safe_edit(chat_id, msg_id, f"✅ <b>PURCHASE SUCCESSFUL</b>\n📦 <b>Product:</b> {product['name']}\n⏱ <b>Duration:</b> {duration}\n💵 <b>Price:</b> ₹{price:.2f}\n🔑 <b>Key:</b>\n<code>{keys[0]}</code>\n💼 <b>New Balance:</b> ₹{new_bal:.2f}", kb)
-        else: safe_edit(chat_id, msg_id, "❌ <b>Balance deduct error.</b>")
-    else: safe_edit(chat_id, msg_id, f"❌ <b>PURCHASE FAILED</b>\n\n<b>Reason:</b> {result.get('message', 'Out of Stock')}")
+        else: 
+            safe_edit(chat_id, msg_id, "❌ <b>Balance deduct error.</b>")
+    else: 
+        print(f"BANTI API ERROR RESPONSE: {result}")
+        print(f"BANTI API PAYLOAD SENT: {data}")
+        err_msg = str(result)
+        safe_edit(chat_id, msg_id, f"❌ <b>PURCHASE FAILED</b>\n\n<b>API Response:</b>\n<code>{err_msg}</code>")
 
 # ================== FLASK SETUP ==================
 app = Flask(__name__)
@@ -354,6 +368,7 @@ HTML_TEMPLATE = """
         <h1 class="header">👑 Saksham Panel Admin</h1>
         <div class="tabs">
             <a href="/" class="tab-btn {% if tab == 'products' %}active{% endif %}">📦 Products</a>
+            <a href="/orders" class="tab-btn {% if tab == 'orders' %}active{% endif %}">📜 Purchase History</a>
             <a href="/users" class="tab-btn {% if tab == 'users' %}active{% endif %}">👥 Users & Resellers</a>
             <a href="/broadcast" class="tab-btn {% if tab == 'broadcast' %}active{% endif %}">📢 Broadcast</a>
             <a href="/settings" class="tab-btn {% if tab == 'settings' %}active{% endif %}">⚙️ Settings</a>
@@ -372,8 +387,8 @@ HTML_TEMPLATE = """
                 <input type="url" name="video" placeholder="Video URL">
                 <input type="url" name="setup" placeholder="Setup URL">
                 <input type="url" name="hack" placeholder="Hack URL">
-                <select name="is_v1"><option value="false">V2</option><option value="true">V1</option></select>
-                <div id="price-container"><div class="row"><div class="form-group"><input type="text" name="duration[]" placeholder="1 Day" required></div><div class="form-group"><input type="number" name="price[]" placeholder="Price" required></div></div></div>
+                <select name="is_v1"><option value="false">V2 (Direct)</option><option value="true">V1 (Android ID)</option></select>
+                <div id="price-container"><div class="row"><div class="form-group"><input type="text" name="duration[]" placeholder="e.g. 1 DaYs" required></div><div class="form-group"><input type="number" name="price[]" placeholder="Price" required></div></div></div>
                 <button type="button" class="btn-success" onclick="addPriceRow()">➕ More</button>
                 <button type="submit">Save</button>
             </form>
@@ -422,6 +437,23 @@ HTML_TEMPLATE = """
                             <button type="submit" class="btn-success">Save</button>
                         </form>
                     </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+
+        {% elif tab == 'orders' %}
+        <div class="card">
+            <h3>All Purchase History</h3>
+            <table>
+                <tr><th>Date/Time</th><th>User ID</th><th>Product</th><th>Price</th><th>Key</th></tr>
+                {% for o in orders|reverse %}
+                <tr>
+                    <td><small>{{ o.time }}</small></td>
+                    <td>{{ o.uid }}</td>
+                    <td>{{ o.product }}</td>
+                    <td>₹{{ o.price }}</td>
+                    <td><code>{{ o.key }}</code></td>
                 </tr>
                 {% endfor %}
             </table>
@@ -496,6 +528,10 @@ def update_user():
         db["users"][uid]["discount"] = int(request.form['discount']) if request.form['discount'] else 0
         save_db(db)
     return redirect(url_for('users'))
+@app.route('/orders')
+def orders():
+    db = load_db()
+    return render_template_string(HTML_TEMPLATE, tab='orders', orders=db.get("orders", []))
 @app.route('/broadcast')
 def broadcast(): return render_template_string(HTML_TEMPLATE, tab='broadcast')
 @app.route('/send_broadcast', methods=['POST'])
@@ -514,11 +550,9 @@ def settings():
         return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings(), msg_success="Saved!")
     return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings())
 
-# ================== RUNNER ==================
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
-    print("🚀 Bot and Web Panel started together!")
     bot.infinity_polling(timeout=30, long_polling_timeout=30)

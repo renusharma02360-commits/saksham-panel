@@ -19,7 +19,6 @@ ADMIN_ID  = 7778093775
 ADMIN_WP  = "919306606011" 
 MONGO_URI = os.environ.get("MONGO_URI") 
 UPLOAD_FOLDER = "static/uploads"
-# Aapka render link (WebApp button ke liye)
 WEB_URL = "https://saksham-panel-kpsl.onrender.com" 
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
@@ -42,24 +41,16 @@ fg  = FamGateway(api_key=API_KEY)
 calc_data = {}
 user_msg_history = {} 
 active_payments = {} 
-buy_states = {} # Track product buy states (for Android ID)
+buy_states = {} 
 
 # ---------------- DB HELPERS ----------------
 def get_settings():
     s = settings_col.find_one({"_id": "global"})
     if not s:
-        # Default settings
         default_s = {
-            "_id": "global", 
-            "store_name": "BANTI BHAIYA STORE", 
-            "support_username": "YourSupport", 
-            "update_link": "https://t.me/", 
-            "maintenance": "false", 
-            "reseller_price": 149, 
-            "reseller_discount": 40, 
-            "how_to_use": "https://t.me/", 
-            "feedback_link": "https://t.me/",
-            "referral_link": "https://t.me/"
+            "_id": "global", "store_name": "BANTI BHAIYA STORE", "support_username": "YourSupport", 
+            "update_link": "https://t.me/", "maintenance": "false", "reseller_price": 149, "reseller_discount": 40, 
+            "how_to_use": "https://t.me/", "feedback_link": "https://t.me/", "referral_link": "https://t.me/"
         }
         settings_col.insert_one(default_s)
         return default_s
@@ -94,8 +85,7 @@ def deduct_balance(uid, amount):
     return result is not None
 
 def credit_atomic(uid, amount, utr):
-    if orders_col.find_one({"utr": utr}):
-        return False, get_balance(uid)
+    if orders_col.find_one({"utr": utr}): return False, get_balance(uid)
     orders_col.insert_one({"utr": utr, "uid": str(uid), "amount": amount, "time": time.strftime("%d-%m-%Y %I:%M %p")})
     return True, credit_balance(uid, amount)
 
@@ -132,7 +122,20 @@ def get_main_menu(uid, name):
     bal = get_balance(uid)
     discount = get_discount(uid)
     settings = get_settings()
-    support_user = settings.get('support_username', 'YourSupport').replace('@', '')
+    
+    # URL validation fix
+    support_user = str(settings.get('support_username', 'YourSupport')).replace('@', '')
+    update_url = str(settings.get('update_link', 'https://t.me/'))
+    if not update_url.startswith("http"): update_url = "https://t.me/"
+    
+    how_to_use = str(settings.get('how_to_use', 'https://t.me/'))
+    if not how_to_use.startswith("http"): how_to_use = "https://t.me/"
+    
+    feedback_link = str(settings.get('feedback_link', 'https://t.me/'))
+    if not feedback_link.startswith("http"): feedback_link = "https://t.me/"
+    
+    referral_link = str(settings.get('referral_link', 'https://t.me/'))
+    if not referral_link.startswith("http"): referral_link = "https://t.me/"
     
     text = (
         f"😃 <b>{settings.get('store_name', 'BANTI BHAIYA STORE')}</b> 🚀\n"
@@ -154,20 +157,20 @@ def get_main_menu(uid, name):
     
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("🛒 Shop / Store Product", callback_data="menu_shop"))
-    kb.add(InlineKeyboardButton("🔄 Check Update", url=settings.get('update_link', 'https://t.me/')), InlineKeyboardButton("💸 Add Balance", callback_data="menu_addfund"))
+    kb.add(InlineKeyboardButton("🔄 Check Update", url=update_url), InlineKeyboardButton("💸 Add Balance", callback_data="menu_addfund"))
     kb.add(InlineKeyboardButton("👤 My Profile + History", callback_data="menu_balance"))
-    kb.add(InlineKeyboardButton("🔗 Referral", url=settings.get('referral_link', 'https://t.me/')), InlineKeyboardButton("❓ How To Use", url=settings.get('how_to_use', 'https://t.me/')))
+    kb.add(InlineKeyboardButton("🔗 Referral", url=referral_link), InlineKeyboardButton("❓ How To Use", url=how_to_use))
     if discount == 0:
         reseller_price = settings.get("reseller_price", 149)
         kb.add(InlineKeyboardButton(f"👑 Upgrade To Reseller (₹{reseller_price})", callback_data="buy_reseller"))
     
-    kb.add(InlineKeyboardButton("📢 Check Public Feedback", url=settings.get('feedback_link', 'https://t.me/')))
+    kb.add(InlineKeyboardButton("📢 Check Public Feedback", url=feedback_link))
     kb.add(InlineKeyboardButton("🛡️ Support", url=f"https://t.me/{support_user}"))
     kb.add(InlineKeyboardButton("🏆 Top 5 Sellers Monthly", callback_data="top_sellers"))
     kb.add(InlineKeyboardButton("🍎 Language", callback_data="language"))
     
-    # WebApp Button for Admin
-    if str(uid) == str(ADMIN_ID):
+    # WebApp Button validation fix
+    if str(uid) == str(ADMIN_ID) and WEB_URL.startswith("https://"):
         kb.add(InlineKeyboardButton("💻 Admin Panel", web_app=WebAppInfo(url=WEB_URL)))
         
     return text, kb
@@ -290,14 +293,17 @@ def handle_callbacks(call):
             
             kb = InlineKeyboardMarkup(row_width=2)
             row = []
-            if product.get("video"): row.append(InlineKeyboardButton("📺 Setup Video", url=product["video"]))
-            if product.get("hack"): row.append(InlineKeyboardButton("🛠️ Hack Video", url=product["hack"]))
+            if product.get("video"): 
+                v_url = str(product["video"])
+                if v_url.startswith("http"): row.append(InlineKeyboardButton("📺 Setup Video", url=v_url))
+            if product.get("hack"): 
+                h_url = str(product["hack"])
+                if h_url.startswith("http"): row.append(InlineKeyboardButton("🛠️ Hack Video", url=h_url))
             if row: kb.add(*row)
             
             for dur, price in product["prices"].items():
                 final_price = price - (price * discount / 100) if discount > 0 else price
                 btn_text = f"⏱ {dur} - ₹{final_price:.2f}" + (" 👑" if discount > 0 else "")
-                # Encoding duration to handle spaces (e.g. 1_Day)
                 safe_dur = dur.replace(" ", "_") 
                 kb.add(InlineKeyboardButton(btn_text, callback_data=f"buy_{p_id}_{safe_dur}"))
             kb.add(InlineKeyboardButton("🔙 Back to Shop", callback_data="menu_shop"))
@@ -313,7 +319,6 @@ def handle_callbacks(call):
                 msg = bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
                 user_msg_history[chat_id] = [msg.message_id]
 
-        # ================= BUY LOGIC =================
         elif data.startswith("buy_"):
             parts = data.split("_", 2)
             p_id = parts[1]
@@ -322,7 +327,6 @@ def handle_callbacks(call):
             product = products_col.find_one({"_id": ObjectId(p_id)})
             if not product: return
             
-            # Find actual duration by matching safe_dur
             duration = None
             original_price = 0
             for d, pr in product["prices"].items():
@@ -343,7 +347,6 @@ def handle_callbacks(call):
             try: bot.delete_message(chat_id, msg_id)
             except: pass
 
-            # WhatsApp Manual Product
             if product.get("redirect_to_wp"):
                 if deduct_balance(uid, final_price):
                     log_order(uid, product['name'], "WhatsApp Manual", final_price)
@@ -355,14 +358,12 @@ def handle_callbacks(call):
                     bot.send_message(chat_id, "❌ <b>Low Balance! Please add funds.</b>", parse_mode="HTML")
                 return
             
-            # V1 product (Android ID required)
             if product.get("is_v1"):
                 buy_states[uid] = {"p_id": p_id, "duration": duration, "price": final_price}
                 msg = bot.send_message(chat_id, "📱 <b>Enter your Android ID:</b>", parse_mode="HTML")
                 bot.register_next_step_handler(msg, process_android_id_for_payment)
                 return
             
-            # Payment Options (Wallet or UPI)
             text = (
                 f"📦 <b>{product['name']}</b>\n"
                 f"⏱ <b>Duration:</b> {duration}\n"
@@ -634,7 +635,6 @@ def execute_api_buy_wallet(chat_id, msg_id, uid, p_id, duration, price, android_
         kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("📋 Copy Key", callback_data=f"copykey_{keys[0]}"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back"))
         safe_edit(chat_id, msg_id, f"✅ <b>PURCHASE SUCCESSFUL</b>\n📦 <b>Product:</b> {product['name']}\n⏱ <b>Duration:</b> {duration}\n💵 <b>Price:</b> ₹{price:.2f}\n🔑 <b>Key:</b>\n<code>{keys[0]}</code>\n💼 <b>New Balance:</b> ₹{new_bal:.2f}", kb)
     else: 
-        # AUTO-REFUND ON FAILURE
         credit_balance(uid, price)
         err_msg = result.get("message", str(result))
         safe_edit(chat_id, msg_id, f"❌ <b>PURCHASE FAILED (Out of Stock/API Error)</b>\n\n<b>Reason:</b>\n<code>{err_msg}</code>\n\n💰 <b>Amount ₹{price:.2f} has been refunded to your wallet.</b>", InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
@@ -663,10 +663,10 @@ def execute_api_buy_direct_upi(chat_id, msg_id, uid, p_id, duration, price, andr
         kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("📋 Copy Key", callback_data=f"copykey_{keys[0]}"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back"))
         safe_edit(chat_id, msg_id, f"✅ <b>PURCHASE SUCCESSFUL</b>\n📦 <b>Product:</b> {product['name']}\n⏱ <b>Duration:</b> {duration}\n💵 <b>Price:</b> ₹{price:.2f}\n🔑 <b>Key:</b>\n<code>{keys[0]}</code>\n\n🎉 <i>Thank you for your direct purchase!</i>", kb)
     else: 
-        # REFUND TO WALLET (Since UPI cannot be refunded automatically)
         credit_balance(uid, price)
         err_msg = result.get("message", str(result))
         safe_edit(chat_id, msg_id, f"❌ <b>API ERROR (Out of Stock)</b>\n\n<b>Reason:</b>\n<code>{err_msg}</code>\n\n💰 <b>Amount ₹{price:.2f} has been added to your Wallet!</b>\nYou can buy using Wallet or try again later.", InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
+
 
 # ================== FLASK SETUP (WEB PANEL) ==================
 app = Flask(__name__)
@@ -1001,9 +1001,12 @@ def run_flask():
 
 def run_bot():
     print("Starting Telegram Bot...")
-    try: bot.delete_webhook()
-    except: pass
-    bot.infinity_polling(timeout=30, long_polling_timeout=30)
+    try: 
+        bot.delete_webhook(drop_pending_updates=True) # Purane messages clear karega
+    except: 
+        pass
+    # skip_pending=True se purana conflict clear hota hai
+    bot.infinity_polling(timeout=30, long_polling_timeout=30, skip_pending=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_bot, daemon=True).start()

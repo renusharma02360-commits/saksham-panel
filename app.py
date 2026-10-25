@@ -15,7 +15,7 @@ from bson.objectid import ObjectId
 BOT_TOKEN = "8807309763:AAEXX_0tVMslGImWCBkeKscBheg4io4gf6g"
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
 ADMIN_ID  = 7778093775
-ADMIN_WP  = "919306606011" # Aapka WhatsApp Number
+ADMIN_WP  = "919306606011" 
 MONGO_URI = os.environ.get("MONGO_URI") 
 UPLOAD_FOLDER = "static/uploads"
 
@@ -37,8 +37,9 @@ settings_col = db.settings
 bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
 calc_data = {}
-user_msg_history = {} # Tracks old message IDs to delete them
+user_msg_history = {} 
 
+# ---------------- DB HELPERS ----------------
 def get_settings():
     s = settings_col.find_one({"_id": "global"})
     if not s:
@@ -68,12 +69,13 @@ def credit_balance(uid, amount):
     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
     return get_balance(uid)
 
+# 🔥 ATOMIC BALANCE DEDUCTION (Fixes Double-Spend Bug)
 def deduct_balance(uid, amount):
-    user = users_col.find_one({"_id": str(uid)})
-    if user and user["balance"] >= amount:
-        users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": -amount}})
-        return True
-    return False
+    result = users_col.find_one_and_update(
+        {"_id": str(uid), "balance": {"$gte": amount}},
+        {"$inc": {"balance": -amount}}
+    )
+    return result is not None
 
 def credit_atomic(uid, amount, utr):
     if orders_col.find_one({"utr": utr}):
@@ -84,7 +86,7 @@ def credit_atomic(uid, amount, utr):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ================== MAIN MENU ==================
+# ---------------- UI HELPERS ----------------
 def clean_old_messages(chat_id):
     if chat_id in user_msg_history:
         for msg_id in user_msg_history[chat_id]:
@@ -97,6 +99,19 @@ def send_menu(chat_id, text, reply_markup):
     msg = bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=reply_markup)
     user_msg_history[chat_id] = [msg.message_id]
 
+def safe_edit(chat_id, message_id, text, reply_markup=None):
+    try:
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, parse_mode="HTML", reply_markup=reply_markup)
+    except Exception as e:
+        if "message is not modified" in str(e).lower(): pass
+        else:
+            try: bot.delete_message(chat_id, message_id)
+            except: pass
+            msg = bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=reply_markup)
+            if chat_id not in user_msg_history: user_msg_history[chat_id] = []
+            user_msg_history[chat_id].append(msg.message_id)
+
+# ================== MAIN MENU ==================
 def get_main_menu(uid, name):
     bal = get_balance(uid)
     discount = get_discount(uid)
@@ -109,9 +124,11 @@ def get_main_menu(uid, name):
         header = f"✨ <b>WELCOME, {name}</b>\n━━━━━━━━━━━━━━━━━━━━\n💳 <b>Wallet:</b> ₹{bal:.2f}\n━━━━━━━━━━━━━━━━━━━━"
     
     text = f"{header}\n\n🛒 <b>Buy Now:</b> Premium Keys\n💰 <b>Add Balance:</b> UPI Auto-Verify\n⚙️ <b>My Profile:</b> History & Keys\n🛟 <b>Support:</b> 24/7 Help\n━━━━━━━━━━━━━━━━━━━━\n👇 <i>Choose an option below:</i>"
+    
+    # 🎨 PREMIUM COLORFUL BUTTONS (Emoji based)
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("🛒 Buy Now", callback_data="menu_shop"), InlineKeyboardButton("📢 Updates", url=settings.get('update_link', 'https://t.me/')))
-    kb.add(InlineKeyboardButton("💸 Add Balance", callback_data="menu_addfund"), InlineKeyboardButton("👤 My Profile", callback_data="menu_balance"))
+    kb.add(InlineKeyboardButton("🛒 Shop", callback_data="menu_shop"), InlineKeyboardButton("📢 Updates", url=settings.get('update_link', 'https://t.me/')))
+    kb.add(InlineKeyboardButton("💰 Wallet", callback_data="menu_addfund"), InlineKeyboardButton("👤 Profile", callback_data="menu_balance"))
     
     if discount == 0:
         reseller_price = settings.get("reseller_price", 149)
@@ -131,28 +148,18 @@ def start(msg):
     text, kb = get_main_menu(msg.from_user.id, msg.from_user.first_name)
     send_menu(msg.chat.id, text, kb)
 
-def safe_edit(chat_id, message_id, text, reply_markup=None):
-    try:
-        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, parse_mode="HTML", reply_markup=reply_markup)
-    except Exception as e:
-        if "message is not modified" in str(e).lower(): pass
-        else:
-            try: bot.delete_message(chat_id, message_id)
-            except: pass
-            msg = bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=reply_markup)
-            if chat_id not in user_msg_history: user_msg_history[chat_id] = []
-            user_msg_history[chat_id].append(msg.message_id)
-
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
     uid, data, name = call.from_user.id, call.data, call.from_user.first_name
     msg_id, chat_id = call.message.message_id, call.message.chat.id
     settings = get_settings()
     
-    if settings.get("maintenance", "false") == "true" and str(uid) != str(ADMIN_ID):
-        bot.answer_callback_query(call.id, "🚧 Bot is currently under maintenance.", show_alert=True)
-        return
+    # Always answer callback to remove loading spinner (Performance Fix)
     bot.answer_callback_query(call.id)
+    
+    if settings.get("maintenance", "false") == "true" and str(uid) != str(ADMIN_ID):
+        bot.send_message(chat_id, "🚧 <b>Bot is currently under maintenance.</b>", parse_mode="HTML")
+        return
 
     try:
         if data == "menu_back":
@@ -166,6 +173,7 @@ def handle_callbacks(call):
             text = f"👤 <b>MY PROFILE</b>\n━━━━━━━━━━━━━━━━━━━━\n{reseller_tag}🆔 <b>ID:</b> <code>{uid}</code>\n💵 <b>Balance:</b> ₹{bal:.2f}\n"
             if discount > 0: text += f"🏷️ <b>Discount:</b> {discount}% OFF\n"
             text += "━━━━━━━━━━━━━━━━━━━━\n"
+            
             kb = InlineKeyboardMarkup(row_width=1)
             if user_orders:
                 text += "📜 <b>Recent Purchases:</b>\n\n"
@@ -173,13 +181,14 @@ def handle_callbacks(call):
                     text += f"{i}. <b>{o['product']}</b>\n   🔑 <code>{o['key']}</code>\n\n"
                     if o['key'] != "WhatsApp Manual":
                         kb.add(InlineKeyboardButton(f"📋 Copy Key {i}", callback_data=f"copykey_{o['key']}"))
-            else: text += "📭 <i>No purchases yet.</i>\n"
+            else: 
+                text += "📭 <i>No purchases yet.</i>\n"
             kb.add(InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back"))
             safe_edit(chat_id, msg_id, text, kb)
             
         elif data == "menu_addfund":
             text = f"💸 <b>ADD BALANCE</b>\n━━━━━━━━━━━━━━━━━━━━\nSelect amount or enter custom:"
-            kb = InlineKeyboardMarkup(row_width=3).add(InlineKeyboardButton("₹10", callback_data="amt_10"), InlineKeyboardButton("₹50", callback_data="amt_50"), InlineKeyboardButton("₹100", callback_data="amt_100")).add(InlineKeyboardButton("🧮 Custom Amount", callback_data="amt_custom"), InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
+            kb = InlineKeyboardMarkup(row_width=3).add(InlineKeyboardButton("₹10", callback_data="amt_10"), InlineKeyboardButton("₹50", callback_data="amt_50"), InlineKeyboardButton("₹100", callback_data="amt_100")).add(InlineKeyboardButton("🧮 Custom Amount", callback_data="amt_custom")).add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
             safe_edit(chat_id, msg_id, text, kb)
             
         elif data == "amt_custom":
@@ -227,7 +236,7 @@ def handle_callbacks(call):
                 return
             discount = get_discount(uid)
             header = "👑 <b>RESELLER STORE</b>" if discount > 0 else "🛒 <b>STORE</b>"
-            text = f"{header}\n━━━━━━━━━━━━━━━━━━━━\n👇 Select a product:"
+            text = f"{header}\n━━━━━━━━━━━━━━━━━━━━\n👇 Select a product to view:"
             kb = InlineKeyboardMarkup(row_width=1)
             for p in products:
                 maint = " 🔴 [MAINTENANCE]" if p.get("is_maintenance") else ""
@@ -245,21 +254,23 @@ def handle_callbacks(call):
 
             discount = get_discount(uid)
             text = f"📦 <b>{product['name']}</b>\n"
-            if product.get("description"): text += f"📝 {product['description']}\n"
+            if product.get("description"): text += f"📝 <i>{product['description']}</i>\n"
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             if discount > 0: text += f"👑 <b>RESELLER PRICES ({discount}% OFF)</b>\n"
             text += "👇 <i>Select Duration:</i>\n"
             
             kb = InlineKeyboardMarkup(row_width=2)
             row = []
+            # 🎨 Distinct color buttons (using emojis)
             if product.get("video"): row.append(InlineKeyboardButton("📺 Setup Video", url=product["video"]))
             if product.get("hack"): row.append(InlineKeyboardButton("🛠️ Hack Video", url=product["hack"]))
             if row: kb.add(*row)
+            
             for dur, price in product["prices"].items():
                 final_price = price - (price * discount / 100) if discount > 0 else price
                 btn_text = f"⏱ {dur} - ₹{final_price:.2f}" + (" 👑" if discount > 0 else "")
                 kb.add(InlineKeyboardButton(btn_text, callback_data=f"buy_{p_id}_{dur}"))
-            kb.add(InlineKeyboardButton("🔙 Back", callback_data="menu_shop"))
+            kb.add(InlineKeyboardButton("🔙 Back to Shop", callback_data="menu_shop"))
             
             try: bot.delete_message(chat_id, msg_id)
             except: pass
@@ -288,7 +299,7 @@ def handle_callbacks(call):
             try: bot.delete_message(chat_id, msg_id)
             except: pass
 
-            # DIRECT UPI PAYMENT FOR PRODUCT
+            # 🔥 DIRECT UPI PAYMENT FOR PRODUCT
             if product.get("redirect_to_wp"):
                 # WhatsApp Flow
                 if deduct_balance(uid, final_price):
@@ -324,7 +335,8 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, f"✅ Key: {data.split('_', 1)[1]}\n\n(Tap to copy)", show_alert=True)
             
         elif data.startswith("cancel_qr_"):
-            bot.delete_message(chat_id, msg_id)
+            try: bot.delete_message(chat_id, msg_id)
+            except: pass
             text, kb = get_main_menu(uid, name)
             send_menu(chat_id, "❌ <b>Payment Cancelled.</b>", kb)
             
@@ -622,7 +634,7 @@ HTML_TEMPLATE = """
                                 <option value="30 DaYs">30 DaYs</option>
                                 <option value="CUSTOM">✍️ Custom (Type below)</option>
                             </select>
-                            <input type="text" name="duration[]" placeholder="Or type custom duration (e.g. 1 DaYs)" style="font-size: 12px;" required>
+                            <input type="text" name="duration[]" placeholder="Or type custom duration" style="font-size: 12px;" required>
                         </div>
                         <div class="form-group"><input type="number" name="price[]" required placeholder="Price"></div>
                     </div>

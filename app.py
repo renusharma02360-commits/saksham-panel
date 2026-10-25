@@ -12,7 +12,8 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
-BOT_TOKEN = "8807309763:AAEXX_0tVMslGImWCBkeKscBheg4io4gf6g"
+# Naya Bot Token yahan add kar diya gaya hai
+BOT_TOKEN = "8807309763:AAF1-K9pqDHKomEXMbV_0xQI-KdshM6hQl8"
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
 ADMIN_ID  = 7778093775
 ADMIN_WP  = "919306606011" 
@@ -400,6 +401,13 @@ def home():
 
 def run_bot():
     print("Starting Telegram Bot...")
+    # Pehle purana webhook delete karein taaki 409 conflict na aaye
+    try:
+        bot.delete_webhook()
+        print("Old webhook deleted.")
+    except Exception as e:
+        print(f"Webhook delete error: {e}")
+        
     bot.polling(none_stop=True)
 
 if __name__ == "__main__":

@@ -17,17 +17,19 @@ DB_FILE   = "wallet.json"
 PRODUCTS_FILE = "products.json"
 SETTINGS_FILE = "settings.json"
 UPLOAD_FOLDER = "static/uploads"
-DEFAULT_RESELLER_DISCOUNT = 40
-
-RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
-RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
-MASTER_KEY       = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
 # ============================================
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-for file, default in [(DB_FILE, {"users": {}, "utrs": [], "deposits": {}, "orders": []}), 
-                      (PRODUCTS_FILE, {}), 
-                      (SETTINGS_FILE, {"store_name": "SAKSHAM STORE", "support_username": "YourSupport", "update_link": "https://t.me/", "maintenance": "false"})]:
+# Default settings add reseller price and discount
+for file, default in [
+    (DB_FILE, {"users": {}, "utrs": [], "deposits": {}, "orders": []}), 
+    (PRODUCTS_FILE, {}), 
+    (SETTINGS_FILE, {
+        "store_name": "SAKSHAM STORE", "support_username": "YourSupport", 
+        "update_link": "https://t.me/", "maintenance": "false",
+        "reseller_price": 149, "reseller_discount": 40
+    })
+]:
     if not os.path.exists(file):
         with open(file, "w") as f: json.dump(default, f)
 
@@ -99,49 +101,6 @@ def load_products():
 def get_settings():
     with open(SETTINGS_FILE, "r") as f: return json.load(f)
 
-# ================= RESELLER COMMANDS =================
-@bot.message_handler(commands=["makereseller"])
-def make_reseller(msg):
-    if msg.from_user.id != ADMIN_ID: return
-    try:
-        args = msg.text.split()
-        if len(args) < 2:
-            return bot.reply_to(msg, "⚠️ Usage: `/makereseller <user_id> [discount%]`\nExample: `/makereseller 7778093775 40`", parse_mode="Markdown")
-        target_uid = args[1].strip()
-        discount = int(args[2]) if len(args) > 2 else DEFAULT_RESELLER_DISCOUNT
-        
-        db = load_db()
-        if target_uid not in db["users"]:
-            return bot.reply_to(msg, f"❌ User `{target_uid}` not found. Ensure they've used /start first.", parse_mode="Markdown")
-        
-        db["users"][target_uid]["discount"] = discount
-        save_db(db)
-        bot.reply_to(msg, f"✅ <b>Reseller Created!</b>\n\n👤 User: `{target_uid}`\n🏷️ Discount: <b>{discount}%</b>\n\nThey now see discounted prices automatically.", parse_mode="Markdown")
-        
-        try:
-            bot.send_message(int(target_uid), f"🎉 <b>CONGRATULATIONS!</b>\n\nYou have been upgraded to <b>RESELLER</b> status!\n\n🏷️ You now get <b>{discount}% OFF</b> on every product.\n\nCheck the shop to see new prices!", parse_mode="HTML")
-        except: pass
-    except Exception as e:
-        bot.reply_to(msg, f"❌ Error: {e}")
-
-@bot.message_handler(commands=["removereseller"])
-def remove_reseller(msg):
-    if msg.from_user.id != ADMIN_ID: return
-    try:
-        args = msg.text.split()
-        if len(args) < 2:
-            return bot.reply_to(msg, "⚠️ Usage: `/removereseller <user_id>`", parse_mode="Markdown")
-        target_uid = args[1].strip()
-        db = load_db()
-        if target_uid in db["users"]:
-            db["users"][target_uid]["discount"] = 0
-            save_db(db)
-            bot.reply_to(msg, f"✅ Reseller status removed for `{target_uid}`", parse_mode="Markdown")
-        else:
-            bot.reply_to(msg, f"❌ User not found")
-    except Exception as e:
-        bot.reply_to(msg, f"❌ Error: {e}")
-
 # ================== MAIN MENU ==================
 def get_main_menu(uid, name):
     bal = get_balance(uid)
@@ -158,6 +117,12 @@ def get_main_menu(uid, name):
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("🛒 Buy Now", callback_data="menu_shop"), InlineKeyboardButton("📢 Updates", url=settings.get('update_link', 'https://t.me/')))
     kb.add(InlineKeyboardButton("💸 Add Balance", callback_data="menu_addfund"), InlineKeyboardButton("👤 My Profile", callback_data="menu_balance"))
+    
+    # Add Buy Reseller button if not already a reseller
+    if discount == 0:
+        reseller_price = settings.get("reseller_price", 149)
+        kb.add(InlineKeyboardButton(f"👑 Buy Reseller (₹{reseller_price})", callback_data="buy_reseller"))
+        
     kb.add(InlineKeyboardButton("🛟 Support", url=f"https://t.me/{support_user}"))
     return text, kb
 
@@ -232,6 +197,31 @@ def handle_callbacks(call):
             amount = float(data.split("_")[1])
             safe_edit(chat_id, msg_id, f"⚡ <i>Generating Secure UPI QR for ₹{amount}...</i>")
             generate_qr(chat_id, uid, amount, name)
+            
+        # ================== RESELLER PURCHASE ==================
+        elif data == "buy_reseller":
+            settings = get_settings()
+            price = settings.get("reseller_price", 149)
+            text = (
+                f"👑 <b>BUY RESELLER ACCESS</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"💰 <b>Price:</b> ₹{price}\n"
+                f"🏷️ <b>Benefits:</b> Get {settings.get('reseller_discount', 40)}% OFF on all products!\n\n"
+                f"Click below to pay and unlock instant reseller prices:"
+            )
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton(f"💳 Pay ₹{price} Now", callback_data="pay_reseller"))
+            kb.add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
+            safe_edit(chat_id, msg_id, text, kb)
+            
+        elif data == "pay_reseller":
+            settings = get_settings()
+            price = settings.get("reseller_price", 149)
+            safe_edit(chat_id, msg_id, f"⚡ <i>Generating Secure UPI QR for ₹{price}...</i>")
+            generate_reseller_qr(chat_id, uid, price, name)
+            
+        # =========================================================
+        
         elif data == "menu_shop":
             products = load_products()
             if not products:
@@ -299,6 +289,7 @@ def show_calc(chat_id, msg_id, uid):
     kb = InlineKeyboardMarkup(row_width=3).add(InlineKeyboardButton("1", callback_data="calc_1"), InlineKeyboardButton("2", callback_data="calc_2"), InlineKeyboardButton("3", callback_data="calc_3"), InlineKeyboardButton("4", callback_data="calc_4"), InlineKeyboardButton("5", callback_data="calc_5"), InlineKeyboardButton("6", callback_data="calc_6"), InlineKeyboardButton("7", callback_data="calc_7"), InlineKeyboardButton("8", callback_data="calc_8"), InlineKeyboardButton("9", callback_data="calc_9"), InlineKeyboardButton("🧹 AC", callback_data="calc_ac"), InlineKeyboardButton("0", callback_data="calc_0"), InlineKeyboardButton("❌ X", callback_data="calc_cut")).add(InlineKeyboardButton("✅ Done / Pay", callback_data="calc_done")).add(InlineKeyboardButton("🔙 Back", callback_data="menu_addfund"))
     safe_edit(chat_id, msg_id, text, kb)
 
+# ================== BALANCE QR ==================
 def generate_qr(chat_id, uid, amount, name, wait_msg=None):
     try: order = fg.create_order(amount=amount, customer_name=name or "User")
     except Exception as e:
@@ -310,22 +301,16 @@ def generate_qr(chat_id, uid, amount, name, wait_msg=None):
         db = load_db()
         db.setdefault("deposits", {}).setdefault(uid, []).append({"order_id": order.order_id, "amount": amount, "status": "pending"})
         save_db(db)
-    caption = f"💳 <b>PAYMENT REQUEST</b>\n━━━━━━━━━━━━━━━━━━━━\n🆔 <b>Order ID:</b> <code>{order.order_id}</code>\n💵 <b>Amount:</b> ₹{float(order.payable_amount):.2f}\n━━━━━━━━━━━━━━━━━━━━\n\n📲 <i>Scan the QR above to pay.</i>\n✅ <b>Auto-verify ON</b>"
+    caption = f"💳 <b>ADD BALANCE</b>\n━━━━━━━━━━━━━━━━━━━━\n🆔 <b>Order ID:</b> <code>{order.order_id}</code>\n💵 <b>Amount:</b> ₹{float(order.payable_amount):.2f}\n━━━━━━━━━━━━━━━━━━━━\n\n📲 <i>Scan the QR above to pay.</i>\n✅ <b>Auto-verify ON</b>"
     if wait_msg: bot.delete_message(wait_msg.chat.id, wait_msg.message_id)
     sent_photo = bot.send_photo(chat_id, photo=order.qr_url, caption=caption, parse_mode="HTML")
-    sent_wait = bot.send_message(chat_id, f"🔄 <b>Redirecting...</b>\n━━━━━━━━━━━━━━━━━━━━\n<i>Please wait, payment confirm ho rahi hai...</i>", parse_mode="HTML")
+    sent_wait = bot.send_message(chat_id, f"🔄 <b>Redirecting...</b>\n━━━━━━━━━━━━━━━━━━━━\n<i>Please wait...</i>", parse_mode="HTML")
     threading.Thread(target=poll_status, args=(order.order_id, uid, chat_id, sent_wait.message_id, sent_photo.message_id, amount), daemon=True).start()
 
 def poll_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id, amount):
     start_ts = time.time()
-    frames = ["🎲 <b>Connecting...</b>", "🔄 <b>Checking Bank...</b>", "⏳ <b>Verifying...</b>", "⚡ <b>Almost Done...</b>"]
-    idx = 0
     while time.time() - start_ts < 360:
         time.sleep(2)
-        try:
-            idx = (idx + 1) % len(frames)
-            bot.edit_message_text(f"{frames[idx]}\n━━━━━━━━━━━━━━━━━━━━\n<i>Please wait...</i>", chat_id=chat_id, message_id=wait_msg_id, parse_mode="HTML")
-        except: pass
         try: status = fg.get_status(order_id)
         except: continue
         if status.is_paid:
@@ -334,7 +319,7 @@ def poll_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id, amount):
             except: pass
             try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
             except: pass
-            bot.send_message(chat_id, f"✅ <b>PAYMENT SUCCESSFUL</b>\n💵 <b>Added:</b> ₹{amount:.2f}\n🏦 <b>UTR:</b> <code>{status.utr}</code>\n💼 <b>New Balance:</b> ₹{new_bal:.2f}", parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
+            bot.send_message(chat_id, f"✅ <b>PAYMENT SUCCESSFUL</b>\n💵 <b>Added:</b> ₹{amount:.2f}\n💼 <b>New Balance:</b> ₹{new_bal:.2f}", parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
             return
         if status.is_expired:
             try: bot.delete_message(chat_id=chat_id, message_id=wait_msg_id)
@@ -344,6 +329,60 @@ def poll_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id, amount):
             bot.send_message(chat_id, f"⌛ <b>Order Expired.</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
             return
 
+# ================== RESELLER QR & POLL ==================
+def generate_reseller_qr(chat_id, uid, amount, name, wait_msg=None):
+    try: order = fg.create_order(amount=amount, customer_name=f"Reseller_{name}")
+    except Exception as e:
+        if wait_msg: bot.delete_message(wait_msg.chat.id, wait_msg.message_id)
+        bot.send_message(chat_id, f"❌ <b>API Error:</b> <code>{str(e)}</code>", parse_mode="HTML")
+        return
+    uid = str(uid)
+    caption = f"👑 <b>RESELLER PURCHASE</b>\n━━━━━━━━━━━━━━━━━━━━\n🆔 <b>Order ID:</b> <code>{order.order_id}</code>\n💵 <b>Amount:</b> ₹{float(order.payable_amount):.2f}\n━━━━━━━━━━━━━━━━━━━━\n\n📲 <i>Scan the QR above to pay.</i>\n✅ <b>Auto-verify ON</b>"
+    if wait_msg: bot.delete_message(wait_msg.chat.id, wait_msg.message_id)
+    sent_photo = bot.send_photo(chat_id, photo=order.qr_url, caption=caption, parse_mode="HTML")
+    sent_wait = bot.send_message(chat_id, f"🔄 <b>Verifying Payment...</b>\n━━━━━━━━━━━━━━━━━━━━\n<i>Please wait...</i>", parse_mode="HTML")
+    threading.Thread(target=poll_reseller_status, args=(order.order_id, uid, chat_id, sent_wait.message_id, sent_photo.message_id), daemon=True).start()
+
+def poll_reseller_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id):
+    start_ts = time.time()
+    settings = get_settings()
+    discount = settings.get("reseller_discount", 40)
+    
+    while time.time() - start_ts < 360:
+        time.sleep(2)
+        try: status = fg.get_status(order_id)
+        except: continue
+        if status.is_paid:
+            # Upgrade user to Reseller
+            with lock:
+                db = load_db()
+                if uid in db["users"]:
+                    db["users"][uid]["discount"] = discount
+                    save_db(db)
+            
+            try: bot.delete_message(chat_id=chat_id, message_id=wait_msg_id)
+            except: pass
+            try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
+            except: pass
+            
+            success_text = (
+                f"🎉 <b>CONGRATULATIONS!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"You are now an official <b>RESELLER</b>!\n"
+                f"🏷️ You will now get <b>{discount}% OFF</b> on all products.\n\n"
+                f"Go back to shop to see new prices!"
+            )
+            bot.send_message(chat_id, success_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🛒 Go to Shop", callback_data="menu_shop"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
+            return
+        if status.is_expired:
+            try: bot.delete_message(chat_id=chat_id, message_id=wait_msg_id)
+            except: pass
+            try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
+            except: pass
+            bot.send_message(chat_id, f"⌛ <b>Order Expired.</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
+            return
+
+# ================== API BUY ==================
 def process_android_id(msg, p_id, duration, price):
     android_id = msg.text.strip()
     if len(android_id) < 10: return bot.reply_to(msg, "❌ <b>Invalid Android ID!</b>", parse_mode="HTML")
@@ -594,6 +633,12 @@ HTML_TEMPLATE = """
                     <div class="form-group"><label>Support Username (No @)</label><input type="text" name="support_username" value="{{ settings.get('support_username', '') }}"></div>
                 </div>
                 <div class="form-group"><label>Update Link</label><input type="url" name="update_link" value="{{ settings.get('update_link', '') }}"></div>
+                
+                <div class="row" style="margin-top: 15px; border-top: 1px solid #334155; padding-top: 15px;">
+                    <div class="form-group"><label>Reseller Price (₹)</label><input type="number" name="reseller_price" value="{{ settings.get('reseller_price', 149) }}"></div>
+                    <div class="form-group"><label>Reseller Discount (%)</label><input type="number" name="reseller_discount" value="{{ settings.get('reseller_discount', 40) }}"></div>
+                </div>
+                
                 <div class="form-group">
                     <label>Maintenance Mode</label>
                     <select name="maintenance">
@@ -690,8 +735,16 @@ def send_broadcast():
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
     if request.method == 'POST':
+        # Save all settings including reseller details
         with open(SETTINGS_FILE, "w") as f:
-            json.dump({"store_name": request.form['store_name'], "support_username": request.form['support_username'], "update_link": request.form['update_link'], "maintenance": request.form['maintenance']}, f)
+            json.dump({
+                "store_name": request.form['store_name'], 
+                "support_username": request.form['support_username'], 
+                "update_link": request.form['update_link'], 
+                "maintenance": request.form['maintenance'],
+                "reseller_price": int(request.form.get('reseller_price', 149)),
+                "reseller_discount": int(request.form.get('reseller_discount', 40))
+            }, f)
         return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings(), msg_success="✅ Settings Saved!")
     return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings())
 

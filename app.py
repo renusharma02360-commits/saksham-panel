@@ -256,7 +256,7 @@ def handle_callbacks(call):
                 bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
                 return
             
-            # ⚡ NEW: WhatsApp Manual Delivery Logic
+            # WhatsApp Manual Delivery Logic
             if product.get("redirect_to_wp"):
                 if deduct_balance(uid, final_price):
                     log_order(uid, product['name'], "WhatsApp Manual", final_price)
@@ -278,7 +278,6 @@ def handle_callbacks(call):
                 else:
                     bot.send_message(chat_id, "❌ <b>Balance deduct error.</b>", parse_mode="HTML")
                 return
-            # ⚡ END
 
             # Normal Auto-Delivery (Banti API)
             if product.get("is_v1"):
@@ -498,9 +497,28 @@ HTML_TEMPLATE = """
                         <select name="is_maintenance"><option value="false">🟢 Active (ON)</option><option value="true">🔴 Disable (OFF)</option></select>
                     </div>
                 </div>
+                
                 <label style="margin-top: 10px; display:block;">Durations & Prices</label>
                 <div id="price-container">
-                    <div class="row"><div class="form-group"><input type="text" name="duration[]" placeholder="e.g. 1 DaYs" required></div><div class="form-group"><input type="number" name="price[]" required></div></div>
+                    <div class="row">
+                        <div class="form-group">
+                            <select name="duration[]" required style="margin-bottom: 5px;">
+                                <option value="">-- Select Duration --</option>
+                                <option value="1 Hours">1 Hours</option>
+                                <option value="3 Hours">3 Hours</option>
+                                <option value="6 Hours">6 Hours</option>
+                                <option value="12 Hours">12 Hours</option>
+                                <option value="1 DaYs">1 DaYs</option>
+                                <option value="3 DaYs">3 DaYs</option>
+                                <option value="7 DaYs">7 DaYs</option>
+                                <option value="15 DaYs">15 DaYs</option>
+                                <option value="30 DaYs">30 DaYs</option>
+                                <option value="CUSTOM">✍️ Custom (Type below)</option>
+                            </select>
+                            <input type="text" name="duration[]" placeholder="Or type custom duration (e.g. 1 DaYs)" style="font-size: 12px;" required>
+                        </div>
+                        <div class="form-group"><input type="number" name="price[]" required placeholder="Price"></div>
+                    </div>
                 </div>
                 <button type="button" class="btn-success" onclick="addPriceRow()" style="margin-bottom:10px; width:auto;">➕ More</button>
                 <button type="submit">💾 Save Product</button>
@@ -560,7 +578,25 @@ HTML_TEMPLATE = """
                 <label>Durations & Prices</label>
                 <div id="price-container">
                     {% for dur, pr in product.prices.items() %}
-                    <div class="row"><div class="form-group"><input type="text" name="duration[]" value="{{ dur }}" required></div><div class="form-group"><input type="number" name="price[]" value="{{ pr }}" required></div></div>
+                    <div class="row">
+                        <div class="form-group">
+                            <select name="duration_select[]" style="margin-bottom: 5px;">
+                                <option value="">-- Select --</option>
+                                <option value="1 Hours" {% if dur=='1 Hours' %}selected{% endif %}>1 Hours</option>
+                                <option value="3 Hours" {% if dur=='3 Hours' %}selected{% endif %}>3 Hours</option>
+                                <option value="6 Hours" {% if dur=='6 Hours' %}selected{% endif %}>6 Hours</option>
+                                <option value="12 Hours" {% if dur=='12 Hours' %}selected{% endif %}>12 Hours</option>
+                                <option value="1 DaYs" {% if dur=='1 DaYs' %}selected{% endif %}>1 DaYs</option>
+                                <option value="3 DaYs" {% if dur=='3 DaYs' %}selected{% endif %}>3 DaYs</option>
+                                <option value="7 DaYs" {% if dur=='7 DaYs' %}selected{% endif %}>7 DaYs</option>
+                                <option value="15 DaYs" {% if dur=='15 DaYs' %}selected{% endif %}>15 DaYs</option>
+                                <option value="30 DaYs" {% if dur=='30 DaYs' %}selected{% endif %}>30 DaYs</option>
+                                <option value="CUSTOM" {% if dur not in ['1 Hours','3 Hours','6 Hours','12 Hours','1 DaYs','3 DaYs','7 DaYs','15 DaYs','30 DaYs'] %}selected{% endif %}>✍️ Custom</option>
+                            </select>
+                            <input type="text" name="duration[]" value="{{ dur }}" placeholder="Custom Duration" style="font-size: 12px;">
+                        </div>
+                        <div class="form-group"><input type="number" name="price[]" value="{{ pr }}" required></div>
+                    </div>
                     {% endfor %}
                 </div>
                 <button type="button" class="btn-success" onclick="addPriceRow()" style="margin-bottom:10px; width:auto;">➕ More</button>
@@ -631,7 +667,31 @@ HTML_TEMPLATE = """
         </div>
         {% endif %}
     </div>
-    <script>function addPriceRow() { const c = document.getElementById('price-container'); const d = document.createElement('div'); d.className='row'; d.innerHTML=`<div class="form-group"><input type="text" name="duration[]" placeholder="Duration" required></div><div class="form-group"><input type="number" name="price[]" placeholder="Price" required></div>`; c.appendChild(d); }</script>
+    <script>
+        function addPriceRow() { 
+            const c = document.getElementById('price-container'); 
+            const d = document.createElement('div'); 
+            d.className='row'; 
+            d.innerHTML=`<div class="form-group">
+                            <select name="duration_select[]" style="margin-bottom: 5px;">
+                                <option value="">-- Select --</option>
+                                <option value="1 Hours">1 Hours</option>
+                                <option value="3 Hours">3 Hours</option>
+                                <option value="6 Hours">6 Hours</option>
+                                <option value="12 Hours">12 Hours</option>
+                                <option value="1 DaYs">1 DaYs</option>
+                                <option value="3 DaYs">3 DaYs</option>
+                                <option value="7 DaYs">7 DaYs</option>
+                                <option value="15 DaYs">15 DaYs</option>
+                                <option value="30 DaYs">30 DaYs</option>
+                                <option value="CUSTOM">✍️ Custom</option>
+                            </select>
+                            <input type="text" name="duration[]" placeholder="Custom Duration" style="font-size: 12px;">
+                        </div>
+                        <div class="form-group"><input type="number" name="price[]" placeholder="Price" required></div>`; 
+            c.appendChild(d); 
+        }
+    </script>
 </body>
 </html>
 """
@@ -642,8 +702,11 @@ def index(): return render_template_string(HTML_TEMPLATE, tab='products', produc
 def add_product():
     try:
         prices = {}
-        for d, p in zip(request.form.getlist('duration[]'), request.form.getlist('price[]')):
+        # Use duration_select if available, else duration
+        dur_list = request.form.getlist('duration[]')
+        for d, p in zip(dur_list, request.form.getlist('price[]')):
             if d.strip() and p.strip(): prices[d.strip()] = float(p.strip())
+        
         img = None
         if 'image_file' in request.files:
             f = request.files['image_file']
@@ -666,7 +729,8 @@ def edit_product(p_id): return render_template_string(HTML_TEMPLATE, tab='edit_p
 def update_product(p_id):
     try:
         prices = {}
-        for d, p in zip(request.form.getlist('duration[]'), request.form.getlist('price[]')):
+        dur_list = request.form.getlist('duration[]')
+        for d, p in zip(dur_list, request.form.getlist('price[]')):
             if d.strip() and p.strip(): prices[d.strip()] = float(p.strip())
         
         current_prod = products_col.find_one({"_id": ObjectId(p_id)})

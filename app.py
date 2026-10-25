@@ -6,7 +6,7 @@ import urllib.parse
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from famgateway import FamGateway
-from flask import Flask, request, render_template_string, redirect, url_for
+from flask import Flask, request, render_template_string, redirect, url_for, flash
 from werkzeug.utils import secure_filename
 from pymongo import MongoClient
 from bson.objectid import ObjectId
@@ -39,6 +39,8 @@ bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
 calc_data = {}
 user_msg_history = {} 
+user_states = {} # For custom amount input
+active_payments = {} # Track QR cancellations
 
 # ---------------- DB HELPERS ----------------
 def get_settings():
@@ -126,12 +128,12 @@ def get_main_menu(uid, name):
     text = f"{header}\n\n🛒 <b>Buy Now:</b> Premium Keys\n💰 <b>Add Balance:</b> UPI Auto-Verify\n⚙️ <b>My Profile:</b> History & Keys\n🛟 <b>Support:</b> 24/7 Help\n━━━━━━━━━━━━━━━━━━━━\n👇 <i>Choose an option below:</i>"
     
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("🛒 Shop", callback_data="menu_shop"), InlineKeyboardButton("📢 Updates", url=settings.get('update_link', 'https://t.me/')))
-    kb.add(InlineKeyboardButton("💰 Wallet", callback_data="menu_addfund"), InlineKeyboardButton("👤 Profile", callback_data="menu_balance"))
+    kb.add(InlineKeyboardButton("🛍️ Shop", callback_data="menu_shop"), InlineKeyboardButton("📢 Updates", url=settings.get('update_link', 'https://t.me/')))
+    kb.add(InlineKeyboardButton("💳 Wallet", callback_data="menu_addfund"), InlineKeyboardButton("👤 Profile", callback_data="menu_balance"))
     
     if discount == 0:
         reseller_price = settings.get("reseller_price", 149)
-        kb.add(InlineKeyboardButton(f"👑 Buy Reseller (₹{reseller_price})", callback_data="buy_reseller"))
+        kb.add(InlineKeyboardButton(f"👑 Reseller (₹{reseller_price})", callback_data="buy_reseller"))
         
     kb.add(InlineKeyboardButton("🛟 Support", url=f"https://t.me/{support_user}"))
     return text, kb
@@ -247,12 +249,13 @@ def handle_callbacks(call):
             product = products_col.find_one({"_id": ObjectId(p_id)})
             
             if product.get("is_maintenance"):
-                bot.answer_callback_query(call.id, "🚧 This product is currently under maintenance. Please try later.", show_alert=True)
+                bot.answer_callback_query(call.id, "🚧 This product is currently under maintenance.", show_alert=True)
                 return
 
             discount = get_discount(uid)
             text = f"📦 <b>{product['name']}</b>\n"
             if product.get("description"): text += f"📝 <i>{product['description']}</i>\n"
+            if product.get("hack_features"): text += f"✨ <b>Features:</b>\n<code>{product['hack_features']}</code>\n"
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             if discount > 0: text += f"👑 <b>RESELLER PRICES ({discount}% OFF)</b>\n"
             text += "👇 <i>Select Duration:</i>\n"
@@ -286,7 +289,7 @@ def handle_callbacks(call):
             product = products_col.find_one({"_id": ObjectId(p_id)})
             
             if product.get("is_maintenance"):
-                bot.answer_callback_query(call.id, "🚧 This product is currently under maintenance.", show_alert=True)
+                bot.answer_callback_query(call.id, "🚧 Product under maintenance.", show_alert=True)
                 return
 
             original_price = float(product["prices"].get(duration, 0))
@@ -296,41 +299,30 @@ def handle_callbacks(call):
             try: bot.delete_message(chat_id, msg_id)
             except: pass
 
-            # AAPKA CUSTOM WHATSAPP FLOW
             if product.get("redirect_to_wp"):
                 if deduct_balance(uid, final_price):
                     log_order(uid, product['name'], "WhatsApp Manual", final_price)
                     wa_text = f"Hello Admin, I want to purchase {duration} {product['name']}. Please provide the key."
                     wa_link = f"https://wa.me/{ADMIN_WP}?text={urllib.parse.quote(wa_text)}"
                     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💬 Contact Admin on WhatsApp", url=wa_link)).add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back"))
-                    
-                    success_text = (
-                        f"✅ <b>PAYMENT SUCCESSFUL</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"📦 <b>Product:</b> {product['name']}\n"
-                        f"⏱ <b>Duration:</b> {duration}\n"
-                        f"💵 <b>Price:</b> ₹{final_price:.2f}\n"
-                        f"💼 <b>New Balance:</b> ₹{get_balance(uid):.2f}\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"👇 <i>Click the button below to get your key.</i>"
-                    )
-                    send_menu(chat_id, success_text, kb)
+                    send_menu(chat_id, f"✅ <b>PAYMENT SUCCESSFUL</b>\n📦 <b>Product:</b> {product['name']}\n💵 <b>Price:</b> ₹{final_price:.2f}\n\n👇 <i>Click below to get your key.</i>", kb)
                 else:
-                    bot.send_message(chat_id, "❌ <b>Low Balance! Please add funds first.</b>", parse_mode="HTML")
+                    bot.send_message(chat_id, "❌ <b>Low Balance! Please add funds.</b>", parse_mode="HTML")
                 return
             else:
-                # AAPKA CUSTOM API FLOW
                 if product.get("is_v1"):
                     msg = bot.send_message(chat_id, "📱 <b>Enter your Android ID:</b>", parse_mode="HTML")
                     bot.register_next_step_handler(msg, process_android_id, p_id, duration, final_price)
                 else:
-                    wait = bot.send_message(chat_id, "⚡ <i>Generating Key... (Please wait)</i>", parse_mode="HTML")
+                    wait = bot.send_message(chat_id, "⚡ <i>Processing... Checking Stock</i>", parse_mode="HTML")
                     threading.Thread(target=execute_api_buy, args=(chat_id, wait.message_id, uid, p_id, duration, final_price, None), daemon=True).start()
 
         elif data.startswith("copykey_"):
             bot.answer_callback_query(call.id, f"✅ Key: {data.split('_', 1)[1]}\n\n(Tap to copy)", show_alert=True)
             
         elif data.startswith("cancel_qr_"):
+            order_id = data.split("_")[2]
+            active_payments[order_id] = "cancelled"
             try: bot.delete_message(chat_id, msg_id)
             except: pass
             text, kb = get_main_menu(uid, name)
@@ -352,9 +344,10 @@ def generate_wallet_qr(chat_id, uid, amount, name):
         bot.send_message(chat_id, f"❌ <b>API Error:</b> <code>{str(e)}</code>", parse_mode="HTML")
         return
     uid = str(uid)
+    active_payments[order.order_id] = "pending"
     caption = f"💳 <b>ADD BALANCE</b>\n━━━━━━━━━━━━━━━━━━━━\n🆔 <b>Order ID:</b> <code>{order.order_id}</code>\n💵 <b>Amount:</b> ₹{float(order.payable_amount):.2f}\n━━━━━━━━━━━━━━━━━━━━\n\n📲 <i>Scan the QR above to pay.</i>\n✅ <b>Auto-verify ON</b>"
     
-    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("❌ Cancel / Back", callback_data="cancel_qr_back"))
+    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("❌ Cancel Payment", callback_data=f"cancel_qr_{order.order_id}"))
     
     sent_photo = bot.send_photo(chat_id, photo=order.qr_url, caption=caption, parse_mode="HTML", reply_markup=kb)
     sent_wait = bot.send_message(chat_id, f"🔄 <b>Waiting for Payment...</b>", parse_mode="HTML")
@@ -365,6 +358,13 @@ def poll_wallet_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id, amount
     start_ts = time.time()
     while time.time() - start_ts < 360:
         time.sleep(2)
+        if active_payments.get(order_id) == "cancelled":
+            try: bot.delete_message(chat_id=chat_id, message_id=wait_msg_id)
+            except: pass
+            try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
+            except: pass
+            return
+            
         try: status = fg.get_status(order_id)
         except: continue
         if status.is_paid:
@@ -385,18 +385,21 @@ def poll_wallet_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id, amount
             send_menu(chat_id, f"⌛ <b>Order Expired.</b>", kb)
             return
 
-# ================== RESELLER QR (AAPKA CUSTOM CODE) ==================
-def generate_reseller_qr(chat_id, uid, amount, name, wait_msg=None):
+# ================== RESELLER QR ==================
+def generate_reseller_qr(chat_id, uid, amount, name):
     try: order = fg.create_order(amount=amount, customer_name=f"Reseller_{name}")
     except Exception as e:
-        if wait_msg: bot.delete_message(wait_msg.chat.id, wait_msg.message_id)
         bot.send_message(chat_id, f"❌ <b>API Error:</b> <code>{str(e)}</code>", parse_mode="HTML")
         return
     uid = str(uid)
+    active_payments[order.order_id] = "pending"
     caption = f"👑 <b>RESELLER PURCHASE</b>\n━━━━━━━━━━━━━━━━━━━━\n🆔 <b>Order ID:</b> <code>{order.order_id}</code>\n💵 <b>Amount:</b> ₹{float(order.payable_amount):.2f}\n━━━━━━━━━━━━━━━━━━━━\n\n📲 <i>Scan the QR above to pay.</i>\n✅ <b>Auto-verify ON</b>"
-    if wait_msg: bot.delete_message(wait_msg.chat.id, wait_msg.message_id)
-    sent_photo = bot.send_photo(chat_id, photo=order.qr_url, caption=caption, parse_mode="HTML")
-    sent_wait = bot.send_message(chat_id, f"🔄 <b>Verifying Payment...</b>\n━━━━━━━━━━━━━━━━━━━━\n<i>Please wait...</i>", parse_mode="HTML")
+    
+    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("❌ Cancel Payment", callback_data=f"cancel_qr_{order.order_id}"))
+    
+    sent_photo = bot.send_photo(chat_id, photo=order.qr_url, caption=caption, parse_mode="HTML", reply_markup=kb)
+    sent_wait = bot.send_message(chat_id, f"🔄 <b>Waiting for Payment...</b>", parse_mode="HTML")
+    
     threading.Thread(target=poll_reseller_status, args=(order.order_id, uid, chat_id, sent_wait.message_id, sent_photo.message_id), daemon=True).start()
 
 def poll_reseller_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id):
@@ -405,6 +408,13 @@ def poll_reseller_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id):
     discount = settings.get("reseller_discount", 40)
     while time.time() - start_ts < 360:
         time.sleep(2)
+        if active_payments.get(order_id) == "cancelled":
+            try: bot.delete_message(chat_id=chat_id, message_id=wait_msg_id)
+            except: pass
+            try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
+            except: pass
+            return
+            
         try: status = fg.get_status(order_id)
         except: continue
         if status.is_paid:
@@ -424,7 +434,7 @@ def poll_reseller_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id):
             bot.send_message(chat_id, f"⌛ <b>Order Expired.</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
             return
 
-# ================== DIRECT API BUY (AAPKA CUSTOM CODE) ==================
+# ================== API BUY WITH AUTO-REFUND ==================
 def process_android_id(msg, p_id, duration, price):
     android_id = msg.text.strip()
     if len(android_id) < 10: return bot.reply_to(msg, "❌ <b>Invalid Android ID!</b>", parse_mode="HTML")
@@ -432,13 +442,14 @@ def process_android_id(msg, p_id, duration, price):
     threading.Thread(target=execute_api_buy, args=(msg.chat.id, wait.message_id, msg.from_user.id, p_id, duration, price, android_id), daemon=True).start()
 
 def execute_api_buy(chat_id, msg_id, uid, p_id, duration, price, android_id=None):
-    try:
-        product = products_col.find_one({"_id": ObjectId(p_id)})
-        if not product: return safe_edit(chat_id, msg_id, "❌ <b>Product not found in database.</b>")
-        
-        if product.get("is_maintenance"):
-            return safe_edit(chat_id, msg_id, "🚧 <b>This product is currently under maintenance.</b>")
+    product = products_col.find_one({"_id": ObjectId(p_id)})
+    if not product: return safe_edit(chat_id, msg_id, "❌ <b>Product not found in database.</b>")
+    
+    # 1. Deduct Balance First
+    if not deduct_balance(uid, price):
+        return safe_edit(chat_id, msg_id, "❌ <b>Low Balance! Please add funds.</b>")
 
+    try:
         clean_pid = str(product["pid"]).strip()
         clean_dur = str(duration).strip()
         data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': clean_pid, 'duration': clean_dur, 'quantity': 1}
@@ -449,17 +460,19 @@ def execute_api_buy(chat_id, msg_id, uid, p_id, duration, price, android_id=None
         except: result = {"status": "error", "message": f"Invalid Response: {res.text[:100]}"}
     except Exception as e: result = {"status": "error", "message": f"System Error: {str(e)}"}
     
+    # 2. Check Result
     if result.get("status") == "success" or "keys" in result:
-        if deduct_balance(uid, price):
-            keys = result.get("keys", ["Key not found"])
-            new_bal = get_balance(uid)
-            log_order(uid, product['name'], keys[0], price)
-            kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("📋 Copy Key", callback_data=f"copykey_{keys[0]}"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back"))
-            safe_edit(chat_id, msg_id, f"✅ <b>PURCHASE SUCCESSFUL</b>\n📦 <b>Product:</b> {product['name']}\n⏱ <b>Duration:</b> {duration}\n💵 <b>Price:</b> ₹{price:.2f}\n🔑 <b>Key:</b>\n<code>{keys[0]}</code>\n💼 <b>New Balance:</b> ₹{new_bal:.2f}", kb)
-        else: safe_edit(chat_id, msg_id, "❌ <b>Balance deduct error.</b>")
+        keys = result.get("keys", ["Key not found"])
+        new_bal = get_balance(uid)
+        log_order(uid, product['name'], keys[0], price)
+        kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("📋 Copy Key", callback_data=f"copykey_{keys[0]}"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back"))
+        safe_edit(chat_id, msg_id, f"✅ <b>PURCHASE SUCCESSFUL</b>\n📦 <b>Product:</b> {product['name']}\n⏱ <b>Duration:</b> {duration}\n💵 <b>Price:</b> ₹{price:.2f}\n🔑 <b>Key:</b>\n<code>{keys[0]}</code>\n💼 <b>New Balance:</b> ₹{new_bal:.2f}", kb)
     else: 
+        # 3. AUTO-REFUND ON FAILURE
+        credit_balance(uid, price)
         err_msg = result.get("message", str(result))
-        safe_edit(chat_id, msg_id, f"❌ <b>PURCHASE FAILED</b>\n\n<b>API Error:</b>\n<code>{err_msg}</code>")
+        safe_edit(chat_id, msg_id, f"❌ <b>PURCHASE FAILED (Out of Stock/API Error)</b>\n\n<b>Reason:</b>\n<code>{err_msg}</code>\n\n💰 <b>Amount ₹{price:.2f} has been refunded to your wallet.</b>", InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
+
 
 # ================== FLASK SETUP (WEB PANEL) ==================
 app = Flask(__name__)
@@ -476,53 +489,54 @@ HTML_TEMPLATE = """
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap');
         * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; }
         body { background: #0b0f19; color: #e2e8f0; min-height: 100vh; background-image: radial-gradient(circle at 50% -20%, #1e1b4b, #0b0f19 50%); padding-bottom: 50px; }
-        .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .header h1 { font-size: 28px; font-weight: 800; background: linear-gradient(90deg, #38bdf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .tabs { display: flex; gap: 10px; margin-bottom: 30px; flex-wrap: wrap; }
-        .tab-btn { background: rgba(30, 41, 59, 0.8); color: #94a3b8; padding: 12px 20px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 14px; transition: 0.3s; border: 1px solid transparent; }
-        .tab-btn:hover { background: rgba(56, 189, 248, 0.1); color: #38bdf8; }
-        .tab-btn.active { background: #0ea5e9; color: white; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); }
-        .card { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(10px); padding: 30px; border-radius: 16px; margin-bottom: 25px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
-        .card h3 { color: #38bdf8; margin-bottom: 20px; font-weight: 600; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 8px; font-size: 14px; color: #94a3b8; }
-        input, select, textarea { width: 100%; padding: 12px 15px; border-radius: 8px; border: 1px solid #334155; background: rgba(15, 23, 42, 0.8); color: white; outline: none; transition: 0.3s; }
-        input:focus, select:focus, textarea:focus { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2); }
-        button { padding: 14px 20px; background: linear-gradient(90deg, #0ea5e9, #3b82f6); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%; transition: 0.3s; font-size: 15px; }
-        button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(14, 165, 233, 0.3); }
-        .btn-danger { background: linear-gradient(90deg, #ef4444, #dc2626); padding: 8px 15px; width: auto; margin: 0; font-size: 12px; }
-        .btn-warning { background: linear-gradient(90deg, #f59e0b, #d97706); padding: 8px 15px; width: auto; margin: 0; font-size: 12px; color: #000; }
-        .btn-success { background: linear-gradient(90deg, #10b981, #059669); padding: 8px 15px; width: auto; margin: 0; font-size: 12px; }
-        .row { display: flex; gap: 15px; flex-wrap: wrap; }
-        .row .form-group { flex: 1; min-width: 200px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th, td { padding: 15px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        th { color: #38bdf8; font-weight: 600; font-size: 14px; }
+        .header h1 { font-size: 32px; font-weight: 800; background: linear-gradient(90deg, #38bdf8, #a78bfa, #f472b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .tabs { display: flex; gap: 15px; margin-bottom: 30px; flex-wrap: wrap; }
+        .tab-btn { background: rgba(30, 41, 59, 0.8); color: #94a3b8; padding: 14px 25px; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 15px; transition: 0.3s; border: 1px solid transparent; display: flex; align-items: center; gap: 8px; }
+        .tab-btn:hover { background: rgba(56, 189, 248, 0.1); color: #38bdf8; transform: translateY(-2px); }
+        .tab-btn.active { background: linear-gradient(90deg, #0ea5e9, #3b82f6); color: white; box-shadow: 0 8px 20px rgba(14, 165, 233, 0.4); border: none; }
+        .card { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(12px); padding: 35px; border-radius: 20px; margin-bottom: 30px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
+        .card h3 { color: #38bdf8; margin-bottom: 25px; font-weight: 700; font-size: 22px; display: flex; align-items: center; gap: 10px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-size: 14px; color: #cbd5e1; font-weight: 500; }
+        input, select, textarea { width: 100%; padding: 14px 18px; border-radius: 10px; border: 1px solid #334155; background: rgba(15, 23, 42, 0.8); color: white; outline: none; transition: 0.3s; font-size: 14px; }
+        input:focus, select:focus, textarea:focus { border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2); }
+        button { padding: 16px 25px; background: linear-gradient(90deg, #0ea5e9, #3b82f6); color: white; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; width: 100%; transition: 0.3s; font-size: 16px; letter-spacing: 0.5px; }
+        button:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(14, 165, 233, 0.4); }
+        .btn-danger { background: linear-gradient(90deg, #ef4444, #dc2626); padding: 8px 15px; width: auto; font-size: 13px; border-radius: 8px; }
+        .btn-warning { background: linear-gradient(90deg, #f59e0b, #d97706); padding: 8px 15px; width: auto; font-size: 13px; color: #000; border-radius: 8px; }
+        .btn-success { background: linear-gradient(90deg, #10b981, #059669); padding: 8px 15px; width: auto; font-size: 13px; border-radius: 8px; }
+        .row { display: flex; gap: 20px; flex-wrap: wrap; }
+        .row .form-group { flex: 1; min-width: 250px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 18px 15px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        th { color: #38bdf8; font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
         td { font-size: 14px; color: #cbd5e1; }
-        .badge { background: #f59e0b; color: #000; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; display: inline-block; margin-top: 5px; }
+        .badge { background: #f59e0b; color: #000; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; display: inline-block; margin-top: 5px; }
         .badge-red { background: #ef4444; color: white; }
         .badge-green { background: #10b981; color: white; }
-        .alert-success { background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #10b981; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; }
-        .alert-danger { background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #ef4444; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; }
-        .product-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: rgba(15, 23, 42, 0.5); border-radius: 10px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05); }
+        .alert-success { background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #10b981; padding: 18px; border-radius: 10px; margin-bottom: 25px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+        .alert-danger { background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #ef4444; padding: 18px; border-radius: 10px; margin-bottom: 25px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+        .product-item { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: rgba(15, 23, 42, 0.6); border-radius: 12px; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.05); transition: 0.3s; }
+        .product-item:hover { border-color: rgba(56, 189, 248, 0.3); transform: translateX(5px); }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>👑 Saksham Panel Admin</h1>
-            <a href="/" style="color:#94a3b8; text-decoration:none; font-size:14px;">Refresh</a>
+            <a href="/" style="color:#94a3b8; text-decoration:none; font-size:15px; background:rgba(255,255,255,0.05); padding:10px 20px; border-radius:8px;">🔄 Refresh</a>
         </div>
         <div class="tabs">
             <a href="/" class="tab-btn {% if tab == 'products' %}active{% endif %}">📦 Products</a>
-            <a href="/users" class="tab-btn {% if tab == 'users' %}active{% endif %}">👥 Users & Resellers</a>
-            <a href="/orders" class="tab-btn {% if tab == 'orders' %}active{% endif %}">📜 All History</a>
+            <a href="/users" class="tab-btn {% if tab == 'users' %}active{% endif %}">👥 Users</a>
+            <a href="/orders" class="tab-btn {% if tab == 'orders' %}active{% endif %}">📜 History</a>
             <a href="/broadcast" class="tab-btn {% if tab == 'broadcast' %}active{% endif %}">📢 Broadcast</a>
             <a href="/settings" class="tab-btn {% if tab == 'settings' %}active{% endif %}">⚙️ Settings</a>
         </div>
-        {% if msg_success %}<div class="alert-success">{{ msg_success }}</div>{% endif %}
-        {% if msg_error %}<div class="alert-danger">{{ msg_error }}</div>{% endif %}
+        {% if msg_success %}<div class="alert-success">✅ {{ msg_success }}</div>{% endif %}
+        {% if msg_error %}<div class="alert-danger">❌ {{ msg_error }}</div>{% endif %}
 
         {% if tab == 'products' %}
         <div class="card">
@@ -532,6 +546,8 @@ HTML_TEMPLATE = """
                     <div class="form-group"><label>Product Name</label><input type="text" name="name" required></div>
                     <div class="form-group"><label>PID</label><input type="text" name="pid" required></div>
                 </div>
+                <div class="form-group"><label>Description (Optional)</label><input type="text" name="description"></div>
+                <div class="form-group"><label>Hack Features (Separate by commas)</label><textarea name="hack_features" rows="2"></textarea></div>
                 <div class="form-group"><label>Product Image</label><input type="file" name="image_file" accept="image/*"></div>
                 <div class="row">
                     <div class="form-group"><label>Setup Video Link</label><input type="url" name="video"></div>
@@ -543,15 +559,15 @@ HTML_TEMPLATE = """
                         <select name="is_v1"><option value="false">V2 (Direct Key)</option><option value="true">V1 (Requires Android ID)</option></select>
                     </div>
                     <div class="form-group">
-                        <label>Maintenance Mode</label>
+                        <label>Status</label>
                         <select name="is_maintenance"><option value="false">🟢 Active (ON)</option><option value="true">🔴 Disable (OFF)</option></select>
                     </div>
                 </div>
-                <label style="margin-top: 10px; display:block;">Durations & Prices</label>
+                <label style="margin-top: 15px; display:block; color:#38bdf8; font-weight:700;">Durations & Prices</label>
                 <div id="price-container">
-                    <div class="row"><div class="form-group"><input type="text" name="duration[]" placeholder="e.g. 1 DaYs" required></div><div class="form-group"><input type="number" name="price[]" required></div></div>
+                    <div class="row"><div class="form-group"><input type="text" name="duration[]" placeholder="e.g. 1 Day" required></div><div class="form-group"><input type="number" name="price[]" placeholder="₹ Price" required></div></div>
                 </div>
-                <button type="button" class="btn-success" onclick="addPriceRow()" style="margin-bottom:10px; width:auto;">➕ More</button>
+                <button type="button" class="btn-success" onclick="addPriceRow()" style="margin-bottom:20px; width:auto;">➕ Add More</button>
                 <button type="submit">💾 Save Product</button>
             </form>
         </div>
@@ -560,16 +576,16 @@ HTML_TEMPLATE = """
             {% for p in products %}
             <div class="product-item">
                 <div>
-                    <strong style="color:#fff; font-size:16px;">{{ p.name }}</strong> 
-                    <span style="color:#64748b; font-size:12px;">(PID: {{ p.pid }})</span>
+                    <strong style="color:#fff; font-size:18px;">{{ p.name }}</strong> 
+                    <span style="color:#64748b; font-size:13px;">(PID: {{ p.pid }})</span>
                     {% if p.get('is_maintenance') %}<span class="badge badge-red">MAINTENANCE</span>{% else %}<span class="badge badge-green">ACTIVE</span>{% endif %}
                     <br>
-                    <small style="color:#94a3b8;">{% for d, pr in p.prices.items() %}{{d}}: ₹{{pr}} | {% endfor %}</small>
+                    <small style="color:#94a3b8; display:block; margin-top:5px;">{% for d, pr in p.prices.items() %}<span style="background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:4px; margin-right:5px;">{{d}}: ₹{{pr}}</span>{% endfor %}</small>
                 </div>
                 <div style="display:flex; gap:10px; flex-wrap: wrap;">
-                    <a href="/toggle_maintenance/{{ p._id }}"><button class="btn-warning" style="padding:8px 15px;">{% if p.get('is_maintenance') %}Enable{% else %}Disable{% endif %}</button></a>
-                    <a href="/edit_product/{{ p._id }}"><button class="btn-warning" style="padding:8px 15px;">✏️ Edit</button></a>
-                    <a href="/delete_product/{{ p._id }}"><button class="btn-danger" style="padding:8px 15px;">🗑️ Delete</button></a>
+                    <a href="/toggle_maintenance/{{ p._id }}"><button class="btn-warning">{% if p.get('is_maintenance') %}Enable{% else %}Disable{% endif %}</button></a>
+                    <a href="/edit_product/{{ p._id }}"><button class="btn-warning">✏️ Edit</button></a>
+                    <a href="/delete_product/{{ p._id }}"><button class="btn-danger">🗑️ Delete</button></a>
                 </div>
             </div>
             {% endfor %}
@@ -583,6 +599,8 @@ HTML_TEMPLATE = """
                     <div class="form-group"><label>Name</label><input type="text" name="name" value="{{ product.name }}" required></div>
                     <div class="form-group"><label>PID</label><input type="text" name="pid" value="{{ product.pid }}" required></div>
                 </div>
+                <div class="form-group"><label>Description</label><input type="text" name="description" value="{{ product.description or '' }}"></div>
+                <div class="form-group"><label>Hack Features</label><textarea name="hack_features" rows="2">{{ product.hack_features or '' }}</textarea></div>
                 <div class="form-group"><label>Image (Leave blank to keep old)</label><input type="file" name="image_file" accept="image/*"></div>
                 <div class="row">
                     <div class="form-group"><label>Setup Video</label><input type="url" name="video" value="{{ product.video or '' }}"></div>
@@ -594,19 +612,19 @@ HTML_TEMPLATE = """
                         <select name="is_v1"><option value="false" {% if not product.is_v1 %}selected{% endif %}>V2</option><option value="true" {% if product.is_v1 %}selected{% endif %}>V1</option></select>
                     </div>
                     <div class="form-group">
-                        <label>Maintenance Mode</label>
-                        <select name="is_maintenance"><option value="false" {% if not product.get('is_maintenance') %}selected{% endif %}>🟢 Active (ON)</option><option value="true" {% if product.get('is_maintenance') %}selected{% endif %}>🔴 Disable (OFF)</option></select>
+                        <label>Status</label>
+                        <select name="is_maintenance"><option value="false" {% if not product.get('is_maintenance') %}selected{% endif %}>🟢 Active</option><option value="true" {% if product.get('is_maintenance') %}selected{% endif %}>🔴 Disable</option></select>
                     </div>
                 </div>
-                <label>Durations & Prices</label>
+                <label style="color:#38bdf8; font-weight:700;">Durations & Prices</label>
                 <div id="price-container">
                     {% for dur, pr in product.prices.items() %}
                     <div class="row"><div class="form-group"><input type="text" name="duration[]" value="{{ dur }}" required></div><div class="form-group"><input type="number" name="price[]" value="{{ pr }}" required></div></div>
                     {% endfor %}
                 </div>
-                <button type="button" class="btn-success" onclick="addPriceRow()" style="margin-bottom:10px; width:auto;">➕ More</button>
-                <button type="submit" style="background:linear-gradient(90deg, #f59e0b, #d97706); color:#000;">💾 Update</button>
-                <a href="/" style="display:block; text-align:center; margin-top:15px; color:#94a3b8; text-decoration:none;">Cancel</a>
+                <button type="button" class="btn-success" onclick="addPriceRow()" style="margin-bottom:20px; width:auto;">➕ Add More</button>
+                <button type="submit" style="background:linear-gradient(90deg, #f59e0b, #d97706); color:#000;">💾 Update Product</button>
+                <a href="/" style="display:block; text-align:center; margin-top:20px; color:#94a3b8; text-decoration:none;">Cancel</a>
             </form>
         </div>
 
@@ -614,18 +632,18 @@ HTML_TEMPLATE = """
         <div class="card">
             <h3>👥 Users & Resellers</h3>
             <table>
-                <tr><th>User ID</th><th>Name</th><th>Balance</th><th>Update</th></tr>
+                <tr><th>User ID</th><th>Name</th><th>Balance</th><th>Manage</th></tr>
                 {% for u in users %}
                 <tr>
                     <td><code>{{ u._id }}</code></td>
                     <td>{{ u.name }} {% if u.get('discount',0)>0 %}<br><span class="badge">RESELLER ({{ u.get('discount') }}%)</span>{% endif %}</td>
-                    <td style="color:#10b981; font-weight:600;">₹{{ u.balance }}</td>
+                    <td style="color:#10b981; font-weight:700; font-size:16px;">₹{{ u.balance }}</td>
                     <td>
                         <form action="/update_user" method="POST" style="display:flex; gap:10px;">
                             <input type="hidden" name="uid" value="{{ u._id }}">
-                            <input type="number" name="amount" placeholder="+/- ₹" style="width:70px; padding:8px; margin:0;">
-                            <input type="number" name="discount" value="{{ u.get('discount', 0) }}" placeholder="Disc%" style="width:70px; padding:8px; margin:0;">
-                            <button type="submit" class="btn-success" style="padding:8px 15px;">Save</button>
+                            <input type="number" name="amount" placeholder="+/- ₹" style="width:80px; padding:10px; margin:0;">
+                            <input type="number" name="discount" value="{{ u.get('discount', 0) }}" placeholder="Disc%" style="width:80px; padding:10px; margin:0;">
+                            <button type="submit" class="btn-success">Save</button>
                         </form>
                     </td>
                 </tr>
@@ -639,7 +657,7 @@ HTML_TEMPLATE = """
             <table>
                 <tr><th>Date/Time</th><th>User ID</th><th>Product</th><th>Price</th><th>Key</th></tr>
                 {% for o in orders %}
-                <tr><td><small>{{ o.time }}</small></td><td><code>{{ o.uid }}</code></td><td>{{ o.product }}</td><td style="color:#10b981;">₹{{ o.price }}</td><td><code>{{ o.key }}</code></td></tr>
+                <tr><td><small style="color:#94a3b8;">{{ o.time }}</small></td><td><code>{{ o.uid }}</code></td><td style="color:#38bdf8;">{{ o.product }}</td><td style="color:#10b981; font-weight:600;">₹{{ o.price }}</td><td><code>{{ o.key }}</code></td></tr>
                 {% endfor %}
             </table>
         </div>
@@ -647,7 +665,7 @@ HTML_TEMPLATE = """
         {% elif tab == 'broadcast' %}
         <div class="card">
             <h3>📢 Send Message to All Users</h3>
-            <form action="/send_broadcast" method="POST"><textarea name="message" rows="5" required></textarea><button type="submit" style="background:linear-gradient(90deg, #10b981, #059669);">🚀 Send</button></form>
+            <form action="/send_broadcast" method="POST"><textarea name="message" rows="5" required placeholder="Type your message here..."></textarea><button type="submit" style="background:linear-gradient(90deg, #10b981, #059669); margin-top:15px;">🚀 Send Broadcast</button></form>
         </div>
 
         {% elif tab == 'settings' %}
@@ -667,7 +685,7 @@ HTML_TEMPLATE = """
                     <label>Global Bot Maintenance</label>
                     <select name="maintenance"><option value="false" {% if settings.get('maintenance')=='false' %}selected{% endif %}>🟢 ON (Working)</option><option value="true" {% if settings.get('maintenance')=='true' %}selected{% endif %}>🔴 OFF (Maintenance)</option></select>
                 </div>
-                <button type="submit">💾 Save Settings</button>
+                <button type="submit" style="margin-top:15px;">💾 Save Settings</button>
             </form>
         </div>
         {% endif %}
@@ -692,13 +710,15 @@ def add_product():
         
         products_col.insert_one({
             "name": request.form['name'], "pid": request.form['pid'], 
+            "description": request.form.get('description'),
+            "hack_features": request.form.get('hack_features'),
             "image": img, "video": request.form.get('video'), "hack": request.form.get('hack'), 
             "is_v1": request.form.get('is_v1')=='true', 
             "is_maintenance": request.form.get('is_maintenance')=='true',
             "prices": prices
         })
-        return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_success="✅ Product Added!")
-    except Exception as e: return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_error=f"❌ Error: {str(e)}")
+        return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_success="Product Added Successfully!")
+    except Exception as e: return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_error=f"Error: {str(e)}")
 
 @app.route('/edit_product/<p_id>')
 def edit_product(p_id): return render_template_string(HTML_TEMPLATE, tab='edit_product', product=products_col.find_one({"_id": ObjectId(p_id)}))
@@ -717,13 +737,15 @@ def update_product(p_id):
         
         products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {
             "name": request.form['name'], "pid": request.form['pid'], 
+            "description": request.form.get('description'),
+            "hack_features": request.form.get('hack_features'),
             "image": img, "video": request.form.get('video'), "hack": request.form.get('hack'), 
             "is_v1": request.form.get('is_v1')=='true', 
             "is_maintenance": request.form.get('is_maintenance')=='true',
             "prices": prices
         }})
-        return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_success="✅ Product Updated!")
-    except Exception as e: return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_error=f"❌ Error: {str(e)}")
+        return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_success="Product Updated Successfully!")
+    except Exception as e: return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_error=f"Error: {str(e)}")
 
 @app.route('/toggle_maintenance/<p_id>')
 def toggle_maintenance(p_id):
@@ -758,7 +780,7 @@ def send_broadcast():
         try:
             if requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": u["_id"], "text": request.form['message'], "parse_mode": "HTML"}).status_code == 200: c += 1
         except: pass
-    return render_template_string(HTML_TEMPLATE, tab='broadcast', msg_success=f"✅ Sent to {c} users!")
+    return render_template_string(HTML_TEMPLATE, tab='broadcast', msg_success=f"Message sent to {c} users!")
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
@@ -767,15 +789,16 @@ def settings():
             "store_name": request.form['store_name'], "support_username": request.form['support_username'], "update_link": request.form['update_link'],
             "maintenance": request.form['maintenance'], "reseller_price": int(request.form.get('reseller_price', 149)), "reseller_discount": int(request.form.get('reseller_discount', 40))
         })
-        return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings(), msg_success="✅ Settings Saved!")
+        return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings(), msg_success="Settings Saved Successfully!")
     return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings())
 
+# ================== RUNNING BOT & WEB ==================
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
 
 def run_bot():
-    print("Starting Telegram Bot Thread...")
+    print("Starting Telegram Bot...")
     try: bot.delete_webhook()
     except: pass
     bot.infinity_polling(timeout=30, long_polling_timeout=30)

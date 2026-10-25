@@ -19,7 +19,8 @@ ADMIN_ID  = 7778093775
 ADMIN_WP  = "919306606011" 
 MONGO_URI = os.environ.get("MONGO_URI") 
 UPLOAD_FOLDER = "static/uploads"
-WEB_URL = "https://saksham-panel-kpsl.onrender.com" # Aapka render link
+# Aapka render link (WebApp button ke liye)
+WEB_URL = "https://saksham-panel-kpsl.onrender.com" 
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
@@ -41,13 +42,25 @@ fg  = FamGateway(api_key=API_KEY)
 calc_data = {}
 user_msg_history = {} 
 active_payments = {} 
-buy_states = {} # Track product buy states
+buy_states = {} # Track product buy states (for Android ID)
 
 # ---------------- DB HELPERS ----------------
 def get_settings():
     s = settings_col.find_one({"_id": "global"})
     if not s:
-        default_s = {"_id": "global", "store_name": "BANTI BHAIYA STORE", "support_username": "YourSupport", "update_link": "https://t.me/", "maintenance": "false", "reseller_price": 149, "reseller_discount": 40, "how_to_use": "Join our update channel for tutorials.", "feedback_link": "https://t.me/", "how_to_use_video": ""}
+        # Default settings
+        default_s = {
+            "_id": "global", 
+            "store_name": "BANTI BHAIYA STORE", 
+            "support_username": "YourSupport", 
+            "update_link": "https://t.me/", 
+            "maintenance": "false", 
+            "reseller_price": 149, 
+            "reseller_discount": 40, 
+            "how_to_use": "https://t.me/", 
+            "feedback_link": "https://t.me/",
+            "referral_link": "https://t.me/"
+        }
         settings_col.insert_one(default_s)
         return default_s
     return s
@@ -143,7 +156,7 @@ def get_main_menu(uid, name):
     kb.add(InlineKeyboardButton("🛒 Shop / Store Product", callback_data="menu_shop"))
     kb.add(InlineKeyboardButton("🔄 Check Update", url=settings.get('update_link', 'https://t.me/')), InlineKeyboardButton("💸 Add Balance", callback_data="menu_addfund"))
     kb.add(InlineKeyboardButton("👤 My Profile + History", callback_data="menu_balance"))
-    kb.add(InlineKeyboardButton("🔗 Referral", callback_data="menu_referral"), InlineKeyboardButton("❓ How To Use", url=settings.get('how_to_use', 'https://t.me/')))
+    kb.add(InlineKeyboardButton("🔗 Referral", url=settings.get('referral_link', 'https://t.me/')), InlineKeyboardButton("❓ How To Use", url=settings.get('how_to_use', 'https://t.me/')))
     if discount == 0:
         reseller_price = settings.get("reseller_price", 149)
         kb.add(InlineKeyboardButton(f"👑 Upgrade To Reseller (₹{reseller_price})", callback_data="buy_reseller"))
@@ -153,7 +166,7 @@ def get_main_menu(uid, name):
     kb.add(InlineKeyboardButton("🏆 Top 5 Sellers Monthly", callback_data="top_sellers"))
     kb.add(InlineKeyboardButton("🍎 Language", callback_data="language"))
     
-    # WebApp Button for Admin Panel (If Admin)
+    # WebApp Button for Admin
     if str(uid) == str(ADMIN_ID):
         kb.add(InlineKeyboardButton("💻 Admin Panel", web_app=WebAppInfo(url=WEB_URL)))
         
@@ -284,7 +297,9 @@ def handle_callbacks(call):
             for dur, price in product["prices"].items():
                 final_price = price - (price * discount / 100) if discount > 0 else price
                 btn_text = f"⏱ {dur} - ₹{final_price:.2f}" + (" 👑" if discount > 0 else "")
-                kb.add(InlineKeyboardButton(btn_text, callback_data=f"buy_{p_id}_{dur}"))
+                # Encoding duration to handle spaces (e.g. 1_Day)
+                safe_dur = dur.replace(" ", "_") 
+                kb.add(InlineKeyboardButton(btn_text, callback_data=f"buy_{p_id}_{safe_dur}"))
             kb.add(InlineKeyboardButton("🔙 Back to Shop", callback_data="menu_shop"))
             
             try: bot.delete_message(chat_id, msg_id)
@@ -300,25 +315,35 @@ def handle_callbacks(call):
 
         # ================= BUY LOGIC =================
         elif data.startswith("buy_"):
-            # data format: buy_{p_id}_{duration} (duration can have spaces/underscores)
-            parts = data.split("_")
+            parts = data.split("_", 2)
             p_id = parts[1]
-            duration = "_".join(parts[2:]) # Re-join in case duration had underscores
+            safe_dur = parts[2]
             
             product = products_col.find_one({"_id": ObjectId(p_id)})
             if not product: return
+            
+            # Find actual duration by matching safe_dur
+            duration = None
+            original_price = 0
+            for d, pr in product["prices"].items():
+                if d.replace(" ", "_") == safe_dur:
+                    duration = d
+                    original_price = float(pr)
+                    break
+            
+            if not duration: return
+
             if product.get("is_maintenance"):
                 bot.answer_callback_query(call.id, "🚧 Product under maintenance.", show_alert=True)
                 return
 
-            original_price = float(product["prices"].get(duration, 0))
             discount = get_discount(uid)
             final_price = original_price - (original_price * discount / 100) if discount > 0 else original_price
             
             try: bot.delete_message(chat_id, msg_id)
             except: pass
 
-            # If WhatsApp Manual Product
+            # WhatsApp Manual Product
             if product.get("redirect_to_wp"):
                 if deduct_balance(uid, final_price):
                     log_order(uid, product['name'], "WhatsApp Manual", final_price)
@@ -330,14 +355,14 @@ def handle_callbacks(call):
                     bot.send_message(chat_id, "❌ <b>Low Balance! Please add funds.</b>", parse_mode="HTML")
                 return
             
-            # If V1 product, ask for Android ID first
+            # V1 product (Android ID required)
             if product.get("is_v1"):
                 buy_states[uid] = {"p_id": p_id, "duration": duration, "price": final_price}
                 msg = bot.send_message(chat_id, "📱 <b>Enter your Android ID:</b>", parse_mode="HTML")
                 bot.register_next_step_handler(msg, process_android_id_for_payment)
                 return
             
-            # Payment Options for V2 Products
+            # Payment Options (Wallet or UPI)
             text = (
                 f"📦 <b>{product['name']}</b>\n"
                 f"⏱ <b>Duration:</b> {duration}\n"
@@ -346,18 +371,22 @@ def handle_callbacks(call):
                 f"👇 <i>How would you like to pay?</i>"
             )
             kb = InlineKeyboardMarkup(row_width=1)
-            kb.add(InlineKeyboardButton(f"💳 Pay from Wallet (₹{get_balance(uid):.2f})", callback_data=f"pay_wallet_{p_id}_{duration}"))
-            kb.add(InlineKeyboardButton(f"⚡ Direct UPI Pay (₹{final_price:.2f})", callback_data=f"pay_direct_{p_id}_{duration}"))
+            safe_dur_cb = duration.replace(" ", "_")
+            kb.add(InlineKeyboardButton(f"💳 Pay from Wallet (₹{get_balance(uid):.2f})", callback_data=f"pay_wallet_{p_id}_{safe_dur_cb}"))
+            kb.add(InlineKeyboardButton(f"⚡ Direct UPI Pay (₹{final_price:.2f})", callback_data=f"pay_direct_{p_id}_{safe_dur_cb}"))
             kb.add(InlineKeyboardButton("🔙 Cancel", callback_data="menu_shop"))
             send_menu(chat_id, text, kb)
 
         elif data.startswith("pay_wallet_"):
-            parts = data.split("_")
+            parts = data.split("_", 3)
             p_id = parts[2]
-            duration = "_".join(parts[3:])
+            safe_dur = parts[3]
             
             product = products_col.find_one({"_id": ObjectId(p_id)})
-            original_price = float(product["prices"].get(duration, 0))
+            duration = next((d for d in product["prices"] if d.replace(" ", "_") == safe_dur), None)
+            if not duration: return
+            original_price = float(product["prices"][duration])
+            
             discount = get_discount(uid)
             price = original_price - (original_price * discount / 100) if discount > 0 else original_price
             
@@ -365,12 +394,15 @@ def handle_callbacks(call):
             threading.Thread(target=execute_api_buy_wallet, args=(chat_id, wait.message_id, uid, p_id, duration, price, None), daemon=True).start()
 
         elif data.startswith("pay_direct_"):
-            parts = data.split("_")
+            parts = data.split("_", 3)
             p_id = parts[2]
-            duration = "_".join(parts[3:])
+            safe_dur = parts[3]
             
             product = products_col.find_one({"_id": ObjectId(p_id)})
-            original_price = float(product["prices"].get(duration, 0))
+            duration = next((d for d in product["prices"] if d.replace(" ", "_") == safe_dur), None)
+            if not duration: return
+            original_price = float(product["prices"][duration])
+            
             discount = get_discount(uid)
             price = original_price - (original_price * discount / 100) if discount > 0 else original_price
             
@@ -388,12 +420,8 @@ def handle_callbacks(call):
             text, kb = get_main_menu(uid, name)
             send_menu(chat_id, "❌ <b>Payment Cancelled.</b>", kb)
 
-        elif data == "menu_referral":
-            bot.answer_callback_query(call.id, "🔗 Referral system coming soon!", show_alert=True)
-            
         elif data == "top_sellers":
             bot.answer_callback_query(call.id, "🏆 Top 5 Sellers Monthly (Coming Soon!)", show_alert=True)
-            
         elif data == "language":
             bot.answer_callback_query(call.id, "🍎 Language selection coming soon!", show_alert=True)
             
@@ -406,7 +434,7 @@ def show_calc(chat_id, msg_id, uid):
     kb = InlineKeyboardMarkup(row_width=3).add(InlineKeyboardButton("1", callback_data="calc_1"), InlineKeyboardButton("2", callback_data="calc_2"), InlineKeyboardButton("3", callback_data="calc_3"), InlineKeyboardButton("4", callback_data="calc_4"), InlineKeyboardButton("5", callback_data="calc_5"), InlineKeyboardButton("6", callback_data="calc_6"), InlineKeyboardButton("7", callback_data="calc_7"), InlineKeyboardButton("8", callback_data="calc_8"), InlineKeyboardButton("9", callback_data="calc_9"), InlineKeyboardButton("🧹 AC", callback_data="calc_ac"), InlineKeyboardButton("0", callback_data="calc_0"), InlineKeyboardButton("❌ X", callback_data="calc_cut")).add(InlineKeyboardButton("✅ Done / Pay", callback_data="calc_done")).add(InlineKeyboardButton("🔙 Back", callback_data="menu_addfund"))
     safe_edit(chat_id, msg_id, text, kb)
 
-# ================== WALLET ADD FUND ==================
+# ================== PAYMENT FLOWS ==================
 def generate_wallet_qr(chat_id, uid, amount, name):
     try: order = fg.create_order(amount=amount, customer_name=name or "User")
     except Exception as e:
@@ -454,7 +482,6 @@ def poll_wallet_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id, amount
             send_menu(chat_id, f"⌛ <b>Order Expired.</b>", kb)
             return
 
-# ================== DIRECT PRODUCT QR ==================
 def generate_direct_product_qr(chat_id, uid, p_id, duration, price, name):
     try: order = fg.create_order(amount=price, customer_name=f"Buy_{name}")
     except Exception as e:
@@ -503,7 +530,6 @@ def poll_direct_purchase(order_id, uid, chat_id, wait_msg_id, photo_msg_id, p_id
             send_menu(chat_id, f"⌛ <b>Order Expired.</b>", kb)
             return
 
-# ================== RESELLER QR ==================
 def generate_reseller_qr(chat_id, uid, amount, name):
     try: order = fg.create_order(amount=amount, customer_name=f"Reseller_{name}")
     except Exception as e:
@@ -572,8 +598,9 @@ def process_android_id_for_payment(msg):
         f"👇 <i>How would you like to pay?</i>"
     )
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton(f"💳 Pay from Wallet", callback_data=f"pay_wallet_{p_id}_{duration}"))
-    kb.add(InlineKeyboardButton(f"⚡ Direct UPI Pay", callback_data=f"pay_direct_{p_id}_{duration}"))
+    safe_dur_cb = duration.replace(" ", "_")
+    kb.add(InlineKeyboardButton(f"💳 Pay from Wallet", callback_data=f"pay_wallet_{p_id}_{safe_dur_cb}"))
+    kb.add(InlineKeyboardButton(f"⚡ Direct UPI Pay", callback_data=f"pay_direct_{p_id}_{safe_dur_cb}"))
     kb.add(InlineKeyboardButton("🔙 Cancel", callback_data="menu_shop"))
     
     send_menu(msg.chat.id, text, kb)
@@ -849,7 +876,7 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="row">
                     <div class="form-group"><label>Feedback Link</label><input type="url" name="feedback_link" value="{{ settings.get('feedback_link', '') }}"></div>
-                    <div class="form-group"><label>Admin WebApp URL</label><input type="url" name="webapp_url" value="{{ settings.get('webapp_url', '') }}"></div>
+                    <div class="form-group"><label>Referral Link</label><input type="url" name="referral_link" value="{{ settings.get('referral_link', '') }}"></div>
                 </div>
                 <div class="row">
                     <div class="form-group"><label>Reseller Price (₹)</label><input type="number" name="reseller_price" value="{{ settings.get('reseller_price', 149) }}"></div>
@@ -962,7 +989,7 @@ def settings():
         save_settings({
             "store_name": request.form['store_name'], "support_username": request.form['support_username'], "update_link": request.form['update_link'],
             "maintenance": request.form['maintenance'], "reseller_price": int(request.form.get('reseller_price', 149)), "reseller_discount": int(request.form.get('reseller_discount', 40)),
-            "how_to_use": request.form.get('how_to_use', ''), "feedback_link": request.form.get('feedback_link', '')
+            "how_to_use": request.form.get('how_to_use', ''), "feedback_link": request.form.get('feedback_link', ''), "referral_link": request.form.get('referral_link', '')
         })
         return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings(), msg_success="Settings Saved Successfully!")
     return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings())

@@ -4,7 +4,7 @@ import threading
 import requests
 import urllib.parse
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from famgateway import FamGateway
 from flask import Flask, request, render_template_string, redirect, url_for
 from werkzeug.utils import secure_filename
@@ -19,6 +19,7 @@ ADMIN_ID  = 7778093775
 ADMIN_WP  = "919306606011" 
 MONGO_URI = os.environ.get("MONGO_URI") 
 UPLOAD_FOLDER = "static/uploads"
+WEB_URL = "https://saksham-panel-kpsl.onrender.com" # Aapka render link
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
@@ -39,14 +40,14 @@ bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
 calc_data = {}
 user_msg_history = {} 
-active_payments = {} # Track QR cancellations
-user_states = {} # Track user inputs (like android id)
+active_payments = {} 
+buy_states = {} # Track product buy states
 
 # ---------------- DB HELPERS ----------------
 def get_settings():
     s = settings_col.find_one({"_id": "global"})
     if not s:
-        default_s = {"_id": "global", "store_name": "SAKSHAM STORE", "support_username": "YourSupport", "update_link": "https://t.me/", "maintenance": "false", "reseller_price": 149, "reseller_discount": 40}
+        default_s = {"_id": "global", "store_name": "BANTI BHAIYA STORE", "support_username": "YourSupport", "update_link": "https://t.me/", "maintenance": "false", "reseller_price": 149, "reseller_discount": 40, "how_to_use": "Join our update channel for tutorials.", "feedback_link": "https://t.me/", "how_to_use_video": ""}
         settings_col.insert_one(default_s)
         return default_s
     return s
@@ -113,42 +114,58 @@ def safe_edit(chat_id, message_id, text, reply_markup=None):
             if chat_id not in user_msg_history: user_msg_history[chat_id] = []
             user_msg_history[chat_id].append(msg.message_id)
 
-# ================== MAIN MENU ==================
+# ================== MAIN MENU (PRO UI) ==================
 def get_main_menu(uid, name):
     bal = get_balance(uid)
     discount = get_discount(uid)
     settings = get_settings()
     support_user = settings.get('support_username', 'YourSupport').replace('@', '')
     
-    if discount > 0:
-        header = f"👑 <b>WELCOME, {name}</b>\n━━━━━━━━━━━━━━━━━━━━\n⚡ <b>RESELLER ACCOUNT</b> | 🏷️ {discount}% OFF\n💳 <b>Wallet:</b> ₹{bal:.2f}\n━━━━━━━━━━━━━━━━━━━━"
-    else:
-        header = f"✨ <b>WELCOME, {name}</b>\n━━━━━━━━━━━━━━━━━━━━\n💳 <b>Wallet:</b> ₹{bal:.2f}\n━━━━━━━━━━━━━━━━━━━━"
-    
-    text = f"{header}\n\n🛒 <b>Buy Now:</b> Premium Keys\n💰 <b>Add Balance:</b> UPI Auto-Verify\n⚙️ <b>My Profile:</b> History & Keys\n🛟 <b>Support:</b> 24/7 Help\n━━━━━━━━━━━━━━━━━━━━\n👇 <i>Choose an option below:</i>"
+    text = (
+        f"😃 <b>{settings.get('store_name', 'BANTI BHAIYA STORE')}</b> 🚀\n"
+        f"➖➖➖➖➖➖➖➖➖➖➖\n"
+        f"┣ 🛒 <b>Shop / Store Product :</b> All Key Purchase\n"
+        f"┣ 🔄 <b>Check Update :</b> Check Product Updates & Links\n"
+        f"┣ 💸 <b>Add Balance :</b> Deposit Balance & Secure\n"
+        f"┣ 👤 <b>My Profile + History :</b> Check Account Info & Keys\n"
+        f"┣ 🔗 <b>Referral :</b> Share Link & Earn Bonus\n"
+        f"┣ ❓ <b>How To Use :</b> View Tutorial & Learn\n"
+        f"┣ 👑 <b>Upgrade To Reseller :</b> Get Discount Keys\n"
+        f"┣ 🛡️ <b>Support :</b> Contact Support For Help\n"
+        f"┣ 🍎 <b>Language :</b> Change Bot Language\n"
+        f"➖➖➖➖➖➖➖➖➖➖➖\n"
+        f"💰 <b>Your Balance:</b> ₹{bal:.2f} {'👑' if discount > 0 else ''}\n"
+        f"➖➖➖➖➖➖➖➖➖➖➖\n"
+        f"👇 <i>Select an option from the menu below:</i>"
+    )
     
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("🛍️ Shop", callback_data="menu_shop"), InlineKeyboardButton("📢 Updates", url=settings.get('update_link', 'https://t.me/')))
-    kb.add(InlineKeyboardButton("💳 Wallet", callback_data="menu_addfund"), InlineKeyboardButton("👤 Profile", callback_data="menu_balance"))
-    
+    kb.add(InlineKeyboardButton("🛒 Shop / Store Product", callback_data="menu_shop"))
+    kb.add(InlineKeyboardButton("🔄 Check Update", url=settings.get('update_link', 'https://t.me/')), InlineKeyboardButton("💸 Add Balance", callback_data="menu_addfund"))
+    kb.add(InlineKeyboardButton("👤 My Profile + History", callback_data="menu_balance"))
+    kb.add(InlineKeyboardButton("🔗 Referral", callback_data="menu_referral"), InlineKeyboardButton("❓ How To Use", url=settings.get('how_to_use', 'https://t.me/')))
     if discount == 0:
         reseller_price = settings.get("reseller_price", 149)
-        kb.add(InlineKeyboardButton(f"👑 Reseller (₹{reseller_price})", callback_data="buy_reseller"))
+        kb.add(InlineKeyboardButton(f"👑 Upgrade To Reseller (₹{reseller_price})", callback_data="buy_reseller"))
+    
+    kb.add(InlineKeyboardButton("📢 Check Public Feedback", url=settings.get('feedback_link', 'https://t.me/')))
+    kb.add(InlineKeyboardButton("🛡️ Support", url=f"https://t.me/{support_user}"))
+    kb.add(InlineKeyboardButton("🏆 Top 5 Sellers Monthly", callback_data="top_sellers"))
+    kb.add(InlineKeyboardButton("🍎 Language", callback_data="language"))
+    
+    # WebApp Button for Admin Panel (If Admin)
+    if str(uid) == str(ADMIN_ID):
+        kb.add(InlineKeyboardButton("💻 Admin Panel", web_app=WebAppInfo(url=WEB_URL)))
         
-    kb.add(InlineKeyboardButton("🛟 Support", url=f"https://t.me/{support_user}"))
     return text, kb
 
 @bot.message_handler(commands=["start"])
 def start(msg):
-    settings = get_settings()
-    if settings.get("maintenance", "false") == "true" and str(msg.from_user.id) != str(ADMIN_ID):
-        bot.reply_to(msg, "🚧 <b>Bot is currently under maintenance.</b>\n\n<i>Please try again later.</i>", parse_mode="HTML")
-        return
-    
     get_user_info(msg.from_user.id)
     text, kb = get_main_menu(msg.from_user.id, msg.from_user.first_name)
     send_menu(msg.chat.id, text, kb)
 
+# ================== CALLBACK HANDLER ==================
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
     uid, data, name = call.from_user.id, call.data, call.from_user.first_name
@@ -179,7 +196,7 @@ def handle_callbacks(call):
                 text += "📜 <b>Recent Purchases:</b>\n\n"
                 for i, o in enumerate(user_orders, 1):
                     text += f"{i}. <b>{o['product']}</b>\n   🔑 <code>{o['key']}</code>\n\n"
-                    if o['key'] != "WhatsApp Manual" and o['key'] != "Refunded (Out of Stock)":
+                    if o['key'] not in ["WhatsApp Manual", "Refunded (Out of Stock)"]:
                         kb.add(InlineKeyboardButton(f"📋 Copy Key {i}", callback_data=f"copykey_{o['key']}"))
             else: 
                 text += "📭 <i>No purchases yet.</i>\n"
@@ -234,9 +251,7 @@ def handle_callbacks(call):
             if not products:
                 safe_edit(chat_id, msg_id, "🛒 <b>Store is empty!</b>", InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="menu_back")))
                 return
-            discount = get_discount(uid)
-            header = "👑 <b>RESELLER STORE</b>" if discount > 0 else "🛒 <b>STORE</b>"
-            text = f"{header}\n━━━━━━━━━━━━━━━━━━━━\n👇 Select a product to view:"
+            text = f"🛒 <b>STORE PRODUCTS</b>\n━━━━━━━━━━━━━━━━━━━━\n👇 Select a product to view:"
             kb = InlineKeyboardMarkup(row_width=1)
             for p in products:
                 maint = " 🔴 [MAINTENANCE]" if p.get("is_maintenance") else ""
@@ -258,7 +273,7 @@ def handle_callbacks(call):
             if product.get("hack_features"): text += f"✨ <b>Features:</b>\n<code>{product['hack_features']}</code>\n"
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             if discount > 0: text += f"👑 <b>RESELLER PRICES ({discount}% OFF)</b>\n"
-            text += "👇 <i>Select Duration:</i>\n"
+            text += "👇 <i>Select Duration to Buy:</i>\n"
             
             kb = InlineKeyboardMarkup(row_width=2)
             row = []
@@ -282,12 +297,16 @@ def handle_callbacks(call):
             else: 
                 msg = bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
                 user_msg_history[chat_id] = [msg.message_id]
-                
+
+        # ================= BUY LOGIC =================
         elif data.startswith("buy_"):
-            parts = data.split("_", 2)
-            p_id, duration = parts[1], parts[2]
-            product = products_col.find_one({"_id": ObjectId(p_id)})
+            # data format: buy_{p_id}_{duration} (duration can have spaces/underscores)
+            parts = data.split("_")
+            p_id = parts[1]
+            duration = "_".join(parts[2:]) # Re-join in case duration had underscores
             
+            product = products_col.find_one({"_id": ObjectId(p_id)})
+            if not product: return
             if product.get("is_maintenance"):
                 bot.answer_callback_query(call.id, "🚧 Product under maintenance.", show_alert=True)
                 return
@@ -299,7 +318,7 @@ def handle_callbacks(call):
             try: bot.delete_message(chat_id, msg_id)
             except: pass
 
-            # Agar product WhatsApp manual hai
+            # If WhatsApp Manual Product
             if product.get("redirect_to_wp"):
                 if deduct_balance(uid, final_price):
                     log_order(uid, product['name'], "WhatsApp Manual", final_price)
@@ -311,9 +330,9 @@ def handle_callbacks(call):
                     bot.send_message(chat_id, "❌ <b>Low Balance! Please add funds.</b>", parse_mode="HTML")
                 return
             
-            # Agar V1 product hai, toh pehle Android ID mangega
+            # If V1 product, ask for Android ID first
             if product.get("is_v1"):
-                user_states[uid] = {"p_id": p_id, "duration": duration, "price": final_price}
+                buy_states[uid] = {"p_id": p_id, "duration": duration, "price": final_price}
                 msg = bot.send_message(chat_id, "📱 <b>Enter your Android ID:</b>", parse_mode="HTML")
                 bot.register_next_step_handler(msg, process_android_id_for_payment)
                 return
@@ -327,20 +346,34 @@ def handle_callbacks(call):
                 f"👇 <i>How would you like to pay?</i>"
             )
             kb = InlineKeyboardMarkup(row_width=1)
-            kb.add(InlineKeyboardButton(f"💳 Pay from Wallet (₹{get_balance(uid):.2f} Available)", callback_data=f"pay_wallet_{p_id}_{duration}_{final_price}"))
-            kb.add(InlineKeyboardButton(f"⚡ Direct UPI Pay (₹{final_price:.2f})", callback_data=f"pay_direct_{p_id}_{duration}_{final_price}"))
+            kb.add(InlineKeyboardButton(f"💳 Pay from Wallet (₹{get_balance(uid):.2f})", callback_data=f"pay_wallet_{p_id}_{duration}"))
+            kb.add(InlineKeyboardButton(f"⚡ Direct UPI Pay (₹{final_price:.2f})", callback_data=f"pay_direct_{p_id}_{duration}"))
             kb.add(InlineKeyboardButton("🔙 Cancel", callback_data="menu_shop"))
             send_menu(chat_id, text, kb)
 
         elif data.startswith("pay_wallet_"):
-            parts = data.split("_", 3)
-            p_id, duration, price = parts[2], parts[3], float(parts[4])
+            parts = data.split("_")
+            p_id = parts[2]
+            duration = "_".join(parts[3:])
+            
+            product = products_col.find_one({"_id": ObjectId(p_id)})
+            original_price = float(product["prices"].get(duration, 0))
+            discount = get_discount(uid)
+            price = original_price - (original_price * discount / 100) if discount > 0 else original_price
+            
             wait = bot.send_message(chat_id, "⚡ <i>Processing... Checking Stock</i>", parse_mode="HTML")
             threading.Thread(target=execute_api_buy_wallet, args=(chat_id, wait.message_id, uid, p_id, duration, price, None), daemon=True).start()
 
         elif data.startswith("pay_direct_"):
-            parts = data.split("_", 3)
-            p_id, duration, price = parts[2], parts[3], float(parts[4])
+            parts = data.split("_")
+            p_id = parts[2]
+            duration = "_".join(parts[3:])
+            
+            product = products_col.find_one({"_id": ObjectId(p_id)})
+            original_price = float(product["prices"].get(duration, 0))
+            discount = get_discount(uid)
+            price = original_price - (original_price * discount / 100) if discount > 0 else original_price
+            
             safe_edit(chat_id, msg_id, f"⚡ <i>Generating Secure UPI QR for ₹{price}...</i>")
             generate_direct_product_qr(chat_id, uid, p_id, duration, price, name)
 
@@ -354,6 +387,15 @@ def handle_callbacks(call):
             except: pass
             text, kb = get_main_menu(uid, name)
             send_menu(chat_id, "❌ <b>Payment Cancelled.</b>", kb)
+
+        elif data == "menu_referral":
+            bot.answer_callback_query(call.id, "🔗 Referral system coming soon!", show_alert=True)
+            
+        elif data == "top_sellers":
+            bot.answer_callback_query(call.id, "🏆 Top 5 Sellers Monthly (Coming Soon!)", show_alert=True)
+            
+        elif data == "language":
+            bot.answer_callback_query(call.id, "🍎 Language selection coming soon!", show_alert=True)
             
     except Exception as e: print(f"Callback Error: {e}")
 
@@ -448,7 +490,6 @@ def poll_direct_purchase(order_id, uid, chat_id, wait_msg_id, photo_msg_id, p_id
             try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
             except: pass
             
-            # Payment successful, now call API directly without deducting wallet
             msg = bot.send_message(chat_id, "✅ <b>Payment Received!</b>\n⚡ <i>Generating Key from API...</i>", parse_mode="HTML")
             threading.Thread(target=execute_api_buy_direct_upi, args=(chat_id, msg.message_id, uid, p_id, duration, price, None), daemon=True).start()
             return
@@ -500,7 +541,7 @@ def poll_reseller_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id):
             except: pass
             try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
             except: pass
-            success_text = f"🎉 <b>CONGRATULATIONS!</b>\n━━━━━━━━━━━━━━━━━━━━\nYou are now an official <b>RESELLER</b>!\n🏷️ You will now get <b>{discount}% OFF</b> on all products.\n\nGo back to shop to see new prices!"
+            success_text = f"🎉 <b>CONGRATULATIONS!</b>\n━━━━━━━━━━━━━━━━━━━━\nYou are now an official <b>RESELLER</b>!\n🏷️ You will now get <b>{discount}% OFF</b> on all products."
             bot.send_message(chat_id, success_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🛒 Go to Shop", callback_data="menu_shop"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
             return
         if status.is_expired:
@@ -512,19 +553,17 @@ def poll_reseller_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id):
             return
 
 # ================== API BUY LOGIC ==================
-
-# 1. For V1 Products (Wallet Only - User asked for Android ID)
 def process_android_id_for_payment(msg):
     uid = msg.from_user.id
     android_id = msg.text.strip()
     if len(android_id) < 10: return bot.reply_to(msg, "❌ <b>Invalid Android ID!</b>", parse_mode="HTML")
     
-    state = user_states.get(uid)
+    state = buy_states.get(uid)
     if not state: return
     
     p_id, duration, price = state['p_id'], state['duration'], state['price']
-    
     product = products_col.find_one({"_id": ObjectId(p_id)})
+    
     text = (
         f"📦 <b>{product['name']}</b>\n"
         f"⏱ <b>Duration:</b> {duration}\n"
@@ -533,15 +572,13 @@ def process_android_id_for_payment(msg):
         f"👇 <i>How would you like to pay?</i>"
     )
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton(f"💳 Pay from Wallet", callback_data=f"pay_wallet_{p_id}_{duration}_{price}"))
-    kb.add(InlineKeyboardButton(f"⚡ Direct UPI Pay", callback_data=f"pay_direct_{p_id}_{duration}_{price}"))
+    kb.add(InlineKeyboardButton(f"💳 Pay from Wallet", callback_data=f"pay_wallet_{p_id}_{duration}"))
+    kb.add(InlineKeyboardButton(f"⚡ Direct UPI Pay", callback_data=f"pay_direct_{p_id}_{duration}"))
     kb.add(InlineKeyboardButton("🔙 Cancel", callback_data="menu_shop"))
     
     send_menu(msg.chat.id, text, kb)
-    # Save android ID in state for later
-    user_states[uid]['android_id'] = android_id
+    buy_states[uid]['android_id'] = android_id
 
-# 2. For Wallet Payment
 def execute_api_buy_wallet(chat_id, msg_id, uid, p_id, duration, price, android_id=None):
     product = products_col.find_one({"_id": ObjectId(p_id)})
     if not product: return safe_edit(chat_id, msg_id, "❌ <b>Product not found in database.</b>")
@@ -549,9 +586,8 @@ def execute_api_buy_wallet(chat_id, msg_id, uid, p_id, duration, price, android_
     if not deduct_balance(uid, price):
         return safe_edit(chat_id, msg_id, "❌ <b>Low Balance! Please add funds.</b>")
 
-    # Agar android_id pass nahi hua, toh state se utha lo
     if product.get("is_v1") and not android_id:
-        android_id = user_states.get(uid, {}).get('android_id')
+        android_id = buy_states.get(uid, {}).get('android_id')
 
     try:
         clean_pid = str(product["pid"]).strip()
@@ -576,13 +612,12 @@ def execute_api_buy_wallet(chat_id, msg_id, uid, p_id, duration, price, android_
         err_msg = result.get("message", str(result))
         safe_edit(chat_id, msg_id, f"❌ <b>PURCHASE FAILED (Out of Stock/API Error)</b>\n\n<b>Reason:</b>\n<code>{err_msg}</code>\n\n💰 <b>Amount ₹{price:.2f} has been refunded to your wallet.</b>", InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
 
-# 3. For Direct UPI Payment
 def execute_api_buy_direct_upi(chat_id, msg_id, uid, p_id, duration, price, android_id=None):
     product = products_col.find_one({"_id": ObjectId(p_id)})
     if not product: return safe_edit(chat_id, msg_id, "❌ <b>Product not found in database.</b>")
 
     if product.get("is_v1") and not android_id:
-        android_id = user_states.get(uid, {}).get('android_id')
+        android_id = buy_states.get(uid, {}).get('android_id')
 
     try:
         clean_pid = str(product["pid"]).strip()
@@ -605,7 +640,6 @@ def execute_api_buy_direct_upi(chat_id, msg_id, uid, p_id, duration, price, andr
         credit_balance(uid, price)
         err_msg = result.get("message", str(result))
         safe_edit(chat_id, msg_id, f"❌ <b>API ERROR (Out of Stock)</b>\n\n<b>Reason:</b>\n<code>{err_msg}</code>\n\n💰 <b>Amount ₹{price:.2f} has been added to your Wallet!</b>\nYou can buy using Wallet or try again later.", InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
-
 
 # ================== FLASK SETUP (WEB PANEL) ==================
 app = Flask(__name__)
@@ -807,9 +841,16 @@ HTML_TEMPLATE = """
             <form action="/settings" method="POST">
                 <div class="row">
                     <div class="form-group"><label>Store Name</label><input type="text" name="store_name" value="{{ settings.get('store_name', '') }}"></div>
-                    <div class="form-group"><label>Support Username</label><input type="text" name="support_username" value="{{ settings.get('support_username', '') }}"></div>
+                    <div class="form-group"><label>Support Username (e.g. @User)</label><input type="text" name="support_username" value="{{ settings.get('support_username', '') }}"></div>
                 </div>
-                <div class="form-group"><label>Update Link</label><input type="url" name="update_link" value="{{ settings.get('update_link', '') }}"></div>
+                <div class="row">
+                    <div class="form-group"><label>Update Link</label><input type="url" name="update_link" value="{{ settings.get('update_link', '') }}"></div>
+                    <div class="form-group"><label>How to use (Video Link/Text)</label><input type="url" name="how_to_use" value="{{ settings.get('how_to_use', '') }}"></div>
+                </div>
+                <div class="row">
+                    <div class="form-group"><label>Feedback Link</label><input type="url" name="feedback_link" value="{{ settings.get('feedback_link', '') }}"></div>
+                    <div class="form-group"><label>Admin WebApp URL</label><input type="url" name="webapp_url" value="{{ settings.get('webapp_url', '') }}"></div>
+                </div>
                 <div class="row">
                     <div class="form-group"><label>Reseller Price (₹)</label><input type="number" name="reseller_price" value="{{ settings.get('reseller_price', 149) }}"></div>
                     <div class="form-group"><label>Reseller Discount (%)</label><input type="number" name="reseller_discount" value="{{ settings.get('reseller_discount', 40) }}"></div>
@@ -920,7 +961,8 @@ def settings():
     if request.method == 'POST':
         save_settings({
             "store_name": request.form['store_name'], "support_username": request.form['support_username'], "update_link": request.form['update_link'],
-            "maintenance": request.form['maintenance'], "reseller_price": int(request.form.get('reseller_price', 149)), "reseller_discount": int(request.form.get('reseller_discount', 40))
+            "maintenance": request.form['maintenance'], "reseller_price": int(request.form.get('reseller_price', 149)), "reseller_discount": int(request.form.get('reseller_discount', 40)),
+            "how_to_use": request.form.get('how_to_use', ''), "feedback_link": request.form.get('feedback_link', '')
         })
         return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings(), msg_success="Settings Saved Successfully!")
     return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings())

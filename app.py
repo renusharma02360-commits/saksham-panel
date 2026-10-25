@@ -1,5 +1,4 @@
 import os
-import json
 import time
 import threading
 import requests
@@ -8,14 +7,14 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from famgateway import FamGateway
 from flask import Flask, request, render_template_string, redirect, url_for
 from werkzeug.utils import secure_filename
+from pymongo import MongoClient
+from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
 BOT_TOKEN = "8807309763:AAEXX_0tVMslGImWCBkeKscBheg4io4gf6g"
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
 ADMIN_ID  = 7778093775
-DB_FILE   = "wallet.json"
-PRODUCTS_FILE = "products.json"
-SETTINGS_FILE = "settings.json"
+MONGO_URI = os.environ.get("MONGO_URI") 
 UPLOAD_FOLDER = "static/uploads"
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
@@ -24,85 +23,60 @@ MASTER_KEY       = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
 # ============================================
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-for file, default in [
-    (DB_FILE, {"users": {}, "utrs": [], "deposits": {}, "orders": []}), 
-    (PRODUCTS_FILE, {}), 
-    (SETTINGS_FILE, {
-        "store_name": "SAKSHAM STORE", "support_username": "YourSupport", 
-        "update_link": "https://t.me/", "maintenance": "false",
-        "reseller_price": 149, "reseller_discount": 40
-    })
-]:
-    if not os.path.exists(file):
-        with open(file, "w") as f: json.dump(default, f)
 
-# ================== BOT SETUP ==================
+# --- MongoDB Setup ---
+client = MongoClient(MONGO_URI)
+db = client.saksham_panel
+users_col = db.users
+products_col = db.products
+orders_col = db.orders
+settings_col = db.settings
+
 bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
-lock = threading.Lock()
 calc_data = {}
 
-def safe_edit(chat_id, message_id, text, reply_markup=None):
-    try:
-        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, parse_mode="HTML", reply_markup=reply_markup)
-    except Exception as e:
-        err = str(e).lower()
-        if "message is not modified" in err: pass
-        elif "there is no text in the message to edit" in err:
-            try: bot.delete_message(chat_id, message_id)
-            except: pass
-            bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=reply_markup)
+def get_settings():
+    s = settings_col.find_one({"_id": "global"})
+    if not s:
+        default_s = {"_id": "global", "store_name": "SAKSHAM STORE", "support_username": "YourSupport", "update_link": "https://t.me/", "maintenance": "false", "reseller_price": 149, "reseller_discount": 40}
+        settings_col.insert_one(default_s)
+        return default_s
+    return s
 
-def is_maintenance():
-    with open(SETTINGS_FILE, "r") as f:
-        return json.load(f).get("maintenance", "false") == "true"
-
-def load_db():
-    with open(DB_FILE, "r") as f: return json.load(f)
-
-def save_db(db):
-    with open(DB_FILE, "w") as f: json.dump(db, f, indent=2)
+def save_settings(updates):
+    settings_col.update_one({"_id": "global"}, {"$set": updates}, upsert=True)
 
 def get_user_info(uid):
-    return load_db()["users"].get(str(uid), {"balance": 0.0, "name": "User", "discount": 0})
+    u = users_col.find_one({"_id": str(uid)})
+    if not u:
+        default_u = {"_id": str(uid), "balance": 0.0, "name": "User", "discount": 0}
+        users_col.insert_one(default_u)
+        return default_u
+    return u
 
 def get_balance(uid):
-    with lock: return get_user_info(uid).get("balance", 0.0)
+    return get_user_info(uid).get("balance", 0.0)
 
 def get_discount(uid):
-    with lock: return get_user_info(uid).get("discount", 0)
+    return get_user_info(uid).get("discount", 0)
 
 def deduct_balance(uid, amount):
-    with lock:
-        db = load_db()
-        user = db["users"].get(str(uid))
-        if user and user["balance"] >= amount:
-            user["balance"] = round(user["balance"] - amount, 2)
-            save_db(db)
-            return True
-        return False
+    user = users_col.find_one({"_id": str(uid)})
+    if user and user["balance"] >= amount:
+        users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": -amount}})
+        return True
+    return False
 
 def credit_atomic(uid, amount, utr):
-    with lock:
-        db = load_db()
-        if utr in db.get("utrs", []): return False, db["users"].get(str(uid), {}).get("balance", 0.0)
-        db.setdefault("utrs", []).append(utr)
-        u = db["users"].setdefault(str(uid), {"balance": 0.0, "name": "User", "discount": 0})
-        u["balance"] = round(u["balance"] + float(amount), 2)
-        save_db(db)
-        return True, u["balance"]
+    if orders_col.find_one({"utr": utr}):
+        return False, get_balance(uid)
+    orders_col.insert_one({"utr": utr, "uid": str(uid), "amount": amount, "time": time.strftime("%d-%m-%Y %I:%M %p")})
+    users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
+    return True, get_balance(uid)
 
 def log_order(uid, product, key, price):
-    with lock:
-        db = load_db()
-        db.setdefault("orders", []).append({"uid": str(uid), "product": product, "key": key, "price": price, "time": time.strftime("%d-%m-%Y %I:%M %p")})
-        save_db(db)
-
-def load_products():
-    with open(PRODUCTS_FILE, "r") as f: return json.load(f)
-
-def get_settings():
-    with open(SETTINGS_FILE, "r") as f: return json.load(f)
+    orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
 # ================== MAIN MENU ==================
 def get_main_menu(uid, name):
@@ -130,22 +104,32 @@ def get_main_menu(uid, name):
 
 @bot.message_handler(commands=["start"])
 def start(msg):
-    if is_maintenance() and str(msg.from_user.id) != str(ADMIN_ID):
+    settings = get_settings()
+    if settings.get("maintenance", "false") == "true" and str(msg.from_user.id) != str(ADMIN_ID):
         bot.reply_to(msg, "🚧 <b>Bot is currently under maintenance.</b>\n\n<i>Please try again later.</i>", parse_mode="HTML")
         return
-    with lock:
-        db = load_db()
-        if str(msg.from_user.id) not in db["users"]:
-            db["users"][str(msg.from_user.id)] = {"balance": 0.0, "name": msg.from_user.first_name, "discount": 0}
-            save_db(db)
+    
+    get_user_info(msg.from_user.id)
     text, kb = get_main_menu(msg.from_user.id, msg.from_user.first_name)
     bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
+
+def safe_edit(chat_id, message_id, text, reply_markup=None):
+    try:
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, parse_mode="HTML", reply_markup=reply_markup)
+    except Exception as e:
+        if "message is not modified" in str(e).lower(): pass
+        else:
+            try: bot.delete_message(chat_id, message_id)
+            except: pass
+            bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=reply_markup)
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
     uid, data, name = call.from_user.id, call.data, call.from_user.first_name
     msg_id, chat_id = call.message.message_id, call.message.chat.id
-    if is_maintenance() and str(uid) != str(ADMIN_ID):
+    settings = get_settings()
+    
+    if settings.get("maintenance", "false") == "true" and str(uid) != str(ADMIN_ID):
         bot.answer_callback_query(call.id, "🚧 Bot is currently under maintenance.", show_alert=True)
         return
     bot.answer_callback_query(call.id)
@@ -156,8 +140,7 @@ def handle_callbacks(call):
             safe_edit(chat_id, msg_id, text, kb)
         elif data == "menu_balance":
             bal, discount = get_balance(uid), get_discount(uid)
-            db = load_db()
-            user_orders = [o for o in db.get("orders", []) if o["uid"] == str(uid)][-5:]
+            user_orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1).limit(5))
             reseller_tag = "👑 <b>RESELLER ACCOUNT</b>\n" if discount > 0 else ""
             text = f"👤 <b>MY PROFILE</b>\n━━━━━━━━━━━━━━━━━━━━\n{reseller_tag}🆔 <b>ID:</b> <code>{uid}</code>\n💵 <b>Balance:</b> ₹{bal:.2f}\n"
             if discount > 0: text += f"🏷️ <b>Discount:</b> {discount}% OFF\n"
@@ -165,7 +148,7 @@ def handle_callbacks(call):
             kb = InlineKeyboardMarkup(row_width=1)
             if user_orders:
                 text += "📜 <b>Recent Purchases:</b>\n\n"
-                for i, o in enumerate(user_orders[::-1], 1):
+                for i, o in enumerate(user_orders, 1):
                     text += f"{i}. <b>{o['product']}</b>\n   🔑 <code>{o['key']}</code>\n\n"
                     kb.add(InlineKeyboardButton(f"📋 Copy Key {i}", callback_data=f"copykey_{o['key']}"))
             else: text += "📭 <i>No purchases yet.</i>\n"
@@ -200,18 +183,16 @@ def handle_callbacks(call):
             safe_edit(chat_id, msg_id, f"⚡ <i>Generating Secure UPI QR for ₹{amount}...</i>")
             generate_qr(chat_id, uid, amount, name)
         elif data == "buy_reseller":
-            settings = get_settings()
             price = settings.get("reseller_price", 149)
             text = f"👑 <b>BUY RESELLER ACCESS</b>\n━━━━━━━━━━━━━━━━━━━━\n💰 <b>Price:</b> ₹{price}\n🏷️ <b>Benefits:</b> Get {settings.get('reseller_discount', 40)}% OFF on all products!\n\nClick below to pay:"
             kb = InlineKeyboardMarkup().add(InlineKeyboardButton(f"💳 Pay ₹{price} Now", callback_data="pay_reseller")).add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
             safe_edit(chat_id, msg_id, text, kb)
         elif data == "pay_reseller":
-            settings = get_settings()
             price = settings.get("reseller_price", 149)
             safe_edit(chat_id, msg_id, f"⚡ <i>Generating Secure UPI QR for ₹{price}...</i>")
             generate_reseller_qr(chat_id, uid, price, name)
         elif data == "menu_shop":
-            products = load_products()
+            products = list(products_col.find({}))
             if not products:
                 safe_edit(chat_id, msg_id, "🛒 <b>Store is empty!</b>", InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="menu_back")))
                 return
@@ -219,13 +200,19 @@ def handle_callbacks(call):
             header = "👑 <b>RESELLER STORE</b>" if discount > 0 else "🛒 <b>STORE</b>"
             text = f"{header}\n━━━━━━━━━━━━━━━━━━━━\n👇 Select a product:"
             kb = InlineKeyboardMarkup(row_width=1)
-            for p_id, p_info in products.items():
-                kb.add(InlineKeyboardButton(f"📦 {p_info['name']}", callback_data=f"view_{p_id}"))
+            for p in products:
+                maint = " 🔴 [MAINTENANCE]" if p.get("is_maintenance") else ""
+                kb.add(InlineKeyboardButton(f"📦 {p['name']}{maint}", callback_data=f"view_{str(p['_id'])}"))
             kb.add(InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back"))
             safe_edit(chat_id, msg_id, text, kb)
         elif data.startswith("view_"):
             p_id = data.split("_")[1]
-            product = load_products().get(p_id)
+            product = products_col.find_one({"_id": ObjectId(p_id)})
+            
+            if product.get("is_maintenance"):
+                bot.answer_callback_query(call.id, "🚧 This product is currently under maintenance. Please try later.", show_alert=True)
+                return
+
             discount = get_discount(uid)
             text = f"📦 <b>{product['name']}</b>\n━━━━━━━━━━━━━━━━━━━━\n"
             if discount > 0: text += f"👑 <b>RESELLER PRICES ({discount}% OFF)</b>\n"
@@ -248,7 +235,12 @@ def handle_callbacks(call):
         elif data.startswith("buy_"):
             parts = data.split("_", 2)
             p_id, duration = parts[1], parts[2]
-            product = load_products().get(p_id)
+            product = products_col.find_one({"_id": ObjectId(p_id)})
+            
+            if product.get("is_maintenance"):
+                bot.answer_callback_query(call.id, "🚧 This product is currently under maintenance.", show_alert=True)
+                return
+
             original_price = float(product["prices"].get(duration, 0))
             discount = get_discount(uid)
             final_price = original_price - (original_price * discount / 100) if discount > 0 else original_price
@@ -265,7 +257,6 @@ def handle_callbacks(call):
                 bot.register_next_step_handler(msg, process_android_id, p_id, duration, final_price)
             else:
                 wait = bot.send_message(chat_id, "⚡ <i>Generating Key... (Please wait)</i>", parse_mode="HTML")
-                # 🔥 RUN IN BACKGROUND THREAD TO PREVENT BOT FREEZE
                 threading.Thread(target=execute_api_buy, args=(chat_id, wait.message_id, uid, p_id, duration, final_price, None), daemon=True).start()
         elif data.startswith("copykey_"):
             bot.answer_callback_query(call.id, f"✅ Key: {data.split('_', 1)[1]}\n\n(Tap to copy)", show_alert=True)
@@ -285,10 +276,6 @@ def generate_qr(chat_id, uid, amount, name, wait_msg=None):
         bot.send_message(chat_id, f"❌ <b>API Error:</b> <code>{str(e)}</code>", parse_mode="HTML")
         return
     uid = str(uid)
-    with lock:
-        db = load_db()
-        db.setdefault("deposits", {}).setdefault(uid, []).append({"order_id": order.order_id, "amount": amount, "status": "pending"})
-        save_db(db)
     caption = f"💳 <b>ADD BALANCE</b>\n━━━━━━━━━━━━━━━━━━━━\n🆔 <b>Order ID:</b> <code>{order.order_id}</code>\n💵 <b>Amount:</b> ₹{float(order.payable_amount):.2f}\n━━━━━━━━━━━━━━━━━━━━\n\n📲 <i>Scan the QR above to pay.</i>\n✅ <b>Auto-verify ON</b>"
     if wait_msg: bot.delete_message(wait_msg.chat.id, wait_msg.message_id)
     sent_photo = bot.send_photo(chat_id, photo=order.qr_url, caption=caption, parse_mode="HTML")
@@ -334,23 +321,16 @@ def poll_reseller_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id):
     start_ts = time.time()
     settings = get_settings()
     discount = settings.get("reseller_discount", 40)
-    
     while time.time() - start_ts < 360:
         time.sleep(2)
         try: status = fg.get_status(order_id)
         except: continue
         if status.is_paid:
-            with lock:
-                db = load_db()
-                if uid in db["users"]:
-                    db["users"][uid]["discount"] = discount
-                    save_db(db)
-            
+            users_col.update_one({"_id": str(uid)}, {"$set": {"discount": discount}})
             try: bot.delete_message(chat_id=chat_id, message_id=wait_msg_id)
             except: pass
             try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
             except: pass
-            
             success_text = f"🎉 <b>CONGRATULATIONS!</b>\n━━━━━━━━━━━━━━━━━━━━\nYou are now an official <b>RESELLER</b>!\n🏷️ You will now get <b>{discount}% OFF</b> on all products.\n\nGo back to shop to see new prices!"
             bot.send_message(chat_id, success_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🛒 Go to Shop", callback_data="menu_shop"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
             return
@@ -368,35 +348,23 @@ def process_android_id(msg, p_id, duration, price):
     wait = bot.reply_to(msg, "⏳ <i>Checking Stock & Generating Key...</i>", parse_mode="HTML")
     threading.Thread(target=execute_api_buy, args=(msg.chat.id, wait.message_id, msg.from_user.id, p_id, duration, price, android_id), daemon=True).start()
 
-# 🔥 MAIN FIX: ERROR HANDLING & TIMEOUT FIXED
 def execute_api_buy(chat_id, msg_id, uid, p_id, duration, price, android_id=None):
     try:
-        product = load_products().get(p_id)
-        if not product:
-            return safe_edit(chat_id, msg_id, "❌ <b>Product not found in database.</b>")
+        product = products_col.find_one({"_id": ObjectId(p_id)})
+        if not product: return safe_edit(chat_id, msg_id, "❌ <b>Product not found in database.</b>")
+        
+        if product.get("is_maintenance"):
+            return safe_edit(chat_id, msg_id, "🚧 <b>This product is currently under maintenance.</b>")
 
         clean_pid = str(product["pid"]).strip()
         clean_dur = str(duration).strip()
-        
         data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': clean_pid, 'duration': clean_dur, 'quantity': 1}
         if android_id: data['android_id'] = android_id
-        
-        # Added User-Agent to prevent Cloudflare block
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded', 
-            'x-master-key': MASTER_KEY,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
-        
+        headers = {'Content-Type': 'application/x-www-form-urlencoded', 'x-master-key': MASTER_KEY, 'User-Agent': 'Mozilla/5.0'}
         res = requests.post(RESELLER_API_URL, data=data, headers=headers, timeout=20)
-        
-        try:
-            result = res.json()
-        except:
-            result = {"status": "error", "message": f"Invalid API Response. HTML: {res.text[:100]}"}
-            
-    except Exception as e: 
-        result = {"status": "error", "message": f"System Error: {str(e)}"}
+        try: result = res.json()
+        except: result = {"status": "error", "message": f"Invalid Response: {res.text[:100]}"}
+    except Exception as e: result = {"status": "error", "message": f"System Error: {str(e)}"}
     
     if result.get("status") == "success" or "keys" in result:
         if deduct_balance(uid, price):
@@ -405,11 +373,9 @@ def execute_api_buy(chat_id, msg_id, uid, p_id, duration, price, android_id=None
             log_order(uid, product['name'], keys[0], price)
             kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("📋 Copy Key", callback_data=f"copykey_{keys[0]}"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back"))
             safe_edit(chat_id, msg_id, f"✅ <b>PURCHASE SUCCESSFUL</b>\n📦 <b>Product:</b> {product['name']}\n⏱ <b>Duration:</b> {duration}\n💵 <b>Price:</b> ₹{price:.2f}\n🔑 <b>Key:</b>\n<code>{keys[0]}</code>\n💼 <b>New Balance:</b> ₹{new_bal:.2f}", kb)
-        else: 
-            safe_edit(chat_id, msg_id, "❌ <b>Balance deduct error.</b>")
+        else: safe_edit(chat_id, msg_id, "❌ <b>Balance deduct error.</b>")
     else: 
         err_msg = result.get("message", str(result))
-        # Show exact error to user (e.g. Out of Stock, Invalid Duration)
         safe_edit(chat_id, msg_id, f"❌ <b>PURCHASE FAILED</b>\n\n<b>API Error:</b>\n<code>{err_msg}</code>")
 
 # ================== FLASK SETUP (WEB PANEL) ==================
@@ -430,36 +396,30 @@ HTML_TEMPLATE = """
         .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
         .header h1 { font-size: 28px; font-weight: 800; background: linear-gradient(90deg, #38bdf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        
         .tabs { display: flex; gap: 10px; margin-bottom: 30px; flex-wrap: wrap; }
         .tab-btn { background: rgba(30, 41, 59, 0.8); color: #94a3b8; padding: 12px 20px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 14px; transition: 0.3s; border: 1px solid transparent; }
         .tab-btn:hover { background: rgba(56, 189, 248, 0.1); color: #38bdf8; }
         .tab-btn.active { background: #0ea5e9; color: white; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); }
-        
         .card { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(10px); padding: 30px; border-radius: 16px; margin-bottom: 25px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
         .card h3 { color: #38bdf8; margin-bottom: 20px; font-weight: 600; }
-        
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 8px; font-size: 14px; color: #94a3b8; }
         input, select, textarea { width: 100%; padding: 12px 15px; border-radius: 8px; border: 1px solid #334155; background: rgba(15, 23, 42, 0.8); color: white; outline: none; transition: 0.3s; }
         input:focus, select:focus, textarea:focus { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2); }
-        
         button { padding: 14px 20px; background: linear-gradient(90deg, #0ea5e9, #3b82f6); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%; transition: 0.3s; font-size: 15px; }
         button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(14, 165, 233, 0.3); }
-        
         .btn-danger { background: linear-gradient(90deg, #ef4444, #dc2626); padding: 8px 15px; width: auto; margin: 0; font-size: 12px; }
         .btn-warning { background: linear-gradient(90deg, #f59e0b, #d97706); padding: 8px 15px; width: auto; margin: 0; font-size: 12px; color: #000; }
         .btn-success { background: linear-gradient(90deg, #10b981, #059669); padding: 8px 15px; width: auto; margin: 0; font-size: 12px; }
-        
         .row { display: flex; gap: 15px; flex-wrap: wrap; }
         .row .form-group { flex: 1; min-width: 200px; }
-        
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { padding: 15px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
         th { color: #38bdf8; font-weight: 600; font-size: 14px; }
         td { font-size: 14px; color: #cbd5e1; }
-        
         .badge { background: #f59e0b; color: #000; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; display: inline-block; margin-top: 5px; }
+        .badge-red { background: #ef4444; color: white; }
+        .badge-green { background: #10b981; color: white; }
         .alert-success { background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #10b981; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; }
         .alert-danger { background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #ef4444; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; }
         .product-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: rgba(15, 23, 42, 0.5); border-radius: 10px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05); }
@@ -471,7 +431,6 @@ HTML_TEMPLATE = """
             <h1>👑 Saksham Panel Admin</h1>
             <a href="/" style="color:#94a3b8; text-decoration:none; font-size:14px;">Refresh</a>
         </div>
-        
         <div class="tabs">
             <a href="/" class="tab-btn {% if tab == 'products' %}active{% endif %}">📦 Products</a>
             <a href="/users" class="tab-btn {% if tab == 'users' %}active{% endif %}">👥 Users & Resellers</a>
@@ -479,7 +438,6 @@ HTML_TEMPLATE = """
             <a href="/broadcast" class="tab-btn {% if tab == 'broadcast' %}active{% endif %}">📢 Broadcast</a>
             <a href="/settings" class="tab-btn {% if tab == 'settings' %}active{% endif %}">⚙️ Settings</a>
         </div>
-
         {% if msg_success %}<div class="alert-success">{{ msg_success }}</div>{% endif %}
         {% if msg_error %}<div class="alert-danger">{{ msg_error }}</div>{% endif %}
 
@@ -488,44 +446,47 @@ HTML_TEMPLATE = """
             <h3>➕ Add New Product</h3>
             <form action="/add_product" method="POST" enctype="multipart/form-data">
                 <div class="row">
-                    <div class="form-group"><label>Product Name</label><input type="text" name="name" placeholder="e.g. XRAG FF ALL" required></div>
-                    <div class="form-group"><label>PID (Product ID)</label><input type="text" name="pid" placeholder="e.g. 149" required></div>
+                    <div class="form-group"><label>Product Name</label><input type="text" name="name" required></div>
+                    <div class="form-group"><label>PID</label><input type="text" name="pid" required></div>
                 </div>
                 <div class="form-group"><label>Product Image</label><input type="file" name="image_file" accept="image/*"></div>
                 <div class="row">
-                    <div class="form-group"><label>Setup Video Link</label><input type="url" name="video" placeholder="https://youtube.com/..."></div>
-                    <div class="form-group"><label>Hack Video Link</label><input type="url" name="hack" placeholder="https://youtube.com/..."></div>
+                    <div class="form-group"><label>Setup Video Link</label><input type="url" name="video"></div>
+                    <div class="form-group"><label>Hack Video Link</label><input type="url" name="hack"></div>
                 </div>
-                <div class="form-group">
-                    <label>Device Type</label>
-                    <select name="is_v1">
-                        <option value="false">V2 (Direct Key)</option>
-                        <option value="true">V1 (Requires Android ID)</option>
-                    </select>
-                </div>
-                
-                <label style="margin-top: 10px; display:block;">Durations & Prices</label>
-                <div id="price-container">
-                    <div class="row">
-                        <div class="form-group"><input type="text" name="duration[]" placeholder="e.g. 1 DaYs" required></div>
-                        <div class="form-group"><input type="number" name="price[]" placeholder="Price (₹)" required></div>
+                <div class="row">
+                    <div class="form-group">
+                        <label>Device Type</label>
+                        <select name="is_v1"><option value="false">V2 (Direct Key)</option><option value="true">V1 (Requires Android ID)</option></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Maintenance Mode</label>
+                        <select name="is_maintenance"><option value="false">🟢 Active (ON)</option><option value="true">🔴 Disable (OFF)</option></select>
                     </div>
                 </div>
-                <button type="button" class="btn-success" onclick="addPriceRow()" style="margin-bottom:10px; width:auto;">➕ Add More Duration</button>
+                <label style="margin-top: 10px; display:block;">Durations & Prices</label>
+                <div id="price-container">
+                    <div class="row"><div class="form-group"><input type="text" name="duration[]" placeholder="e.g. 1 DaYs" required></div><div class="form-group"><input type="number" name="price[]" required></div></div>
+                </div>
+                <button type="button" class="btn-success" onclick="addPriceRow()" style="margin-bottom:10px; width:auto;">➕ More</button>
                 <button type="submit">💾 Save Product</button>
             </form>
         </div>
         <div class="card">
             <h3>📦 All Products ({{ products|length }})</h3>
-            {% for id, p in products.items() %}
+            {% for p in products %}
             <div class="product-item">
                 <div>
-                    <strong style="color:#fff; font-size:16px;">{{ p.name }}</strong> <span style="color:#64748b; font-size:12px;">(PID: {{ p.pid }})</span><br>
+                    <strong style="color:#fff; font-size:16px;">{{ p.name }}</strong> 
+                    <span style="color:#64748b; font-size:12px;">(PID: {{ p.pid }})</span>
+                    {% if p.get('is_maintenance') %}<span class="badge badge-red">MAINTENANCE</span>{% else %}<span class="badge badge-green">ACTIVE</span>{% endif %}
+                    <br>
                     <small style="color:#94a3b8;">{% for d, pr in p.prices.items() %}{{d}}: ₹{{pr}} | {% endfor %}</small>
                 </div>
-                <div style="display:flex; gap:10px;">
-                    <a href="/edit_product/{{ id }}"><button class="btn-warning">✏️ Edit</button></a>
-                    <a href="/delete_product/{{ id }}"><button class="btn-danger">🗑️ Delete</button></a>
+                <div style="display:flex; gap:10px; flex-wrap: wrap;">
+                    <a href="/toggle_maintenance/{{ p._id }}"><button class="btn-warning" style="padding:8px 15px;">{% if p.get('is_maintenance') %}Enable{% else %}Disable{% endif %}</button></a>
+                    <a href="/edit_product/{{ p._id }}"><button class="btn-warning" style="padding:8px 15px;">✏️ Edit</button></a>
+                    <a href="/delete_product/{{ p._id }}"><button class="btn-danger" style="padding:8px 15px;">🗑️ Delete</button></a>
                 </div>
             </div>
             {% endfor %}
@@ -534,35 +495,34 @@ HTML_TEMPLATE = """
         {% elif tab == 'edit_product' %}
         <div class="card">
             <h3>✏️ Edit Product: {{ product.name }}</h3>
-            <form action="/update_product/{{ p_id }}" method="POST" enctype="multipart/form-data">
+            <form action="/update_product/{{ product._id }}" method="POST" enctype="multipart/form-data">
                 <div class="row">
-                    <div class="form-group"><label>Product Name</label><input type="text" name="name" value="{{ product.name }}" required></div>
+                    <div class="form-group"><label>Name</label><input type="text" name="name" value="{{ product.name }}" required></div>
                     <div class="form-group"><label>PID</label><input type="text" name="pid" value="{{ product.pid }}" required></div>
                 </div>
                 <div class="form-group"><label>Image (Leave blank to keep old)</label><input type="file" name="image_file" accept="image/*"></div>
                 <div class="row">
-                    <div class="form-group"><label>Setup Video Link</label><input type="url" name="video" value="{{ product.video or '' }}"></div>
-                    <div class="form-group"><label>Hack Video Link</label><input type="url" name="hack" value="{{ product.hack or '' }}"></div>
+                    <div class="form-group"><label>Setup Video</label><input type="url" name="video" value="{{ product.video or '' }}"></div>
+                    <div class="form-group"><label>Hack Video</label><input type="url" name="hack" value="{{ product.hack or '' }}"></div>
                 </div>
-                <div class="form-group">
-                    <label>Device Type</label>
-                    <select name="is_v1">
-                        <option value="false" {% if not product.is_v1 %}selected{% endif %}>V2 (Direct Key)</option>
-                        <option value="true" {% if product.is_v1 %}selected{% endif %}>V1 (Requires Android ID)</option>
-                    </select>
+                <div class="row">
+                    <div class="form-group">
+                        <label>Device Type</label>
+                        <select name="is_v1"><option value="false" {% if not product.is_v1 %}selected{% endif %}>V2</option><option value="true" {% if product.is_v1 %}selected{% endif %}>V1</option></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Maintenance Mode</label>
+                        <select name="is_maintenance"><option value="false" {% if not product.get('is_maintenance') %}selected{% endif %}>🟢 Active (ON)</option><option value="true" {% if product.get('is_maintenance') %}selected{% endif %}>🔴 Disable (OFF)</option></select>
+                    </div>
                 </div>
-                
-                <label style="margin-top: 10px; display:block;">Durations & Prices</label>
+                <label>Durations & Prices</label>
                 <div id="price-container">
                     {% for dur, pr in product.prices.items() %}
-                    <div class="row">
-                        <div class="form-group"><input type="text" name="duration[]" value="{{ dur }}" required></div>
-                        <div class="form-group"><input type="number" name="price[]" value="{{ pr }}" required></div>
-                    </div>
+                    <div class="row"><div class="form-group"><input type="text" name="duration[]" value="{{ dur }}" required></div><div class="form-group"><input type="number" name="price[]" value="{{ pr }}" required></div></div>
                     {% endfor %}
                 </div>
-                <button type="button" class="btn-success" onclick="addPriceRow()" style="margin-bottom:10px; width:auto;">➕ Add More Duration</button>
-                <button type="submit" style="background:linear-gradient(90deg, #f59e0b, #d97706); color:#000;">💾 Update Product</button>
+                <button type="button" class="btn-success" onclick="addPriceRow()" style="margin-bottom:10px; width:auto;">➕ More</button>
+                <button type="submit" style="background:linear-gradient(90deg, #f59e0b, #d97706); color:#000;">💾 Update</button>
                 <a href="/" style="display:block; text-align:center; margin-top:15px; color:#94a3b8; text-decoration:none;">Cancel</a>
             </form>
         </div>
@@ -570,23 +530,19 @@ HTML_TEMPLATE = """
         {% elif tab == 'users' %}
         <div class="card">
             <h3>👥 Users & Resellers</h3>
-            <p style="color:#94a3b8; font-size:14px; margin-bottom:15px;">💡 <b>Make Reseller:</b> Discount % me `40` likho, us user ko har product 40% sasta milega.</p>
             <table>
-                <tr><th>User ID</th><th>Name</th><th>Balance</th><th>Update Balance & Discount</th></tr>
-                {% for uid, u in users.items() %}
+                <tr><th>User ID</th><th>Name</th><th>Balance</th><th>Update</th></tr>
+                {% for u in users %}
                 <tr>
-                    <td><code>{{ uid }}</code></td>
-                    <td>
-                        {{ u.name }} 
-                        {% if u.get('discount',0)>0 %}<br><span class="badge">RESELLER ({{ u.get('discount') }}%)</span>{% endif %}
-                    </td>
+                    <td><code>{{ u._id }}</code></td>
+                    <td>{{ u.name }} {% if u.get('discount',0)>0 %}<br><span class="badge">RESELLER ({{ u.get('discount') }}%)</span>{% endif %}</td>
                     <td style="color:#10b981; font-weight:600;">₹{{ u.balance }}</td>
                     <td>
-                        <form action="/update_user" method="POST" style="display:flex; gap:10px; align-items:center;">
-                            <input type="hidden" name="uid" value="{{ uid }}">
-                            <input type="number" name="amount" placeholder="+/- ₹" style="width:80px; padding:8px; margin:0;">
-                            <input type="number" name="discount" value="{{ u.get('discount', 0) }}" placeholder="Disc % (e.g. 40)" style="width:100px; padding:8px; margin:0;">
-                            <button type="submit" class="btn-success" style="padding:8px 15px;">Update</button>
+                        <form action="/update_user" method="POST" style="display:flex; gap:10px;">
+                            <input type="hidden" name="uid" value="{{ u._id }}">
+                            <input type="number" name="amount" placeholder="+/- ₹" style="width:70px; padding:8px; margin:0;">
+                            <input type="number" name="discount" value="{{ u.get('discount', 0) }}" placeholder="Disc%" style="width:70px; padding:8px; margin:0;">
+                            <button type="submit" class="btn-success" style="padding:8px 15px;">Save</button>
                         </form>
                     </td>
                 </tr>
@@ -598,15 +554,9 @@ HTML_TEMPLATE = """
         <div class="card">
             <h3>📜 All Purchase History</h3>
             <table>
-                <tr><th>Date/Time</th><th>User ID</th><th>Product</th><th>Price Paid</th><th>Key</th></tr>
-                {% for o in orders|reverse %}
-                <tr>
-                    <td><small>{{ o.time }}</small></td>
-                    <td><code>{{ o.uid }}</code></td>
-                    <td>{{ o.product }}</td>
-                    <td style="color:#10b981;">₹{{ o.price }}</td>
-                    <td><code>{{ o.key }}</code></td>
-                </tr>
+                <tr><th>Date/Time</th><th>User ID</th><th>Product</th><th>Price</th><th>Key</th></tr>
+                {% for o in orders %}
+                <tr><td><small>{{ o.time }}</small></td><td><code>{{ o.uid }}</code></td><td>{{ o.product }}</td><td style="color:#10b981;">₹{{ o.price }}</td><td><code>{{ o.key }}</code></td></tr>
                 {% endfor %}
             </table>
         </div>
@@ -614,55 +564,38 @@ HTML_TEMPLATE = """
         {% elif tab == 'broadcast' %}
         <div class="card">
             <h3>📢 Send Message to All Users</h3>
-            <form action="/send_broadcast" method="POST">
-                <div class="form-group"><textarea name="message" rows="5" placeholder="Yahan apna message likhein..." required></textarea></div>
-                <button type="submit" style="background:linear-gradient(90deg, #10b981, #059669);">🚀 Send Broadcast</button>
-            </form>
+            <form action="/send_broadcast" method="POST"><textarea name="message" rows="5" required></textarea><button type="submit" style="background:linear-gradient(90deg, #10b981, #059669);">🚀 Send</button></form>
         </div>
 
         {% elif tab == 'settings' %}
         <div class="card">
-            <h3>⚙️ Bot Settings & Maintenance</h3>
+            <h3>⚙️ Bot Settings</h3>
             <form action="/settings" method="POST">
                 <div class="row">
                     <div class="form-group"><label>Store Name</label><input type="text" name="store_name" value="{{ settings.get('store_name', '') }}"></div>
-                    <div class="form-group"><label>Support Username (No @)</label><input type="text" name="support_username" value="{{ settings.get('support_username', '') }}"></div>
+                    <div class="form-group"><label>Support Username</label><input type="text" name="support_username" value="{{ settings.get('support_username', '') }}"></div>
                 </div>
                 <div class="form-group"><label>Update Link</label><input type="url" name="update_link" value="{{ settings.get('update_link', '') }}"></div>
-                
-                <div class="row" style="margin-top: 15px; border-top: 1px solid #334155; padding-top: 15px;">
+                <div class="row">
                     <div class="form-group"><label>Reseller Price (₹)</label><input type="number" name="reseller_price" value="{{ settings.get('reseller_price', 149) }}"></div>
                     <div class="form-group"><label>Reseller Discount (%)</label><input type="number" name="reseller_discount" value="{{ settings.get('reseller_discount', 40) }}"></div>
                 </div>
-                
                 <div class="form-group">
-                    <label>Maintenance Mode</label>
-                    <select name="maintenance">
-                        <option value="false" {% if settings.get('maintenance')=='false' %}selected{% endif %}>🟢 ON (Bot Working)</option>
-                        <option value="true" {% if settings.get('maintenance')=='true' %}selected{% endif %}>🔴 OFF (Maintenance)</option>
-                    </select>
+                    <label>Global Bot Maintenance</label>
+                    <select name="maintenance"><option value="false" {% if settings.get('maintenance')=='false' %}selected{% endif %}>🟢 ON (Working)</option><option value="true" {% if settings.get('maintenance')=='true' %}selected{% endif %}>🔴 OFF (Maintenance)</option></select>
                 </div>
                 <button type="submit">💾 Save Settings</button>
             </form>
         </div>
         {% endif %}
     </div>
-    
-    <script>
-        function addPriceRow() {
-            const container = document.getElementById('price-container');
-            const div = document.createElement('div');
-            div.className = 'row';
-            div.innerHTML = `<div class="form-group"><input type="text" name="duration[]" placeholder="Duration (e.g. 1 DaYs)" required></div><div class="form-group"><input type="number" name="price[]" placeholder="Price (₹)" required></div>`;
-            container.appendChild(div);
-        }
-    </script>
+    <script>function addPriceRow() { const c = document.getElementById('price-container'); const d = document.createElement('div'); d.className='row'; d.innerHTML=`<div class="form-group"><input type="text" name="duration[]" placeholder="Duration" required></div><div class="form-group"><input type="number" name="price[]" placeholder="Price" required></div>`; c.appendChild(d); }</script>
 </body>
 </html>
 """
 
 @app.route('/')
-def index(): return render_template_string(HTML_TEMPLATE, tab='products', products=load_products())
+def index(): return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})))
 @app.route('/add_product', methods=['POST'])
 def add_product():
     try:
@@ -673,73 +606,84 @@ def add_product():
         if 'image_file' in request.files:
             f = request.files['image_file']
             if f.filename: img = os.path.join(UPLOAD_FOLDER, secure_filename(f.filename)); f.save(img)
-        prods = load_products(); prods[str(int(time.time()))] = {"name": request.form['name'], "pid": request.form['pid'], "image": img, "video": request.form.get('video'), "hack": request.form.get('hack'), "is_v1": request.form.get('is_v1')=='true', "prices": prices}
-        with open(PRODUCTS_FILE, "w") as f: json.dump(prods, f)
-        return render_template_string(HTML_TEMPLATE, tab='products', products=prods, msg_success="✅ Product Added!")
-    except Exception as e:
-        return render_template_string(HTML_TEMPLATE, tab='products', products=load_products(), msg_error=f"❌ Error: {str(e)}")
+        
+        products_col.insert_one({
+            "name": request.form['name'], "pid": request.form['pid'], 
+            "image": img, "video": request.form.get('video'), "hack": request.form.get('hack'), 
+            "is_v1": request.form.get('is_v1')=='true', 
+            "is_maintenance": request.form.get('is_maintenance')=='true',
+            "prices": prices
+        })
+        return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_success="✅ Product Added!")
+    except Exception as e: return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_error=f"❌ Error: {str(e)}")
 
 @app.route('/edit_product/<p_id>')
-def edit_product(p_id): return render_template_string(HTML_TEMPLATE, tab='edit_product', product=load_products().get(p_id), p_id=p_id)
+def edit_product(p_id): return render_template_string(HTML_TEMPLATE, tab='edit_product', product=products_col.find_one({"_id": ObjectId(p_id)}))
 @app.route('/update_product/<p_id>', methods=['POST'])
 def update_product(p_id):
     try:
-        prods = load_products(); prices = {}
+        prices = {}
         for d, p in zip(request.form.getlist('duration[]'), request.form.getlist('price[]')):
             if d.strip() and p.strip(): prices[d.strip()] = float(p.strip())
-        img = prods[p_id].get("image")
+        
+        current_prod = products_col.find_one({"_id": ObjectId(p_id)})
+        img = current_prod.get("image") 
         if 'image_file' in request.files:
             f = request.files['image_file']
             if f.filename: img = os.path.join(UPLOAD_FOLDER, secure_filename(f.filename)); f.save(img)
-        prods[p_id].update({"name": request.form['name'], "pid": request.form['pid'], "image": img, "video": request.form.get('video'), "hack": request.form.get('hack'), "is_v1": request.form.get('is_v1')=='true', "prices": prices})
-        with open(PRODUCTS_FILE, "w") as f: json.dump(prods, f)
-        return render_template_string(HTML_TEMPLATE, tab='products', products=prods, msg_success="✅ Product Updated!")
-    except Exception as e:
-        return render_template_string(HTML_TEMPLATE, tab='products', products=load_products(), msg_error=f"❌ Error: {str(e)}")
+        
+        products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {
+            "name": request.form['name'], "pid": request.form['pid'], 
+            "image": img, "video": request.form.get('video'), "hack": request.form.get('hack'), 
+            "is_v1": request.form.get('is_v1')=='true', 
+            "is_maintenance": request.form.get('is_maintenance')=='true',
+            "prices": prices
+        }})
+        return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_success="✅ Product Updated!")
+    except Exception as e: return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_error=f"❌ Error: {str(e)}")
+
+@app.route('/toggle_maintenance/<p_id>')
+def toggle_maintenance(p_id):
+    prod = products_col.find_one({"_id": ObjectId(p_id)})
+    new_status = not prod.get("is_maintenance", False)
+    products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {"is_maintenance": new_status}})
+    return redirect(url_for('index'))
 
 @app.route('/delete_product/<p_id>')
 def delete_product(p_id):
-    prods = load_products()
-    if p_id in prods: del prods[p_id]; 
-    with open(PRODUCTS_FILE, "w") as f: json.dump(prods, f)
+    products_col.delete_one({"_id": ObjectId(p_id)})
     return redirect(url_for('index'))
+
 @app.route('/users')
-def users(): return render_template_string(HTML_TEMPLATE, tab='users', users=load_db().get("users", {}))
+def users(): return render_template_string(HTML_TEMPLATE, tab='users', users=list(users_col.find({})))
 @app.route('/update_user', methods=['POST'])
 def update_user():
-    db = load_db(); uid = request.form['uid']
-    if uid in db["users"]:
-        amt = float(request.form['amount']) if request.form['amount'] else 0
-        db["users"][uid]["balance"] = max(0, round(db["users"][uid]["balance"] + amt, 2))
-        db["users"][uid]["discount"] = int(request.form['discount']) if request.form['discount'] else 0
-        save_db(db)
+    uid = request.form['uid']
+    amt = float(request.form['amount']) if request.form['amount'] else 0
+    discount = int(request.form['discount']) if request.form['discount'] else 0
+    users_col.update_one({"_id": uid}, {"$inc": {"balance": amt}, "$set": {"discount": discount}})
     return redirect(url_for('users'))
+
 @app.route('/orders')
-def orders():
-    db = load_db()
-    return render_template_string(HTML_TEMPLATE, tab='orders', orders=db.get("orders", []))
+def orders(): return render_template_string(HTML_TEMPLATE, tab='orders', orders=list(orders_col.find({}).sort("_id", -1).limit(100)))
 @app.route('/broadcast')
 def broadcast(): return render_template_string(HTML_TEMPLATE, tab='broadcast')
 @app.route('/send_broadcast', methods=['POST'])
 def send_broadcast():
-    db = load_db(); c = 0
-    for uid in db.get("users", {}).keys():
+    c = 0
+    for u in users_col.find({}):
         try:
-            if requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": uid, "text": request.form['message'], "parse_mode": "HTML"}).status_code == 200: c += 1
+            if requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": u["_id"], "text": request.form['message'], "parse_mode": "HTML"}).status_code == 200: c += 1
         except: pass
-    return render_template_string(HTML_TEMPLATE, tab='broadcast', msg_success=f"✅ Broadcast sent to {c} users!")
+    return render_template_string(HTML_TEMPLATE, tab='broadcast', msg_success=f"✅ Sent to {c} users!")
+
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
     if request.method == 'POST':
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump({
-                "store_name": request.form['store_name'], 
-                "support_username": request.form['support_username'], 
-                "update_link": request.form['update_link'], 
-                "maintenance": request.form['maintenance'],
-                "reseller_price": int(request.form.get('reseller_price', 149)),
-                "reseller_discount": int(request.form.get('reseller_discount', 40))
-            }, f)
+        save_settings({
+            "store_name": request.form['store_name'], "support_username": request.form['support_username'], "update_link": request.form['update_link'],
+            "maintenance": request.form['maintenance'], "reseller_price": int(request.form.get('reseller_price', 149)), "reseller_discount": int(request.form.get('reseller_discount', 40))
+        })
         return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings(), msg_success="✅ Settings Saved!")
     return render_template_string(HTML_TEMPLATE, tab='settings', settings=get_settings())
 

@@ -359,3 +359,4 @@ def process_android_id(msg, p_id, duration, price):
     if len(android_id) < 10: return bot.reply_to(msg, "❌ <b>Invalid Android ID!</b>", parse_mode="HTML")
     wait = bot.reply_to(msg, "⏳ <i>Checking Stock & Generating Key...</i>", parse_mode="HTML")
     execute_api_buy(msg.chat.id, wait.message_id, msg.from_user.id, p_
+                

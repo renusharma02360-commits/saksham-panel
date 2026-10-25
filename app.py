@@ -17,10 +17,13 @@ DB_FILE   = "wallet.json"
 PRODUCTS_FILE = "products.json"
 SETTINGS_FILE = "settings.json"
 UPLOAD_FOLDER = "static/uploads"
+
+RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
+RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
+MASTER_KEY       = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
 # ============================================
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-# Default settings add reseller price and discount
 for file, default in [
     (DB_FILE, {"users": {}, "utrs": [], "deposits": {}, "orders": []}), 
     (PRODUCTS_FILE, {}), 
@@ -118,7 +121,6 @@ def get_main_menu(uid, name):
     kb.add(InlineKeyboardButton("🛒 Buy Now", callback_data="menu_shop"), InlineKeyboardButton("📢 Updates", url=settings.get('update_link', 'https://t.me/')))
     kb.add(InlineKeyboardButton("💸 Add Balance", callback_data="menu_addfund"), InlineKeyboardButton("👤 My Profile", callback_data="menu_balance"))
     
-    # Add Buy Reseller button if not already a reseller
     if discount == 0:
         reseller_price = settings.get("reseller_price", 149)
         kb.add(InlineKeyboardButton(f"👑 Buy Reseller (₹{reseller_price})", callback_data="buy_reseller"))
@@ -197,31 +199,17 @@ def handle_callbacks(call):
             amount = float(data.split("_")[1])
             safe_edit(chat_id, msg_id, f"⚡ <i>Generating Secure UPI QR for ₹{amount}...</i>")
             generate_qr(chat_id, uid, amount, name)
-            
-        # ================== RESELLER PURCHASE ==================
         elif data == "buy_reseller":
             settings = get_settings()
             price = settings.get("reseller_price", 149)
-            text = (
-                f"👑 <b>BUY RESELLER ACCESS</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"💰 <b>Price:</b> ₹{price}\n"
-                f"🏷️ <b>Benefits:</b> Get {settings.get('reseller_discount', 40)}% OFF on all products!\n\n"
-                f"Click below to pay and unlock instant reseller prices:"
-            )
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton(f"💳 Pay ₹{price} Now", callback_data="pay_reseller"))
-            kb.add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
+            text = f"👑 <b>BUY RESELLER ACCESS</b>\n━━━━━━━━━━━━━━━━━━━━\n💰 <b>Price:</b> ₹{price}\n🏷️ <b>Benefits:</b> Get {settings.get('reseller_discount', 40)}% OFF on all products!\n\nClick below to pay:"
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton(f"💳 Pay ₹{price} Now", callback_data="pay_reseller")).add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
             safe_edit(chat_id, msg_id, text, kb)
-            
         elif data == "pay_reseller":
             settings = get_settings()
             price = settings.get("reseller_price", 149)
             safe_edit(chat_id, msg_id, f"⚡ <i>Generating Secure UPI QR for ₹{price}...</i>")
             generate_reseller_qr(chat_id, uid, price, name)
-            
-        # =========================================================
-        
         elif data == "menu_shop":
             products = load_products()
             if not products:
@@ -276,8 +264,9 @@ def handle_callbacks(call):
                 msg = bot.send_message(chat_id, "📱 <b>Enter your Android ID:</b>", parse_mode="HTML")
                 bot.register_next_step_handler(msg, process_android_id, p_id, duration, final_price)
             else:
-                wait = bot.send_message(chat_id, "⚡ <i>Generating Key...</i>", parse_mode="HTML")
-                execute_api_buy(chat_id, wait.message_id, uid, p_id, duration, final_price, android_id=None)
+                wait = bot.send_message(chat_id, "⚡ <i>Generating Key... (Please wait)</i>", parse_mode="HTML")
+                # 🔥 RUN IN BACKGROUND THREAD TO PREVENT BOT FREEZE
+                threading.Thread(target=execute_api_buy, args=(chat_id, wait.message_id, uid, p_id, duration, final_price, None), daemon=True).start()
         elif data.startswith("copykey_"):
             bot.answer_callback_query(call.id, f"✅ Key: {data.split('_', 1)[1]}\n\n(Tap to copy)", show_alert=True)
     except Exception as e: print(f"Callback Error: {e}")
@@ -289,7 +278,6 @@ def show_calc(chat_id, msg_id, uid):
     kb = InlineKeyboardMarkup(row_width=3).add(InlineKeyboardButton("1", callback_data="calc_1"), InlineKeyboardButton("2", callback_data="calc_2"), InlineKeyboardButton("3", callback_data="calc_3"), InlineKeyboardButton("4", callback_data="calc_4"), InlineKeyboardButton("5", callback_data="calc_5"), InlineKeyboardButton("6", callback_data="calc_6"), InlineKeyboardButton("7", callback_data="calc_7"), InlineKeyboardButton("8", callback_data="calc_8"), InlineKeyboardButton("9", callback_data="calc_9"), InlineKeyboardButton("🧹 AC", callback_data="calc_ac"), InlineKeyboardButton("0", callback_data="calc_0"), InlineKeyboardButton("❌ X", callback_data="calc_cut")).add(InlineKeyboardButton("✅ Done / Pay", callback_data="calc_done")).add(InlineKeyboardButton("🔙 Back", callback_data="menu_addfund"))
     safe_edit(chat_id, msg_id, text, kb)
 
-# ================== BALANCE QR ==================
 def generate_qr(chat_id, uid, amount, name, wait_msg=None):
     try: order = fg.create_order(amount=amount, customer_name=name or "User")
     except Exception as e:
@@ -329,7 +317,6 @@ def poll_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id, amount):
             bot.send_message(chat_id, f"⌛ <b>Order Expired.</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
             return
 
-# ================== RESELLER QR & POLL ==================
 def generate_reseller_qr(chat_id, uid, amount, name, wait_msg=None):
     try: order = fg.create_order(amount=amount, customer_name=f"Reseller_{name}")
     except Exception as e:
@@ -353,7 +340,6 @@ def poll_reseller_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id):
         try: status = fg.get_status(order_id)
         except: continue
         if status.is_paid:
-            # Upgrade user to Reseller
             with lock:
                 db = load_db()
                 if uid in db["users"]:
@@ -365,13 +351,7 @@ def poll_reseller_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id):
             try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
             except: pass
             
-            success_text = (
-                f"🎉 <b>CONGRATULATIONS!</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"You are now an official <b>RESELLER</b>!\n"
-                f"🏷️ You will now get <b>{discount}% OFF</b> on all products.\n\n"
-                f"Go back to shop to see new prices!"
-            )
+            success_text = f"🎉 <b>CONGRATULATIONS!</b>\n━━━━━━━━━━━━━━━━━━━━\nYou are now an official <b>RESELLER</b>!\n🏷️ You will now get <b>{discount}% OFF</b> on all products.\n\nGo back to shop to see new prices!"
             bot.send_message(chat_id, success_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🛒 Go to Shop", callback_data="menu_shop"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
             return
         if status.is_expired:
@@ -382,26 +362,41 @@ def poll_reseller_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id):
             bot.send_message(chat_id, f"⌛ <b>Order Expired.</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
             return
 
-# ================== API BUY ==================
 def process_android_id(msg, p_id, duration, price):
     android_id = msg.text.strip()
     if len(android_id) < 10: return bot.reply_to(msg, "❌ <b>Invalid Android ID!</b>", parse_mode="HTML")
     wait = bot.reply_to(msg, "⏳ <i>Checking Stock & Generating Key...</i>", parse_mode="HTML")
-    execute_api_buy(msg.chat.id, wait.message_id, msg.from_user.id, p_id, duration, price, android_id=android_id)
+    threading.Thread(target=execute_api_buy, args=(msg.chat.id, wait.message_id, msg.from_user.id, p_id, duration, price, android_id), daemon=True).start()
 
+# 🔥 MAIN FIX: ERROR HANDLING & TIMEOUT FIXED
 def execute_api_buy(chat_id, msg_id, uid, p_id, duration, price, android_id=None):
-    product = load_products()[p_id]
-    clean_pid = str(product["pid"]).strip()
-    clean_dur = str(duration).strip()
-    data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': clean_pid, 'duration': clean_dur, 'quantity': 1}
-    if android_id: data['android_id'] = android_id
-    headers = {'Content-Type': 'application/x-www-form-urlencoded', 'x-master-key': MASTER_KEY}
-    
-    try: 
+    try:
+        product = load_products().get(p_id)
+        if not product:
+            return safe_edit(chat_id, msg_id, "❌ <b>Product not found in database.</b>")
+
+        clean_pid = str(product["pid"]).strip()
+        clean_dur = str(duration).strip()
+        
+        data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': clean_pid, 'duration': clean_dur, 'quantity': 1}
+        if android_id: data['android_id'] = android_id
+        
+        # Added User-Agent to prevent Cloudflare block
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded', 
+            'x-master-key': MASTER_KEY,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        
         res = requests.post(RESELLER_API_URL, data=data, headers=headers, timeout=20)
-        result = res.json()
+        
+        try:
+            result = res.json()
+        except:
+            result = {"status": "error", "message": f"Invalid API Response. HTML: {res.text[:100]}"}
+            
     except Exception as e: 
-        result = {"status": "error", "message": str(e)}
+        result = {"status": "error", "message": f"System Error: {str(e)}"}
     
     if result.get("status") == "success" or "keys" in result:
         if deduct_balance(uid, price):
@@ -413,8 +408,9 @@ def execute_api_buy(chat_id, msg_id, uid, p_id, duration, price, android_id=None
         else: 
             safe_edit(chat_id, msg_id, "❌ <b>Balance deduct error.</b>")
     else: 
-        err_msg = str(result)
-        safe_edit(chat_id, msg_id, f"❌ <b>PURCHASE FAILED</b>\n\n<b>API Response:</b>\n<code>{err_msg}</code>")
+        err_msg = result.get("message", str(result))
+        # Show exact error to user (e.g. Out of Stock, Invalid Duration)
+        safe_edit(chat_id, msg_id, f"❌ <b>PURCHASE FAILED</b>\n\n<b>API Error:</b>\n<code>{err_msg}</code>")
 
 # ================== FLASK SETUP (WEB PANEL) ==================
 app = Flask(__name__)
@@ -735,7 +731,6 @@ def send_broadcast():
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
     if request.method == 'POST':
-        # Save all settings including reseller details
         with open(SETTINGS_FILE, "w") as f:
             json.dump({
                 "store_name": request.form['store_name'], 

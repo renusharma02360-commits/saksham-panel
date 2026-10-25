@@ -6,7 +6,7 @@ import urllib.parse
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from famgateway import FamGateway
-from flask import Flask, request, render_template_string, redirect, url_for, flash
+from flask import Flask, request, render_template_string, redirect, url_for
 from werkzeug.utils import secure_filename
 from pymongo import MongoClient
 from bson.objectid import ObjectId
@@ -39,8 +39,8 @@ bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
 calc_data = {}
 user_msg_history = {} 
-user_states = {} # For custom amount input
 active_payments = {} # Track QR cancellations
+user_states = {} # Track user inputs (like android id)
 
 # ---------------- DB HELPERS ----------------
 def get_settings():
@@ -179,7 +179,7 @@ def handle_callbacks(call):
                 text += "📜 <b>Recent Purchases:</b>\n\n"
                 for i, o in enumerate(user_orders, 1):
                     text += f"{i}. <b>{o['product']}</b>\n   🔑 <code>{o['key']}</code>\n\n"
-                    if o['key'] != "WhatsApp Manual":
+                    if o['key'] != "WhatsApp Manual" and o['key'] != "Refunded (Out of Stock)":
                         kb.add(InlineKeyboardButton(f"📋 Copy Key {i}", callback_data=f"copykey_{o['key']}"))
             else: 
                 text += "📭 <i>No purchases yet.</i>\n"
@@ -299,6 +299,7 @@ def handle_callbacks(call):
             try: bot.delete_message(chat_id, msg_id)
             except: pass
 
+            # Agar product WhatsApp manual hai
             if product.get("redirect_to_wp"):
                 if deduct_balance(uid, final_price):
                     log_order(uid, product['name'], "WhatsApp Manual", final_price)
@@ -309,13 +310,39 @@ def handle_callbacks(call):
                 else:
                     bot.send_message(chat_id, "❌ <b>Low Balance! Please add funds.</b>", parse_mode="HTML")
                 return
-            else:
-                if product.get("is_v1"):
-                    msg = bot.send_message(chat_id, "📱 <b>Enter your Android ID:</b>", parse_mode="HTML")
-                    bot.register_next_step_handler(msg, process_android_id, p_id, duration, final_price)
-                else:
-                    wait = bot.send_message(chat_id, "⚡ <i>Processing... Checking Stock</i>", parse_mode="HTML")
-                    threading.Thread(target=execute_api_buy, args=(chat_id, wait.message_id, uid, p_id, duration, final_price, None), daemon=True).start()
+            
+            # Agar V1 product hai, toh pehle Android ID mangega
+            if product.get("is_v1"):
+                user_states[uid] = {"p_id": p_id, "duration": duration, "price": final_price}
+                msg = bot.send_message(chat_id, "📱 <b>Enter your Android ID:</b>", parse_mode="HTML")
+                bot.register_next_step_handler(msg, process_android_id_for_payment)
+                return
+            
+            # Payment Options for V2 Products
+            text = (
+                f"📦 <b>{product['name']}</b>\n"
+                f"⏱ <b>Duration:</b> {duration}\n"
+                f"💵 <b>Price:</b> ₹{final_price:.2f}\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"👇 <i>How would you like to pay?</i>"
+            )
+            kb = InlineKeyboardMarkup(row_width=1)
+            kb.add(InlineKeyboardButton(f"💳 Pay from Wallet (₹{get_balance(uid):.2f} Available)", callback_data=f"pay_wallet_{p_id}_{duration}_{final_price}"))
+            kb.add(InlineKeyboardButton(f"⚡ Direct UPI Pay (₹{final_price:.2f})", callback_data=f"pay_direct_{p_id}_{duration}_{final_price}"))
+            kb.add(InlineKeyboardButton("🔙 Cancel", callback_data="menu_shop"))
+            send_menu(chat_id, text, kb)
+
+        elif data.startswith("pay_wallet_"):
+            parts = data.split("_", 3)
+            p_id, duration, price = parts[2], parts[3], float(parts[4])
+            wait = bot.send_message(chat_id, "⚡ <i>Processing... Checking Stock</i>", parse_mode="HTML")
+            threading.Thread(target=execute_api_buy_wallet, args=(chat_id, wait.message_id, uid, p_id, duration, price, None), daemon=True).start()
+
+        elif data.startswith("pay_direct_"):
+            parts = data.split("_", 3)
+            p_id, duration, price = parts[2], parts[3], float(parts[4])
+            safe_edit(chat_id, msg_id, f"⚡ <i>Generating Secure UPI QR for ₹{price}...</i>")
+            generate_direct_product_qr(chat_id, uid, p_id, duration, price, name)
 
         elif data.startswith("copykey_"):
             bot.answer_callback_query(call.id, f"✅ Key: {data.split('_', 1)[1]}\n\n(Tap to copy)", show_alert=True)
@@ -385,6 +412,56 @@ def poll_wallet_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id, amount
             send_menu(chat_id, f"⌛ <b>Order Expired.</b>", kb)
             return
 
+# ================== DIRECT PRODUCT QR ==================
+def generate_direct_product_qr(chat_id, uid, p_id, duration, price, name):
+    try: order = fg.create_order(amount=price, customer_name=f"Buy_{name}")
+    except Exception as e:
+        bot.send_message(chat_id, f"❌ <b>API Error:</b> <code>{str(e)}</code>", parse_mode="HTML")
+        return
+    
+    active_payments[order.order_id] = "pending"
+    caption = f"⚡ <b>DIRECT UPI PAYMENT</b>\n━━━━━━━━━━━━━━━━━━━━\n🆔 <b>Order ID:</b> <code>{order.order_id}</code>\n💵 <b>Amount:</b> ₹{float(order.payable_amount):.2f}\n━━━━━━━━━━━━━━━━━━━━\n\n📲 <i>Scan the QR above to pay.</i>\n✅ <b>Auto-verify ON</b>"
+    
+    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("❌ Cancel Payment", callback_data=f"cancel_qr_{order.order_id}"))
+    
+    sent_photo = bot.send_photo(chat_id, photo=order.qr_url, caption=caption, parse_mode="HTML", reply_markup=kb)
+    sent_wait = bot.send_message(chat_id, f"🔄 <b>Waiting for Payment...</b>", parse_mode="HTML")
+    
+    threading.Thread(target=poll_direct_purchase, args=(order.order_id, uid, chat_id, sent_wait.message_id, sent_photo.message_id, p_id, duration, price), daemon=True).start()
+
+def poll_direct_purchase(order_id, uid, chat_id, wait_msg_id, photo_msg_id, p_id, duration, price):
+    start_ts = time.time()
+    while time.time() - start_ts < 360:
+        time.sleep(2)
+        if active_payments.get(order_id) == "cancelled":
+            try: bot.delete_message(chat_id=chat_id, message_id=wait_msg_id)
+            except: pass
+            try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
+            except: pass
+            return
+            
+        try: status = fg.get_status(order_id)
+        except: continue
+        if status.is_paid:
+            try: bot.delete_message(chat_id=chat_id, message_id=wait_msg_id)
+            except: pass
+            try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
+            except: pass
+            
+            # Payment successful, now call API directly without deducting wallet
+            msg = bot.send_message(chat_id, "✅ <b>Payment Received!</b>\n⚡ <i>Generating Key from API...</i>", parse_mode="HTML")
+            threading.Thread(target=execute_api_buy_direct_upi, args=(chat_id, msg.message_id, uid, p_id, duration, price, None), daemon=True).start()
+            return
+            
+        if status.is_expired:
+            try: bot.delete_message(chat_id=chat_id, message_id=wait_msg_id)
+            except: pass
+            try: bot.delete_message(chat_id=chat_id, message_id=photo_msg_id)
+            except: pass
+            text, kb = get_main_menu(uid, "User")
+            send_menu(chat_id, f"⌛ <b>Order Expired.</b>", kb)
+            return
+
 # ================== RESELLER QR ==================
 def generate_reseller_qr(chat_id, uid, amount, name):
     try: order = fg.create_order(amount=amount, customer_name=f"Reseller_{name}")
@@ -434,20 +511,47 @@ def poll_reseller_status(order_id, uid, chat_id, wait_msg_id, photo_msg_id):
             bot.send_message(chat_id, f"⌛ <b>Order Expired.</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
             return
 
-# ================== API BUY WITH AUTO-REFUND ==================
-def process_android_id(msg, p_id, duration, price):
+# ================== API BUY LOGIC ==================
+
+# 1. For V1 Products (Wallet Only - User asked for Android ID)
+def process_android_id_for_payment(msg):
+    uid = msg.from_user.id
     android_id = msg.text.strip()
     if len(android_id) < 10: return bot.reply_to(msg, "❌ <b>Invalid Android ID!</b>", parse_mode="HTML")
-    wait = bot.reply_to(msg, "⏳ <i>Checking Stock & Generating Key...</i>", parse_mode="HTML")
-    threading.Thread(target=execute_api_buy, args=(msg.chat.id, wait.message_id, msg.from_user.id, p_id, duration, price, android_id), daemon=True).start()
+    
+    state = user_states.get(uid)
+    if not state: return
+    
+    p_id, duration, price = state['p_id'], state['duration'], state['price']
+    
+    product = products_col.find_one({"_id": ObjectId(p_id)})
+    text = (
+        f"📦 <b>{product['name']}</b>\n"
+        f"⏱ <b>Duration:</b> {duration}\n"
+        f"💵 <b>Price:</b> ₹{price:.2f}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👇 <i>How would you like to pay?</i>"
+    )
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton(f"💳 Pay from Wallet", callback_data=f"pay_wallet_{p_id}_{duration}_{price}"))
+    kb.add(InlineKeyboardButton(f"⚡ Direct UPI Pay", callback_data=f"pay_direct_{p_id}_{duration}_{price}"))
+    kb.add(InlineKeyboardButton("🔙 Cancel", callback_data="menu_shop"))
+    
+    send_menu(msg.chat.id, text, kb)
+    # Save android ID in state for later
+    user_states[uid]['android_id'] = android_id
 
-def execute_api_buy(chat_id, msg_id, uid, p_id, duration, price, android_id=None):
+# 2. For Wallet Payment
+def execute_api_buy_wallet(chat_id, msg_id, uid, p_id, duration, price, android_id=None):
     product = products_col.find_one({"_id": ObjectId(p_id)})
     if not product: return safe_edit(chat_id, msg_id, "❌ <b>Product not found in database.</b>")
     
-    # 1. Deduct Balance First
     if not deduct_balance(uid, price):
         return safe_edit(chat_id, msg_id, "❌ <b>Low Balance! Please add funds.</b>")
+
+    # Agar android_id pass nahi hua, toh state se utha lo
+    if product.get("is_v1") and not android_id:
+        android_id = user_states.get(uid, {}).get('android_id')
 
     try:
         clean_pid = str(product["pid"]).strip()
@@ -460,7 +564,6 @@ def execute_api_buy(chat_id, msg_id, uid, p_id, duration, price, android_id=None
         except: result = {"status": "error", "message": f"Invalid Response: {res.text[:100]}"}
     except Exception as e: result = {"status": "error", "message": f"System Error: {str(e)}"}
     
-    # 2. Check Result
     if result.get("status") == "success" or "keys" in result:
         keys = result.get("keys", ["Key not found"])
         new_bal = get_balance(uid)
@@ -468,10 +571,40 @@ def execute_api_buy(chat_id, msg_id, uid, p_id, duration, price, android_id=None
         kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("📋 Copy Key", callback_data=f"copykey_{keys[0]}"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back"))
         safe_edit(chat_id, msg_id, f"✅ <b>PURCHASE SUCCESSFUL</b>\n📦 <b>Product:</b> {product['name']}\n⏱ <b>Duration:</b> {duration}\n💵 <b>Price:</b> ₹{price:.2f}\n🔑 <b>Key:</b>\n<code>{keys[0]}</code>\n💼 <b>New Balance:</b> ₹{new_bal:.2f}", kb)
     else: 
-        # 3. AUTO-REFUND ON FAILURE
+        # AUTO-REFUND ON FAILURE
         credit_balance(uid, price)
         err_msg = result.get("message", str(result))
         safe_edit(chat_id, msg_id, f"❌ <b>PURCHASE FAILED (Out of Stock/API Error)</b>\n\n<b>Reason:</b>\n<code>{err_msg}</code>\n\n💰 <b>Amount ₹{price:.2f} has been refunded to your wallet.</b>", InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
+
+# 3. For Direct UPI Payment
+def execute_api_buy_direct_upi(chat_id, msg_id, uid, p_id, duration, price, android_id=None):
+    product = products_col.find_one({"_id": ObjectId(p_id)})
+    if not product: return safe_edit(chat_id, msg_id, "❌ <b>Product not found in database.</b>")
+
+    if product.get("is_v1") and not android_id:
+        android_id = user_states.get(uid, {}).get('android_id')
+
+    try:
+        clean_pid = str(product["pid"]).strip()
+        clean_dur = str(duration).strip()
+        data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': clean_pid, 'duration': clean_dur, 'quantity': 1}
+        if android_id: data['android_id'] = android_id
+        headers = {'Content-Type': 'application/x-www-form-urlencoded', 'x-master-key': MASTER_KEY, 'User-Agent': 'Mozilla/5.0'}
+        res = requests.post(RESELLER_API_URL, data=data, headers=headers, timeout=20)
+        try: result = res.json()
+        except: result = {"status": "error", "message": f"Invalid Response: {res.text[:100]}"}
+    except Exception as e: result = {"status": "error", "message": f"System Error: {str(e)}"}
+    
+    if result.get("status") == "success" or "keys" in result:
+        keys = result.get("keys", ["Key not found"])
+        log_order(uid, product['name'], keys[0], price)
+        kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("📋 Copy Key", callback_data=f"copykey_{keys[0]}"), InlineKeyboardButton("🔙 Menu", callback_data="menu_back"))
+        safe_edit(chat_id, msg_id, f"✅ <b>PURCHASE SUCCESSFUL</b>\n📦 <b>Product:</b> {product['name']}\n⏱ <b>Duration:</b> {duration}\n💵 <b>Price:</b> ₹{price:.2f}\n🔑 <b>Key:</b>\n<code>{keys[0]}</code>\n\n🎉 <i>Thank you for your direct purchase!</i>", kb)
+    else: 
+        # REFUND TO WALLET (Since UPI cannot be refunded automatically)
+        credit_balance(uid, price)
+        err_msg = result.get("message", str(result))
+        safe_edit(chat_id, msg_id, f"❌ <b>API ERROR (Out of Stock)</b>\n\n<b>Reason:</b>\n<code>{err_msg}</code>\n\n💰 <b>Amount ₹{price:.2f} has been added to your Wallet!</b>\nYou can buy using Wallet or try again later.", InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back")))
 
 
 # ================== FLASK SETUP (WEB PANEL) ==================

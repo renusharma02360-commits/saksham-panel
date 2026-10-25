@@ -2,6 +2,7 @@ import os
 import time
 import threading
 import requests
+import urllib.parse
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from famgateway import FamGateway
@@ -14,6 +15,7 @@ from bson.objectid import ObjectId
 BOT_TOKEN = "8807309763:AAEXX_0tVMslGImWCBkeKscBheg4io4gf6g"
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
 ADMIN_ID  = 7778093775
+ADMIN_WP  = "919306606011" # Aapka WhatsApp Number (91 ke saath)
 MONGO_URI = os.environ.get("MONGO_URI") 
 UPLOAD_FOLDER = "static/uploads"
 
@@ -150,7 +152,8 @@ def handle_callbacks(call):
                 text += "📜 <b>Recent Purchases:</b>\n\n"
                 for i, o in enumerate(user_orders, 1):
                     text += f"{i}. <b>{o['product']}</b>\n   🔑 <code>{o['key']}</code>\n\n"
-                    kb.add(InlineKeyboardButton(f"📋 Copy Key {i}", callback_data=f"copykey_{o['key']}"))
+                    if o['key'] != "WhatsApp Manual":
+                        kb.add(InlineKeyboardButton(f"📋 Copy Key {i}", callback_data=f"copykey_{o['key']}"))
             else: text += "📭 <i>No purchases yet.</i>\n"
             kb.add(InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back"))
             safe_edit(chat_id, msg_id, text, kb)
@@ -252,6 +255,32 @@ def handle_callbacks(call):
                 kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("💸 Add Balance", callback_data="menu_addfund"), InlineKeyboardButton("🔙 Back", callback_data="menu_shop"))
                 bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
                 return
+            
+            # ⚡ NEW: WhatsApp Manual Delivery Logic
+            if product.get("redirect_to_wp"):
+                if deduct_balance(uid, final_price):
+                    log_order(uid, product['name'], "WhatsApp Manual", final_price)
+                    wa_text = f"Hello Admin, I want to purchase {duration} {product['name']}. Please provide the key."
+                    wa_link = f"https://wa.me/{ADMIN_WP}?text={urllib.parse.quote(wa_text)}"
+                    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💬 Contact Admin on WhatsApp", url=wa_link)).add(InlineKeyboardButton("🔙 Menu", callback_data="menu_back"))
+                    
+                    success_text = (
+                        f"✅ <b>PAYMENT SUCCESSFUL</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"📦 <b>Product:</b> {product['name']}\n"
+                        f"⏱ <b>Duration:</b> {duration}\n"
+                        f"💵 <b>Price:</b> ₹{final_price:.2f}\n"
+                        f"💼 <b>New Balance:</b> ₹{get_balance(uid):.2f}\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"👇 <i>Click the button below to get your key.</i>"
+                    )
+                    bot.send_message(chat_id, success_text, parse_mode="HTML", reply_markup=kb)
+                else:
+                    bot.send_message(chat_id, "❌ <b>Balance deduct error.</b>", parse_mode="HTML")
+                return
+            # ⚡ END
+
+            # Normal Auto-Delivery (Banti API)
             if product.get("is_v1"):
                 msg = bot.send_message(chat_id, "📱 <b>Enter your Android ID:</b>", parse_mode="HTML")
                 bot.register_next_step_handler(msg, process_android_id, p_id, duration, final_price)
@@ -420,6 +449,7 @@ HTML_TEMPLATE = """
         .badge { background: #f59e0b; color: #000; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; display: inline-block; margin-top: 5px; }
         .badge-red { background: #ef4444; color: white; }
         .badge-green { background: #10b981; color: white; }
+        .badge-blue { background: #38bdf8; color: #000; }
         .alert-success { background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #10b981; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; }
         .alert-danger { background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #ef4444; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; }
         .product-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: rgba(15, 23, 42, 0.5); border-radius: 10px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05); }
@@ -460,6 +490,10 @@ HTML_TEMPLATE = """
                         <select name="is_v1"><option value="false">V2 (Direct Key)</option><option value="true">V1 (Requires Android ID)</option></select>
                     </div>
                     <div class="form-group">
+                        <label>Key Delivery Method</label>
+                        <select name="redirect_to_wp"><option value="false">🤖 Bot Auto-Delivery (API)</option><option value="true">💬 Manual WhatsApp Delivery</option></select>
+                    </div>
+                    <div class="form-group">
                         <label>Maintenance Mode</label>
                         <select name="is_maintenance"><option value="false">🟢 Active (ON)</option><option value="true">🔴 Disable (OFF)</option></select>
                     </div>
@@ -478,8 +512,9 @@ HTML_TEMPLATE = """
             <div class="product-item">
                 <div>
                     <strong style="color:#fff; font-size:16px;">{{ p.name }}</strong> 
-                    <span style="color:#64748b; font-size:12px;">(PID: {{ p.pid }})</span>
+                    <span style="color:#64748b; font-size:12px;">(PID: {{ p.pid }})</span><br>
                     {% if p.get('is_maintenance') %}<span class="badge badge-red">MAINTENANCE</span>{% else %}<span class="badge badge-green">ACTIVE</span>{% endif %}
+                    {% if p.get('redirect_to_wp') %}<span class="badge badge-blue">MANUAL (WA)</span>{% else %}<span class="badge">AUTO (API)</span>{% endif %}
                     <br>
                     <small style="color:#94a3b8;">{% for d, pr in p.prices.items() %}{{d}}: ₹{{pr}} | {% endfor %}</small>
                 </div>
@@ -509,6 +544,13 @@ HTML_TEMPLATE = """
                     <div class="form-group">
                         <label>Device Type</label>
                         <select name="is_v1"><option value="false" {% if not product.is_v1 %}selected{% endif %}>V2</option><option value="true" {% if product.is_v1 %}selected{% endif %}>V1</option></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Key Delivery Method</label>
+                        <select name="redirect_to_wp">
+                            <option value="false" {% if not product.get('redirect_to_wp') %}selected{% endif %}>🤖 Bot Auto-Delivery (API)</option>
+                            <option value="true" {% if product.get('redirect_to_wp') %}selected{% endif %}>💬 Manual WhatsApp Delivery</option>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>Maintenance Mode</label>
@@ -612,6 +654,7 @@ def add_product():
             "image": img, "video": request.form.get('video'), "hack": request.form.get('hack'), 
             "is_v1": request.form.get('is_v1')=='true', 
             "is_maintenance": request.form.get('is_maintenance')=='true',
+            "redirect_to_wp": request.form.get('redirect_to_wp')=='true',
             "prices": prices
         })
         return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_success="✅ Product Added!")
@@ -637,6 +680,7 @@ def update_product(p_id):
             "image": img, "video": request.form.get('video'), "hack": request.form.get('hack'), 
             "is_v1": request.form.get('is_v1')=='true', 
             "is_maintenance": request.form.get('is_maintenance')=='true',
+            "redirect_to_wp": request.form.get('redirect_to_wp')=='true',
             "prices": prices
         }})
         return render_template_string(HTML_TEMPLATE, tab='products', products=list(products_col.find({})), msg_success="✅ Product Updated!")

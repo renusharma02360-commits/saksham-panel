@@ -15,10 +15,9 @@ from bson.objectid import ObjectId
 BOT_TOKEN = "8764644526:AAET1x8jqFsp4d-XvdiZbVx-aO2cyKY3ISc"
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
 ADMIN_ID  = 7778093775
-ADMIN_WP  = "919306606011" 
 MONGO_URI = os.environ.get("MONGO_URI") 
 UPLOAD_FOLDER = "static/uploads"
-WEB_URL = "https://saksham-panel-kpsl.onrender.com" # Aapka render link
+WEB_URL = "https://saksham-panel-kpsl.onrender.com" 
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
@@ -37,26 +36,15 @@ settings_col = db.settings
 
 bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
-calc_data = {}
-active_payments = {} 
-buy_states = {} 
-pending_web_orders = {} # Track web UPI orders
 
 # ---------------- DB HELPERS ----------------
 def get_settings():
     s = settings_col.find_one({"_id": "global"})
     if not s:
-        default_s = {
-            "_id": "global", "store_name": "SAKSHAM STORE", "support_username": "YourSupport", 
-            "update_link": "https://t.me/", "maintenance": "false", "reseller_price": 149, "reseller_discount": 40, 
-            "how_to_use": "https://t.me/", "feedback_link": "https://t.me/", "referral_link": "https://t.me/"
-        }
+        default_s = {"_id": "global", "store_name": "TM PANEL SHOP", "support_username": "YourSupport"}
         settings_col.insert_one(default_s)
         return default_s
     return s
-
-def save_settings(updates):
-    settings_col.update_one({"_id": "global"}, {"$set": updates}, upsert=True)
 
 def get_user_info(uid):
     u = users_col.find_one({"_id": str(uid)})
@@ -69,13 +57,6 @@ def get_user_info(uid):
 def get_balance(uid):
     return get_user_info(uid).get("balance", 0.0)
 
-def get_discount(uid):
-    return get_user_info(uid).get("discount", 0)
-
-def credit_balance(uid, amount):
-    users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
-    return get_balance(uid)
-
 def deduct_balance(uid, amount):
     result = users_col.find_one_and_update(
         {"_id": str(uid), "balance": {"$gte": amount}},
@@ -83,35 +64,22 @@ def deduct_balance(uid, amount):
     )
     return result is not None
 
+def credit_balance(uid, amount):
+    users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
+    return get_balance(uid)
+
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ================== BOT LOGIC ==================
+# ================== TELEGRAM BOT LOGIC ==================
 def get_main_menu(uid, name):
     bal = get_balance(uid)
-    discount = get_discount(uid)
-    settings = get_settings()
-    support_user = str(settings.get('support_username', 'YourSupport')).replace('@', '')
-    
-    text = (
-        f"😃 <b>{settings.get('store_name', 'BANTI BHAIYA STORE')}</b> 🚀\n"
-        f"➖➖➖➖➖➖➖➖➖➖➖\n"
-        f"┣ 🛒 <b>Shop :</b> All Key Purchase\n"
-        f"┣ 💸 <b>Add Balance :</b> Deposit Balance\n"
-        f"┣ 👤 <b>My Profile :</b> Check Account Info\n"
-        f"➖➖➖➖➖➖➖➖➖➖➖\n"
-        f"💰 <b>Your Balance:</b> ₹{bal:.2f} {'👑' if discount > 0 else ''}\n"
-        f"➖➖➖➖➖➖➖➖➖➖➖\n"
-        f"👇 <i>Select an option:</i>"
-    )
-    
+    text = f"✨ <b>WELCOME, {name}</b>\n💳 <b>Wallet:</b> ₹{bal:.2f}\n\n👇 <i>Choose an option:</i>"
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("🛒 Shop", callback_data="menu_shop"), InlineKeyboardButton("💸 Add Balance", callback_data="menu_addfund"))
     kb.add(InlineKeyboardButton("👤 My Profile", callback_data="menu_balance"))
-    
-    if str(uid) == str(ADMIN_ID) and WEB_URL.startswith("https://"):
-        kb.add(InlineKeyboardButton("💻 Open Website", web_app=WebAppInfo(url=WEB_URL)))
-        
+    if str(uid) == str(ADMIN_ID):
+        kb.add(InlineKeyboardButton("💻 Admin Web Panel", web_app=WebAppInfo(url=f"{WEB_URL}/admin")))
     return text, kb
 
 @bot.message_handler(commands=["start"])
@@ -124,118 +92,176 @@ def start(msg):
 def handle_callbacks(call):
     uid, data, name = call.from_user.id, call.data, call.from_user.first_name
     msg_id, chat_id = call.message.message_id, call.message.chat.id
-    
     bot.answer_callback_query(call.id)
-    try:
-        if data == "menu_back":
-            text, kb = get_main_menu(uid, name)
-            bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
-        elif data == "menu_balance":
-            bal, discount = get_balance(uid), get_discount(uid)
-            text = f"👤 <b>MY PROFILE</b>\n🆔 <b>ID:</b> <code>{uid}</code>\n💵 <b>Balance:</b> ₹{bal:.2f}\n"
-            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
-            bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
-        elif data == "menu_addfund":
-            text = f"💸 <b>ADD BALANCE</b>\nSelect amount:"
-            kb = InlineKeyboardMarkup(row_width=3).add(InlineKeyboardButton("₹50", callback_data="amt_50"), InlineKeyboardButton("₹100", callback_data="amt_100")).add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
-            bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
-        elif data.startswith("amt_"):
-            amount = float(data.split("_")[1])
-            bot.edit_message_text(f"⚡ <i>Generating QR for ₹{amount}...</i>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
-            try: order = fg.create_order(amount=amount, customer_name=name)
-            except Exception as e: return bot.send_message(chat_id, f"Error: {e}")
-            caption = f"💳 <b>PAY ₹{amount}</b>\nOrder ID: <code>{order.order_id}</code>\nScan QR to pay."
-            bot.send_photo(chat_id, photo=order.qr_url, caption=caption, parse_mode="HTML")
-            # (Polling logic same as before, omitted for brevity, but included in actual code)
-        elif data == "menu_shop":
-            products = list(products_col.find({}))
-            kb = InlineKeyboardMarkup(row_width=1)
-            for p in products:
-                kb.add(InlineKeyboardButton(f"📦 {p['name']}", callback_data=f"view|{str(p['_id'])}"))
-            kb.add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
-            bot.edit_message_text("🛒 <b>STORE PRODUCTS</b>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
-        elif data.startswith("view|"):
-            p_id = data.split("|")[1]
-            product = products_col.find_one({"_id": ObjectId(p_id)})
-            text = f"📦 <b>{product['name']}</b>\n"
-            kb = InlineKeyboardMarkup(row_width=2)
-            for dur, price in product["prices"].items():
-                kb.add(InlineKeyboardButton(f"⏱ {dur} - ₹{price}", callback_data=f"buy|{p_id}|{dur}"))
-            kb.add(InlineKeyboardButton("🔙 Back", callback_data="menu_shop"))
-            bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
-        elif data.startswith("buy|"):
-            parts = data.split("|")
-            p_id, duration = parts[1], parts[2]
-            product = products_col.find_one({"_id": ObjectId(p_id)})
-            price = float(product["prices"][duration])
-            
-            if deduct_balance(uid, price):
-                bot.edit_message_text("⚡ <i>Processing API...</i>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
-                # API Call
+    
+    if data == "menu_back":
+        text, kb = get_main_menu(uid, name)
+        bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
+    elif data == "menu_balance":
+        bal = get_balance(uid)
+        text = f"👤 <b>MY PROFILE</b>\n🆔 <b>ID:</b> <code>{uid}</code>\n💵 <b>Balance:</b> ₹{bal:.2f}"
+        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
+        bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
+    elif data == "menu_shop":
+        products = list(products_col.find({}))
+        if not products:
+            return bot.answer_callback_query(call.id, "Store is empty!", show_alert=True)
+        kb = InlineKeyboardMarkup(row_width=1)
+        for p in products:
+            kb.add(InlineKeyboardButton(f"📦 {p['name']}", callback_data=f"view|{str(p['_id'])}"))
+        kb.add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
+        bot.edit_message_text("🛒 <b>STORE PRODUCTS</b>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
+    elif data.startswith("view|"):
+        p_id = data.split("|")[1]
+        product = products_col.find_one({"_id": ObjectId(p_id)})
+        text = f"📦 <b>{product['name']}</b>\n"
+        kb = InlineKeyboardMarkup(row_width=2)
+        for dur, price in product["prices"].items():
+            kb.add(InlineKeyboardButton(f"⏱ {dur} - ₹{price}", callback_data=f"buy|{p_id}|{dur}"))
+        kb.add(InlineKeyboardButton("🔙 Back", callback_data="menu_shop"))
+        bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
+    elif data.startswith("buy|"):
+        parts = data.split("|")
+        p_id, duration = parts[1], parts[2]
+        product = products_col.find_one({"_id": ObjectId(p_id)})
+        price = float(product["prices"][duration])
+        
+        if deduct_balance(uid, price):
+            bot.edit_message_text("⚡ <i>Processing API...</i>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
+            try:
                 data_req = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(product["pid"]).strip(), 'duration': str(duration).strip(), 'quantity': 1}
-                res = requests.post(RESELLER_API_URL, data=data_req, headers={'x-master-key': MASTER_KEY})
+                res = requests.post(RESELLER_API_URL, data=data_req, headers={'x-master-key': MASTER_KEY}, timeout=20)
                 result = res.json()
-                if result.get("status") == "success" or "keys" in result:
-                    key = result.get("keys", ["Key not found"])[0]
-                    log_order(uid, product['name'], key, price)
-                    bot.edit_message_text(f"✅ <b>SUCCESS</b>\n🔑 Key: <code>{key}</code>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
-                else:
-                    credit_balance(uid, price) # Refund
-                    bot.edit_message_text(f"❌ <b>Failed</b>\nRefunded ₹{price}.", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
+            except Exception as e: result = {"status": "error", "message": str(e)}
+            
+            if result.get("status") == "success" or "keys" in result:
+                key = result.get("keys", ["Key not found"])[0]
+                log_order(uid, product['name'], key, price)
+                bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL</b>\n🔑 Key: <code>{key}</code>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
             else:
-                bot.answer_callback_query(call.id, "❌ Low Balance! Add funds on website.", show_alert=True)
-    except Exception as e: print(f"Bot Error: {e}")
+                credit_balance(uid, price) # Refund
+                bot.edit_message_text(f"❌ <b>Failed (Out of Stock)</b>\nRefunded ₹{price} to wallet.", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
+        else:
+            bot.answer_callback_query(call.id, "❌ Low Balance! Please add funds on website.", show_alert=True)
+    elif data == "menu_addfund":
+        bot.edit_message_text("💸 Please visit the website to add balance instantly!", chat_id=chat_id, message_id=msg_id, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💻 Open Website", web_app=WebAppInfo(url=WEB_URL))))
 
-
-# ================== FLASK WEB APP ==================
+# ================== FLASK WEB APP (TM PANEL UI) ==================
 app = Flask(__name__)
 app.secret_key = "saksham_secret_key"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# ---- WEB HTML TEMPLATES (BOT UI INSPIRED) ----
-BASE_STYLE = """
+# -------- GLOBAL CSS (NEON DARK THEME) --------
+BASE_CSS = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap');
-    * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; }
-    body { background: #0b0f19; color: #e2e8f0; min-height: 100vh; background-image: radial-gradient(circle at 50% -20%, #1e1b4b, #0b0f19 50%); padding-bottom: 50px; }
-    .container { max-width: 800px; margin: 0 auto; padding: 20px; }
-    .header { text-align: center; margin-bottom: 30px; padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
-    .header h1 { font-size: 32px; font-weight: 800; background: linear-gradient(90deg, #38bdf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); padding: 25px; border-radius: 16px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 10px 30px rgba(0,0,0,0.3); text-align: center; }
-    .btn { display: block; width: 100%; padding: 15px; background: linear-gradient(90deg, #0ea5e9, #3b82f6); color: white; text-decoration: none; border-radius: 10px; font-weight: 600; margin-bottom: 15px; border: none; cursor: pointer; transition: 0.3s; font-size: 16px; text-align: center; }
-    .btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(14, 165, 233, 0.4); }
-    .btn-success { background: linear-gradient(90deg, #10b981, #059669); }
-    .btn-danger { background: linear-gradient(90deg, #ef4444, #dc2626); }
-    .btn-warning { background: linear-gradient(90deg, #f59e0b, #d97706); color: #000; }
-    .input-group { margin-bottom: 20px; text-align: left; }
-    .input-group label { display: block; margin-bottom: 8px; color: #94a3b8; font-size: 14px; }
-    .input-group input, .input-group select { width: 100%; padding: 14px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; outline: none; font-size: 16px; }
-    .input-group input:focus { border-color: #38bdf8; }
-    .balance-box { background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; padding: 20px; border-radius: 12px; margin-bottom: 25px; }
-    .balance-box h2 { color: #10b981; font-size: 28px; margin-bottom: 5px; }
+    * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { background-color: #090a0f; color: #fff; padding-bottom: 80px; background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #090a0f 60%); }
+    
+    /* Top Navbar */
+    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .store-btn { background: linear-gradient(45deg, #0ea5e9, #3b82f6); padding: 8px 15px; border-radius: 20px; font-weight: 600; display: flex; align-items: center; gap: 5px; font-size: 14px; box-shadow: 0 0 10px rgba(14, 165, 233, 0.5); color: white; text-decoration: none; }
+    .reseller-badge { background: linear-gradient(45deg, #f59e0b, #ef4444); padding: 5px 10px; border-radius: 15px; font-size: 10px; font-weight: 800; color: #fff; text-transform: uppercase; margin-left: 5px; }
+    .wallet-box { background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; padding: 5px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-weight: 700; color: #10b981; font-size: 14px; }
+    .top-up-btn { background: linear-gradient(45deg, #6366f1, #a855f7); padding: 8px 15px; border-radius: 20px; font-weight: 600; font-size: 14px; color: white; border: none; cursor: pointer; box-shadow: 0 0 15px rgba(168, 85, 247, 0.4); text-decoration: none; }
+    
+    /* Container */
+    .container { padding: 20px; max-width: 800px; margin: 0 auto; }
+    
+    /* Hero Banner */
+    .hero-banner { width: 100%; height: 180px; background: linear-gradient(135deg, #1e1b4b, #312e81, #4338ca); border-radius: 20px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 20px; border: 1px solid #6366f1; box-shadow: 0 10px 30px rgba(99, 102, 241, 0.2); position: relative; overflow: hidden; }
+    .hero-banner h1 { font-size: 24px; font-weight: 800; text-shadow: 0 0 10px rgba(255,255,255,0.5); background: linear-gradient(90deg, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero-banner p { font-size: 12px; color: #cbd5e1; margin-top: 5px; }
+    .tg-btn { background: #0ea5e9; color: white; padding: 8px 20px; border-radius: 20px; text-decoration: none; font-size: 12px; font-weight: 600; margin-top: 10px; display: inline-block; }
+
+    /* Stats Grid */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+    .stat-card { background: rgba(30, 41, 59, 0.6); border-radius: 12px; padding: 15px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; justify-content: center; }
+    .stat-title { font-size: 11px; color: #94a3b8; font-weight: 600; margin-bottom: 5px; display: flex; align-items: center; gap: 5px; text-transform: uppercase; }
+    .stat-value { font-size: 20px; font-weight: 800; }
+    .text-green { color: #10b981; }
+    .text-blue { color: #38bdf8; }
+    .text-yellow { color: #f59e0b; }
+
+    /* Reseller VIP Banner */
+    .vip-banner { background: linear-gradient(90deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.05)); border: 1px solid #10b981; border-radius: 12px; padding: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
+    .vip-title { font-size: 14px; font-weight: 700; color: #10b981; }
+    .vip-desc { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+    .vip-badge { background: #10b981; color: #000; padding: 5px 10px; border-radius: 8px; font-size: 10px; font-weight: 800; }
+
+    /* Live Purchases */
+    .live-title { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+    .live-dot { width: 8px; height: 8px; background: #ef4444; border-radius: 50%; box-shadow: 0 0 10px #ef4444; animation: pulse 1s infinite; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    .live-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
+    .live-scroll::-webkit-scrollbar { display: none; }
+    .live-card { min-width: 180px; background: rgba(30, 41, 59, 0.8); padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; }
+    .live-card .user { font-size: 10px; color: #94a3b8; }
+    .live-card .prod { font-size: 12px; font-weight: 700; color: #fff; margin: 5px 0; }
+    .live-card .key { font-size: 10px; color: #38bdf8; font-family: monospace; }
+
+    /* Products Section */
+    .section-title { font-size: 16px; font-weight: 700; margin-bottom: 15px; margin-top: 20px; display: flex; align-items: center; gap: 8px; color: #fff; }
     .product-grid { display: grid; grid-template-columns: 1fr; gap: 15px; }
-    .product-card { background: rgba(15, 23, 42, 0.8); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); transition: 0.3s; text-align: left; }
-    .product-card:hover { border-color: #38bdf8; }
-    .product-title { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 10px; }
-    .price-badge { display: inline-block; background: rgba(56, 189, 248, 0.2); color: #38bdf8; padding: 5px 10px; border-radius: 6px; font-size: 14px; margin-right: 10px; }
+    .product-card { background: linear-gradient(145deg, #1e293b, #0f172a); border-radius: 15px; padding: 15px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; }
+    .product-title { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 10px; }
+    .price-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
+    .price-tag { background: rgba(56, 189, 248, 0.1); color: #38bdf8; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+    .buy-btn { background: linear-gradient(90deg, #0ea5e9, #3b82f6); color: white; text-align: center; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 14px; border: none; cursor: pointer; }
+
+    /* Bottom Nav */
+    .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: #0f172a; display: flex; justify-content: space-around; padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.05); z-index: 100; padding-bottom: env(safe-area-inset-bottom, 15px); }
+    .nav-item { display: flex; flex-direction: column; align-items: center; color: #64748b; text-decoration: none; font-size: 10px; font-weight: 600; gap: 5px; }
+    .nav-item.active { color: #0ea5e9; }
+    .nav-icon { font-size: 20px; }
+
+    /* Forms & Inputs */
+    .input-group { margin-bottom: 15px; }
+    .input-group label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px; }
+    .input-group input { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: #fff; font-size: 14px; outline: none; }
+    .input-group input:focus { border-color: #38bdf8; }
+    .submit-btn { width: 100%; background: linear-gradient(90deg, #10b981, #059669); color: #fff; padding: 14px; border-radius: 10px; border: none; font-weight: 700; font-size: 14px; cursor: pointer; }
 </style>
 """
+
+def get_bottom_nav(active):
+    return f"""
+    <div class="bottom-nav">
+        <a href="/" class="nav-item {'active' if active == 'store' else ''}">
+            <span class="nav-icon">🛍️</span> Store
+        </a>
+        <a href="/keys" class="nav-item {'active' if active == 'keys' else ''}">
+            <span class="nav-icon">🔑</span> My Keys
+        </a>
+        <a href="/deposit" class="nav-item {'active' if active == 'deposit' else ''}">
+            <span class="nav-icon">💰</span> Deposit
+        </a>
+        <a href="/history" class="nav-item {'active' if active == 'history' else ''}">
+            <span class="nav-icon">📜</span> History
+        </a>
+        <a href="/profile" class="nav-item {'active' if active == 'profile' else ''}">
+            <span class="nav-icon">👤</span> Profile
+        </a>
+    </div>
+    """
 
 @app.route('/')
 def web_home():
     if 'uid' not in session:
-        return render_template_string(BASE_STYLE + """
-        <div class="container">
-            <div class="header"><h1>👑 Saksham Panel</h1></div>
-            <div class="card">
-                <h2>Login to Continue</h2>
-                <p style="color:#94a3b8; margin-bottom:20px;">Enter your Telegram ID to access your account.</p>
+        return render_template_string(BASE_CSS + """
+        <div class="container" style="margin-top: 50px;">
+            <div class="hero-banner">
+                <h1>TM PANEL SHOP</h1>
+                <p>Premium Panel Store</p>
+            </div>
+            <div style="background: rgba(30, 41, 59, 0.8); padding: 20px; border-radius: 15px;">
+                <h2 style="font-size: 18px; margin-bottom: 15px;">Login to Continue</h2>
                 <form method="POST" action="/login">
                     <div class="input-group">
                         <label>Telegram ID</label>
                         <input type="text" name="uid" placeholder="e.g. 7778093775" required>
                     </div>
-                    <button type="submit" class="btn">Login</button>
+                    <button type="submit" class="submit-btn">Login</button>
                 </form>
             </div>
         </div>
@@ -244,83 +270,135 @@ def web_home():
     uid = session['uid']
     u = get_user_info(uid)
     bal = u['balance']
-    settings = get_settings()
     
-    return render_template_string(BASE_STYLE + f"""
+    # Fetch Live Orders (Latest 5)
+    live_orders = list(orders_col.find({}).sort("_id", -1).limit(5))
+    live_html = ""
+    for o in live_orders:
+        live_html += f"""
+        <div class="live-card">
+            <div class="user">👤 User***{str(o['uid'])[-3:]}</div>
+            <div class="prod">📦 {o['product']}</div>
+            <div class="key">🔑 {str(o['key'])[:10]}***</div>
+        </div>
+        """
+    if not live_orders:
+        live_html = "<div style='color:#64748b; font-size:12px;'>No live purchases yet.</div>"
+
+    # Fetch Products
+    products = list(products_col.find({}))
+    prod_html = ""
+    for p in products:
+        price_tags = "".join([f"<span class='price-tag'>{d} - ₹{pr}</span>" for d, pr in p['prices'].items()])
+        prod_html += f"""
+        <div class="product-card">
+            <div class="product-title">📦 {p['name']}</div>
+            <div class="price-row">{price_tags}</div>
+            <a href="/product/{str(p['_id'])}" class="buy-btn">View & Buy</a>
+        </div>
+        """
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <a href="/" class="store-btn">📦 Store</a>
+            <span class="reseller-badge">Reseller</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+            <div class="wallet-box">💳 ₹{bal:.2f}</div>
+            <a href="/deposit" class="top-up-btn">⚡ TOP UP</a>
+        </div>
+    </div>
+
     <div class="container">
-        <div class="header"><h1>👑 {settings.get('store_name', 'SAKSHAM STORE')}</h1></div>
-        
-        <div class="balance-box">
-            <h2>₹{bal:.2f}</h2>
-            <p style="color:#94a3b8;">Available Balance</p>
+        <div class="hero-banner">
+            <h1>TM PANEL SHOP</h1>
+            <p>Premium Panel Store</p>
+            <a href="https://t.me/SakshamPannelBot" class="tg-btn">JOIN TELEGRAM BOT</a>
         </div>
 
-        <a href="/shop" class="btn">🛒 Shop / Store Product</a>
-        <a href="/profile" class="btn">👤 My Profile</a>
-        <a href="/add_balance" class="btn">💸 Add Balance</a>
-        <a href="/logout" class="btn btn-danger">🚪 Logout</a>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-title">💳 Wallet Balance</div>
+                <div class="stat-value text-green">₹{bal:.2f}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">🔑 Keys Purchased</div>
+                <div class="stat-value text-blue">{len(list(orders_col.find({'uid': str(uid)})))}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">⚡ Today's Spend</div>
+                <div class="stat-value text-yellow">₹0.00</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">🛍️ Total Spent</div>
+                <div class="stat-value text-yellow">₹{sum([o['price'] for o in orders_col.find({'uid': str(uid)})]):.2f}</div>
+            </div>
+        </div>
+
+        <div class="vip-banner">
+            <div>
+                <div class="vip-title">👑 RESELLER VIP PANEL ACTIVE</div>
+                <div class="vip-desc">Main website wholesale reseller discount rates applied.</div>
+            </div>
+            <div class="vip-badge">RESELLER</div>
+        </div>
+
+        <div class="live-title">
+            <div class="live-dot"></div> Live Purchases <span style="background:#ef4444; color:#fff; padding:2px 8px; border-radius:10px; font-size:10px;">1000+ LIVE</span>
+        </div>
+        <div class="live-scroll">
+            {live_html}
+        </div>
+
+        <div class="section-title">🔥 Browse Products</div>
+        <div style="font-size: 12px; color: #38bdf8; margin-bottom: 10px;">>> MARKETPLACE / RESELLER WHOLESALE STOCK</div>
+        <div class="product-grid">
+            {prod_html}
+        </div>
     </div>
+    {get_bottom_nav('store')}
     """)
 
 @app.route('/login', methods=['POST'])
 def web_login():
     uid = request.form['uid'].strip()
     session['uid'] = uid
-    get_user_info(uid) # Create if not exists
+    get_user_info(uid) 
     return redirect(url_for('web_home'))
-
-@app.route('/logout')
-def web_logout():
-    session.pop('uid', None)
-    return redirect(url_for('web_home'))
-
-@app.route('/shop')
-def web_shop():
-    if 'uid' not in session: return redirect(url_for('web_home'))
-    products = list(products_col.find({}))
-    
-    html = BASE_STYLE + "<div class='container'><div class='header'><h1>🛒 Store Products</h1></div><div class='product-grid'>"
-    for p in products:
-        html += f"""
-        <div class='product-card'>
-            <div class='product-title'>{p['name']}</div>
-            <div style='margin-bottom:15px;'>
-                {" ".join([f"<span class='price-badge'>{d} - ₹{pr}</span>" for d, pr in p['prices'].items()])}
-            </div>
-            <a href='/product/{str(p["_id"])}' class='btn btn-success' style='padding:10px; font-size:14px;'>View & Buy</a>
-        </div>
-        """
-    html += "</div><br><a href='/' class='btn btn-warning'>🔙 Back to Menu</a></div>"
-    return render_template_string(html)
 
 @app.route('/product/<p_id>')
 def web_product(p_id):
     if 'uid' not in session: return redirect(url_for('web_home'))
-    uid = session['uid']
     p = products_col.find_one({"_id": ObjectId(p_id)})
     if not p: return "Product not found", 404
     
-    html = BASE_STYLE + f"""
-    <div class='container'>
-        <div class='header'><h1>📦 {p['name']}</h1></div>
-        <div class='card'>
-            <p style='color:#94a3b8; margin-bottom:20px;'>{p.get('description', 'No description.')}</p>
-            <h3 style='text-align:left; margin-bottom:15px;'>Select Duration:</h3>
-    """
-    for dur, price in p["prices"].items():
-        html += f"""
+    price_tags = "".join([f"""
         <form action="/buy_web" method="POST" style="margin-bottom:10px;">
             <input type="hidden" name="p_id" value="{p_id}">
-            <input type="hidden" name="duration" value="{dur}">
-            <button type="submit" class="btn" style="display:flex; justify-content:space-between;">
-                <span>⏱ {dur}</span>
-                <span>₹{price}</span>
+            <input type="hidden" name="duration" value="{d}">
+            <button type="submit" class="submit-btn" style="display:flex; justify-content:space-between; background:linear-gradient(90deg, #0ea5e9, #3b82f6);">
+                <span>⏱ {d}</span>
+                <span>₹{pr}</span>
             </button>
         </form>
-        """
-    
-    html += "<br><a href='/shop' class='btn btn-warning'>🔙 Back to Shop</a></div></div>"
-    return render_template_string(html)
+    """ for d, pr in p['prices'].items()])
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <a href="/" class="store-btn">🔙 Back</a>
+        <div class="wallet-box">💳 ₹{get_balance(session['uid']):.2f}</div>
+    </div>
+    <div class="container" style="margin-top:20px;">
+        <div class="product-card">
+            <div class="product-title" style="font-size:20px;">📦 {p['name']}</div>
+            <p style="color:#94a3b8; font-size:12px; margin-bottom:20px;">{p.get('description', 'Instant delivery key.')}</p>
+            <div class="section-title" style="margin-top:0;">Select Duration:</div>
+            {price_tags}
+        </div>
+    </div>
+    {get_bottom_nav('store')}
+    """)
 
 @app.route('/buy_web', methods=['POST'])
 def buy_web():
@@ -331,106 +409,199 @@ def buy_web():
     
     product = products_col.find_one({"_id": ObjectId(p_id)})
     price = float(product["prices"][duration])
-    bal = get_balance(uid)
     
-    if bal < price:
-        return render_template_string(BASE_STYLE + f"<div class='container'><div class='card'><h2 style='color:#ef4444;'>❌ Low Balance</h2><p>You need ₹{price} but have ₹{bal}.</p><br><a href='/add_balance' class='btn btn-success'>Add Balance</a><a href='/shop' class='btn btn-warning'>Back</a></div></div>")
-    
-    # Deduct and Buy
     if deduct_balance(uid, price):
-        # Call API
         try:
             data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(product["pid"]).strip(), 'duration': str(duration).strip(), 'quantity': 1}
-            res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY})
+            res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
             result = res.json()
-        except Exception as e:
-            result = {"status": "error", "message": str(e)}
+        except Exception as e: result = {"status": "error", "message": str(e)}
             
         if result.get("status") == "success" or "keys" in result:
             key = result.get("keys", ["Key not found"])[0]
             log_order(uid, product['name'], key, price)
-            return render_template_string(BASE_STYLE + f"<div class='container'><div class='card'><h2 style='color:#10b981;'>✅ Purchase Successful!</h2><p style='margin:20px 0;'>Your Key:</p><div style='background:#0f172a; padding:15px; border-radius:8px; font-family:monospace; font-size:18px; border:1px solid #38bdf8;'>{key}</div><br><a href='/' class='btn'>Back to Menu</a></div></div>")
+            return render_template_string(BASE_CSS + f"""
+            <div class="container" style="margin-top:50px;">
+                <div class="product-card" style="text-align:center;">
+                    <h2 style="color:#10b981; margin-bottom:15px;">✅ Purchase Successful!</h2>
+                    <p style="color:#94a3b8;">Your Key:</p>
+                    <div style="background:#0f172a; padding:15px; border-radius:10px; border:1px solid #38bdf8; font-family:monospace; font-size:18px; margin:15px 0;">{key}</div>
+                    <a href="/keys" class="submit-btn" style="display:block; text-decoration:none;">Go to My Keys</a>
+                </div>
+            </div>
+            {get_bottom_nav('store')}
+            """)
         else:
-            # REFUND ON FAILURE
             credit_balance(uid, price)
-            return render_template_string(BASE_STYLE + f"<div class='container'><div class='card'><h2 style='color:#ef4444;'>❌ Out of Stock</h2><p>API Error: {result.get('message', 'Unknown')}</p><p style='color:#10b981; margin-top:10px;'>₹{price} Refunded to Wallet.</p><br><a href='/' class='btn'>Back to Menu</a></div></div>")
-    
+            return render_template_string(BASE_CSS + f"""
+            <div class="container" style="margin-top:50px;">
+                <div class="product-card" style="text-align:center;">
+                    <h2 style="color:#ef4444; margin-bottom:15px;">❌ Out of Stock</h2>
+                    <p style="color:#94a3b8;">API Error: {result.get('message', 'Unknown')}</p>
+                    <p style="color:#10b981; margin-top:10px;">₹{price} Refunded to Wallet.</p>
+                    <br><a href="/" class="submit-btn" style="display:block; text-decoration:none;">Back to Store</a>
+                </div>
+            </div>
+            {get_bottom_nav('store')}
+            """)
     return redirect(url_for('web_home'))
 
-@app.route('/add_balance')
-def web_add_balance():
+@app.route('/keys')
+def web_keys():
     if 'uid' not in session: return redirect(url_for('web_home'))
-    return render_template_string(BASE_STYLE + """
-    <div class='container'>
-        <div class='header'><h1>💸 Add Balance</h1></div>
-        <div class='card'>
+    uid = session['uid']
+    orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
+    
+    keys_html = ""
+    for o in orders:
+        keys_html += f"""
+        <div class="product-card" style="margin-bottom:10px;">
+            <div style="font-size:12px; color:#94a3b8;">{o['time']}</div>
+            <div style="font-weight:700; margin:5px 0;">📦 {o['product']}</div>
+            <div style="background:#0f172a; padding:10px; border-radius:8px; font-family:monospace; font-size:14px; color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">{o['key']}</div>
+        </div>
+        """
+    if not orders: keys_html = "<p style='color:#94a3b8; text-align:center;'>No keys purchased yet.</p>"
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:700;">🔑 My Keys</div>
+        <div class="wallet-box">💳 ₹{get_balance(uid):.2f}</div>
+    </div>
+    <div class="container" style="margin-top:20px;">
+        {keys_html}
+    </div>
+    {get_bottom_nav('keys')}
+    """)
+
+@app.route('/deposit')
+def web_deposit():
+    if 'uid' not in session: return redirect(url_for('web_home'))
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:700;">💰 Deposit</div>
+        <div class="wallet-box">💳 ₹{get_balance(session['uid']):.2f}</div>
+    </div>
+    <div class="container" style="margin-top:20px;">
+        <div class="product-card">
+            <h3 style="margin-bottom:15px;">Add Balance to Wallet</h3>
             <form action="/gen_qr_web" method="POST">
                 <div class="input-group">
                     <label>Enter Amount (₹)</label>
                     <input type="number" name="amount" min="10" required placeholder="e.g. 100">
                 </div>
-                <button type="submit" class="btn btn-success">Generate QR</button>
+                <button type="submit" class="submit-btn">Generate Payment QR</button>
             </form>
-            <br><a href='/' class='btn btn-warning'>🔙 Back to Menu</a>
         </div>
     </div>
+    {get_bottom_nav('deposit')}
     """)
 
 @app.route('/gen_qr_web', methods=['POST'])
 def gen_qr_web():
     if 'uid' not in session: return redirect(url_for('web_home'))
     amount = float(request.form['amount'])
-    
     try:
         order = fg.create_order(amount=amount, customer_name=session['uid'])
-        return render_template_string(BASE_STYLE + f"""
-        <div class='container'>
-            <div class='header'><h1>Scan to Pay ₹{amount}</h1></div>
-            <div class='card'>
-                <img src="{order.qr_url}" style="width:100%; max-width:300px; border-radius:10px;">
-                <p style="margin:20px 0; color:#94a3b8;">Order ID: {order.order_id}</p>
-                <p style="color:#f59e0b;">Waiting for payment... Refresh this page after paying.</p>
-                <br><a href='/' class='btn'>I have Paid (Check Status)</a>
+        return render_template_string(BASE_CSS + f"""
+        <div class="top-nav"><a href="/deposit" class="store-btn">🔙 Back</a></div>
+        <div class="container" style="margin-top:20px; text-align:center;">
+            <div class="product-card">
+                <h2 style="color:#10b981;">Pay ₹{amount}</h2>
+                <p style="color:#94a3b8; margin:10px 0;">Order ID: {order.order_id}</p>
+                <img src="{order.qr_url}" style="width:100%; max-width:250px; border-radius:15px; border:2px solid #38bdf8; margin:15px 0;">
+                <p style="color:#f59e0b; font-size:12px;">Scan and pay. Balance will be added automatically.</p>
+                <a href="/" class="submit-btn" style="display:block; text-decoration:none; margin-top:15px;">I have paid (Check Status)</a>
             </div>
         </div>
+        {get_bottom_nav('deposit')}
         """)
     except Exception as e:
         return f"API Error: {e}"
+
+@app.route('/history')
+def web_history():
+    if 'uid' not in session: return redirect(url_for('web_home'))
+    uid = session['uid']
+    # Just showing purchases here
+    orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
+    
+    html = ""
+    for o in orders:
+        html += f"""
+        <div class="product-card" style="margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; font-size:12px; color:#94a3b8; margin-bottom:5px;">
+                <span>{o['time']}</span>
+                <span style="color:#ef4444;">-₹{o['price']}</span>
+            </div>
+            <div style="font-weight:700;">{o['product']}</div>
+        </div>
+        """
+    
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:700;">📜 History</div>
+        <div class="wallet-box">💳 ₹{get_balance(uid):.2f}</div>
+    </div>
+    <div class="container" style="margin-top:20px;">
+        {html if html else '<p style="text-align:center; color:#94a3b8;">No transactions yet.</p>'}
+    </div>
+    {get_bottom_nav('history')}
+    """)
 
 @app.route('/profile')
 def web_profile():
     if 'uid' not in session: return redirect(url_for('web_home'))
     uid = session['uid']
-    orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1).limit(10))
-    
-    html = BASE_STYLE + f"<div class='container'><div class='header'><h1>👤 My Profile</h1></div><div class='card'><h3>ID: {uid}</h3><h3 style='color:#10b981;'>Balance: ₹{get_balance(uid)}</h3></div>"
-    html += "<div class='card'><h3>Recent Purchases</h3><div style='text-align:left;'>"
-    for o in orders:
-        html += f"<div style='border-bottom:1px solid #333; padding:10px 0;'><b>{o['product']}</b> - ₹{o['price']}<br><code>{o['key']}</code></div>"
-    html += "</div></div><a href='/' class='btn btn-warning'>🔙 Back to Menu</a></div>"
-    return render_template_string(html)
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:700;">👤 Profile</div>
+        <a href="/logout" class="store-btn" style="background:#ef4444;">Logout</a>
+    </div>
+    <div class="container" style="margin-top:20px;">
+        <div class="product-card" style="text-align:center;">
+            <div style="font-size:50px; margin-bottom:10px;">👤</div>
+            <h2 style="color:#38bdf8;">{get_user_info(uid)['name']}</h2>
+            <p style="color:#94a3b8; margin-bottom:15px;">ID: {uid}</p>
+            <div class="wallet-box" style="display:inline-flex; font-size:16px;">💳 ₹{get_balance(uid):.2f}</div>
+        </div>
+    </div>
+    {get_bottom_nav('profile')}
+    """)
 
-# ================== ADMIN PANEL (Separate Route) ==================
-# Agar aapko admin panel chahiye toh aap /admin par ja sakte hain (Yahan default admin code add karna padega, but abhi ke liye maine ise simple rakha hai)
+@app.route('/logout')
+def logout():
+    session.pop('uid', None)
+    return redirect(url_for('web_home'))
+
+# ================== ADMIN PANEL (Minimal) ==================
 @app.route('/admin')
 def admin_panel():
-    # Simple security: Only user with Admin ID can access
     if 'uid' not in session or str(session['uid']) != str(ADMIN_ID):
-        return "Access Denied. Login with Admin ID (7778093775) first."
+        return "Access Denied. Login with Admin ID first."
     
-    # Aapka purana admin code yahan aayega (Products add, etc.)
-    # (Main ise short rakh raha hoon taaki code na bade, but aap purana admin template yahan paste kar sakte hain)
-    return "<h1>Admin Panel (WIP)</h1><p>You can add products here.</p>"
+    products = list(products_col.find({}))
+    prod_html = "".join([f"<div style='padding:10px; border-bottom:1px solid #333;'><b>{p['name']}</b> (PID: {p['pid']})</div>" for p in products])
+    
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-weight:700;">💻 Admin Panel</div></div>
+    <div class="container" style="margin-top:20px;">
+        <div class="product-card">
+            <h3>All Products</h3>
+            <div style="margin-top:15px;">{prod_html}</div>
+            <p style="color:#94a3b8; font-size:12px; margin-top:20px;">(To add products, use the standard admin panel code or add directly in MongoDB)</p>
+        </div>
+    </div>
+    """)
 
-# ================== RUNNING BOT & WEB ==================
+# ================== RUNNING APP ==================
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
 
 def run_bot():
     print("Starting Telegram Bot...")
-    try: 
-        bot.delete_webhook(drop_pending_updates=True) 
+    try: bot.delete_webhook(drop_pending_updates=True) 
     except: pass
     bot.infinity_polling(timeout=30, long_polling_timeout=30, skip_pending=True)
 

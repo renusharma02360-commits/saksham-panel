@@ -26,7 +26,6 @@ MASTER_KEY       = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# --- MongoDB Setup ---
 client = MongoClient(MONGO_URI)
 db = client.saksham_panel
 users_col = db.users
@@ -41,7 +40,7 @@ fg  = FamGateway(api_key=API_KEY)
 def get_settings():
     s = settings_col.find_one({"_id": "global"})
     if not s:
-        default_s = {"_id": "global", "store_name": "TM PANEL SHOP", "support_username": "YourSupport"}
+        default_s = {"_id": "global", "store_name": "SK PANEL SHOP", "support_username": "YourSupport"}
         settings_col.insert_one(default_s)
         return default_s
     return s
@@ -71,180 +70,92 @@ def credit_balance(uid, amount):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ================== TELEGRAM BOT LOGIC ==================
-def get_main_menu(uid, name):
-    bal = get_balance(uid)
-    text = f"✨ <b>WELCOME, {name}</b>\n💳 <b>Wallet:</b> ₹{bal:.2f}\n\n👇 <i>Choose an option:</i>"
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("🛒 Shop", callback_data="menu_shop"), InlineKeyboardButton("💸 Add Balance", callback_data="menu_addfund"))
-    kb.add(InlineKeyboardButton("👤 My Profile", callback_data="menu_balance"))
-    if str(uid) == str(ADMIN_ID):
-        kb.add(InlineKeyboardButton("💻 Admin Web Panel", web_app=WebAppInfo(url=f"{WEB_URL}/admin")))
-    return text, kb
-
+# ================== TELEGRAM BOT ==================
 @bot.message_handler(commands=["start"])
 def start(msg):
-    get_user_info(msg.from_user.id)
-    text, kb = get_main_menu(msg.from_user.id, msg.from_user.first_name)
+    uid = msg.from_user.id
+    get_user_info(uid)
+    text = f"✨ <b>WELCOME, {msg.from_user.first_name}</b>\n💳 <b>Wallet:</b> ₹{get_balance(uid):.2f}\n\n👇 <i>Choose an option:</i>"
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(InlineKeyboardButton("🛒 Shop", web_app=WebAppInfo(url=WEB_URL)), InlineKeyboardButton("💻 My Profile", web_app=WebAppInfo(url=f"{WEB_URL}/profile")))
+    if str(uid) == str(ADMIN_ID):
+        kb.add(InlineKeyboardButton("⚙️ Admin Panel", web_app=WebAppInfo(url=f"{WEB_URL}/admin")))
     bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
 
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callbacks(call):
-    uid, data, name = call.from_user.id, call.data, call.from_user.first_name
-    msg_id, chat_id = call.message.message_id, call.message.chat.id
-    bot.answer_callback_query(call.id)
-    
-    if data == "menu_back":
-        text, kb = get_main_menu(uid, name)
-        bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
-    elif data == "menu_balance":
-        bal = get_balance(uid)
-        text = f"👤 <b>MY PROFILE</b>\n🆔 <b>ID:</b> <code>{uid}</code>\n💵 <b>Balance:</b> ₹{bal:.2f}"
-        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
-        bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
-    elif data == "menu_shop":
-        products = list(products_col.find({}))
-        if not products:
-            return bot.answer_callback_query(call.id, "Store is empty!", show_alert=True)
-        kb = InlineKeyboardMarkup(row_width=1)
-        for p in products:
-            kb.add(InlineKeyboardButton(f"📦 {p.get('name', 'Unknown')}", callback_data=f"view|{str(p['_id'])}"))
-        kb.add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
-        bot.edit_message_text("🛒 <b>STORE PRODUCTS</b>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
-    elif data.startswith("view|"):
-        p_id = data.split("|")[1]
-        product = products_col.find_one({"_id": ObjectId(p_id)})
-        if not product: return
-        text = f"📦 <b>{product.get('name', 'Unknown')}</b>\n"
-        kb = InlineKeyboardMarkup(row_width=2)
-        for dur, price in product.get("prices", {}).items():
-            kb.add(InlineKeyboardButton(f"⏱ {dur} - ₹{price}", callback_data=f"buy|{p_id}|{dur}"))
-        kb.add(InlineKeyboardButton("🔙 Back", callback_data="menu_shop"))
-        bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
-    elif data.startswith("buy|"):
-        parts = data.split("|")
-        p_id, duration = parts[1], parts[2]
-        product = products_col.find_one({"_id": ObjectId(p_id)})
-        if not product: return
-        price = float(product.get("prices", {}).get(duration, 0))
-        
-        if deduct_balance(uid, price):
-            bot.edit_message_text("⚡ <i>Processing API...</i>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
-            try:
-                data_req = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(product.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
-                res = requests.post(RESELLER_API_URL, data=data_req, headers={'x-master-key': MASTER_KEY}, timeout=20)
-                result = res.json()
-            except Exception as e: result = {"status": "error", "message": str(e)}
-            
-            if result.get("status") == "success" or "keys" in result:
-                key = result.get("keys", ["Key not found"])[0]
-                log_order(uid, product.get('name', 'Unknown'), key, price)
-                bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL</b>\n🔑 Key: <code>{key}</code>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
-            else:
-                credit_balance(uid, price) # Refund
-                bot.edit_message_text(f"❌ <b>Failed (Out of Stock)</b>\nRefunded ₹{price} to wallet.", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
-        else:
-            bot.answer_callback_query(call.id, "❌ Low Balance! Please add funds on website.", show_alert=True)
-    elif data == "menu_addfund":
-        bot.edit_message_text("💸 Please visit the website to add balance instantly!", chat_id=chat_id, message_id=msg_id, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💻 Open Website", web_app=WebAppInfo(url=WEB_URL))))
-
-
-# ================== FLASK WEB APP (TM PANEL UI) ==================
+# ================== FLASK WEB APP (HD UI & ADMIN PANEL) ==================
 app = Flask(__name__)
-app.secret_key = "saksham_secret_key"
+app.secret_key = "sk_panel_secret"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# -------- GLOBAL CSS (NEON DARK THEME) --------
+# -------- HD CSS --------
 BASE_CSS = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
     * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    body { background-color: #090a0f; color: #fff; padding-bottom: 80px; background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #090a0f 60%); }
+    body { background-color: #05070a; color: #fff; padding-bottom: 90px; background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #05070a 50%); min-height: 100vh; }
     
-    /* Top Navbar */
-    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.05); }
-    .store-btn { background: linear-gradient(45deg, #0ea5e9, #3b82f6); padding: 8px 15px; border-radius: 20px; font-weight: 600; display: flex; align-items: center; gap: 5px; font-size: 14px; box-shadow: 0 0 10px rgba(14, 165, 233, 0.5); color: white; text-decoration: none; }
-    .reseller-badge { background: linear-gradient(45deg, #f59e0b, #ef4444); padding: 5px 10px; border-radius: 15px; font-size: 10px; font-weight: 800; color: #fff; text-transform: uppercase; margin-left: 5px; }
-    .wallet-box { background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; padding: 5px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-weight: 700; color: #10b981; font-size: 14px; }
-    .top-up-btn { background: linear-gradient(45deg, #6366f1, #a855f7); padding: 8px 15px; border-radius: 20px; font-weight: 600; font-size: 14px; color: white; border: none; cursor: pointer; box-shadow: 0 0 15px rgba(168, 85, 247, 0.4); text-decoration: none; }
+    /* HD Top Navbar */
+    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(15px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .store-btn { background: linear-gradient(45deg, #0ea5e9, #3b82f6); padding: 10px 20px; border-radius: 25px; font-weight: 700; display: flex; align-items: center; gap: 8px; font-size: 15px; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); color: white; text-decoration: none; }
+    .reseller-badge { background: linear-gradient(45deg, #f59e0b, #ef4444); padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 800; color: #fff; text-transform: uppercase; margin-left: 8px; box-shadow: 0 0 10px rgba(245, 158, 11, 0.5); }
+    .wallet-box { background: rgba(16, 185, 129, 0.15); border: 1.5px solid #10b981; padding: 8px 16px; border-radius: 25px; font-weight: 800; color: #10b981; font-size: 15px; box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
+    .top-up-btn { background: linear-gradient(45deg, #6366f1, #a855f7); padding: 10px 18px; border-radius: 25px; font-weight: 800; font-size: 14px; color: white; border: none; box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4); text-decoration: none; }
     
     /* Container */
-    .container { padding: 20px; max-width: 800px; margin: 0 auto; }
+    .container { padding: 20px; max-width: 600px; margin: 0 auto; }
     
-    /* Hero Banner */
-    .hero-banner { width: 100%; height: 180px; background: linear-gradient(135deg, #1e1b4b, #312e81, #4338ca); border-radius: 20px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 20px; border: 1px solid #6366f1; box-shadow: 0 10px 30px rgba(99, 102, 241, 0.2); position: relative; overflow: hidden; }
-    .hero-banner h1 { font-size: 24px; font-weight: 800; text-shadow: 0 0 10px rgba(255,255,255,0.5); background: linear-gradient(90deg, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .hero-banner p { font-size: 12px; color: #cbd5e1; margin-top: 5px; }
-    .tg-btn { background: #0ea5e9; color: white; padding: 8px 20px; border-radius: 20px; text-decoration: none; font-size: 12px; font-weight: 600; margin-top: 10px; display: inline-block; }
+    /* HD Hero Banner */
+    .hero-banner { width: 100%; height: 200px; background: linear-gradient(135deg, #1e1b4b, #312e81, #4338ca); border-radius: 20px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 25px; border: 2px solid #6366f1; box-shadow: 0 15px 35px rgba(99, 102, 241, 0.3); }
+    .hero-banner h1 { font-size: 28px; font-weight: 800; text-shadow: 0 0 15px rgba(255,255,255,0.6); background: linear-gradient(90deg, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 1px; }
+    .hero-banner p { font-size: 14px; color: #cbd5e1; margin-top: 8px; font-weight: 500; }
 
-    /* Stats Grid */
-    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
-    .stat-card { background: rgba(30, 41, 59, 0.6); border-radius: 12px; padding: 15px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; justify-content: center; }
-    .stat-title { font-size: 11px; color: #94a3b8; font-weight: 600; margin-bottom: 5px; display: flex; align-items: center; gap: 5px; text-transform: uppercase; }
-    .stat-value { font-size: 20px; font-weight: 800; }
-    .text-green { color: #10b981; }
-    .text-blue { color: #38bdf8; }
-    .text-yellow { color: #f59e0b; }
+    /* Stats Grid HD */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; }
+    .stat-card { background: rgba(30, 41, 59, 0.8); border-radius: 15px; padding: 18px; border: 1.5px solid rgba(255,255,255,0.08); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+    .stat-title { font-size: 12px; color: #94a3b8; font-weight: 700; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-size: 24px; font-weight: 800; }
+    .text-green { color: #10b981; text-shadow: 0 0 10px rgba(16,185,129,0.4); }
+    .text-blue { color: #38bdf8; text-shadow: 0 0 10px rgba(56,189,248,0.4); }
+    .text-yellow { color: #f59e0b; text-shadow: 0 0 10px rgba(245,158,11,0.4); }
 
-    /* Reseller VIP Banner */
-    .vip-banner { background: linear-gradient(90deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.05)); border: 1px solid #10b981; border-radius: 12px; padding: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
-    .vip-title { font-size: 14px; font-weight: 700; color: #10b981; }
-    .vip-desc { font-size: 11px; color: #94a3b8; margin-top: 3px; }
-    .vip-badge { background: #10b981; color: #000; padding: 5px 10px; border-radius: 8px; font-size: 10px; font-weight: 800; }
+    /* VIP Banner */
+    .vip-banner { background: linear-gradient(90deg, rgba(16, 185, 129, 0.25), rgba(16, 185, 129, 0.05)); border: 2px solid #10b981; border-radius: 15px; padding: 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; box-shadow: 0 0 20px rgba(16, 185, 129, 0.3); }
+    .vip-title { font-size: 16px; font-weight: 800; color: #10b981; }
+    .vip-desc { font-size: 12px; color: #cbd5e1; margin-top: 5px; font-weight: 500; }
+    .vip-badge { background: #10b981; color: #000; padding: 8px 15px; border-radius: 10px; font-size: 12px; font-weight: 800; box-shadow: 0 0 10px rgba(16,185,129,0.5); }
 
-    /* Live Purchases */
-    .live-title { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; margin-bottom: 10px; }
-    .live-dot { width: 8px; height: 8px; background: #ef4444; border-radius: 50%; box-shadow: 0 0 10px #ef4444; animation: pulse 1s infinite; }
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-    .live-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
-    .live-scroll::-webkit-scrollbar { display: none; }
-    .live-card { min-width: 180px; background: rgba(30, 41, 59, 0.8); padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; }
-    .live-card .user { font-size: 10px; color: #94a3b8; }
-    .live-card .prod { font-size: 12px; font-weight: 700; color: #fff; margin: 5px 0; }
-    .live-card .key { font-size: 10px; color: #38bdf8; font-family: monospace; }
+    /* Products */
+    .product-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+    .product-card { background: linear-gradient(145deg, #111827, #0f172a); border-radius: 18px; padding: 20px; border: 1.5px solid rgba(255,255,255,0.08); box-shadow: 0 8px 25px rgba(0,0,0,0.4); }
+    .product-title { font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 15px; letter-spacing: 0.5px; }
+    .price-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+    .price-tag { background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 700; border: 1px solid rgba(56,189,248,0.3); }
+    .buy-btn { background: linear-gradient(90deg, #0ea5e9, #3b82f6); color: white; text-align: center; padding: 15px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 16px; border: none; box-shadow: 0 5px 15px rgba(14, 165, 233, 0.4); display: block; }
 
-    /* Products Section */
-    .section-title { font-size: 16px; font-weight: 700; margin-bottom: 15px; margin-top: 20px; display: flex; align-items: center; gap: 8px; color: #fff; }
-    .product-grid { display: grid; grid-template-columns: 1fr; gap: 15px; }
-    .product-card { background: linear-gradient(145deg, #1e293b, #0f172a); border-radius: 15px; padding: 15px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; }
-    .product-title { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 10px; }
-    .price-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
-    .price-tag { background: rgba(56, 189, 248, 0.1); color: #38bdf8; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
-    .buy-btn { background: linear-gradient(90deg, #0ea5e9, #3b82f6); color: white; text-align: center; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 14px; border: none; cursor: pointer; }
+    /* Forms & Inputs (HD) */
+    .input-group { margin-bottom: 20px; }
+    .input-group label { display: block; font-size: 14px; color: #cbd5e1; margin-bottom: 8px; font-weight: 600; }
+    .input-group input, .input-group textarea { width: 100%; padding: 16px; border-radius: 12px; border: 1.5px solid #334155; background: #0f172a; color: #fff; font-size: 16px; outline: none; font-weight: 500; transition: 0.3s; }
+    .input-group input:focus { border-color: #38bdf8; box-shadow: 0 0 10px rgba(56, 189, 248, 0.2); }
+    .submit-btn { width: 100%; background: linear-gradient(90deg, #10b981, #059669); color: #fff; padding: 16px; border-radius: 12px; border: none; font-weight: 800; font-size: 16px; box-shadow: 0 5px 15px rgba(16, 185, 129, 0.3); display: block; text-align: center; }
+    .video-btn { background: linear-gradient(90deg, #ef4444, #dc2626); color: #fff; padding: 12px; border-radius: 10px; border: none; font-weight: 700; font-size: 14px; display: block; width: 100%; margin-bottom: 10px; text-align: center; text-decoration: none; }
 
-    /* Bottom Nav */
-    .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: #0f172a; display: flex; justify-content: space-around; padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.05); z-index: 100; padding-bottom: env(safe-area-inset-bottom, 15px); }
-    .nav-item { display: flex; flex-direction: column; align-items: center; color: #64748b; text-decoration: none; font-size: 10px; font-weight: 600; gap: 5px; }
-    .nav-item.active { color: #0ea5e9; }
-    .nav-icon { font-size: 20px; }
-
-    /* Forms & Inputs */
-    .input-group { margin-bottom: 15px; }
-    .input-group label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px; }
-    .input-group input { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: #fff; font-size: 14px; outline: none; }
-    .input-group input:focus { border-color: #38bdf8; }
-    .submit-btn { width: 100%; background: linear-gradient(90deg, #10b981, #059669); color: #fff; padding: 14px; border-radius: 10px; border: none; font-weight: 700; font-size: 14px; cursor: pointer; }
+    /* Bottom Nav HD */
+    .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); display: flex; justify-content: space-around; padding: 15px 0; border-top: 1.5px solid rgba(255,255,255,0.08); z-index: 100; padding-bottom: env(safe-area-inset-bottom, 15px); }
+    .nav-item { display: flex; flex-direction: column; align-items: center; color: #64748b; text-decoration: none; font-size: 11px; font-weight: 700; gap: 6px; transition: 0.3s; }
+    .nav-item.active { color: #38bdf8; }
+    .nav-icon { font-size: 22px; }
 </style>
 """
 
 def get_bottom_nav(active):
     return f"""
     <div class="bottom-nav">
-        <a href="/" class="nav-item {'active' if active == 'store' else ''}">
-            <span class="nav-icon">🛍️</span> Store
-        </a>
-        <a href="/keys" class="nav-item {'active' if active == 'keys' else ''}">
-            <span class="nav-icon">🔑</span> My Keys
-        </a>
-        <a href="/deposit" class="nav-item {'active' if active == 'deposit' else ''}">
-            <span class="nav-icon">💰</span> Deposit
-        </a>
-        <a href="/history" class="nav-item {'active' if active == 'history' else ''}">
-            <span class="nav-icon">📜</span> History
-        </a>
-        <a href="/profile" class="nav-item {'active' if active == 'profile' else ''}">
-            <span class="nav-icon">👤</span> Profile
-        </a>
+        <a href="/" class="nav-item {'active' if active == 'store' else ''}"><span class="nav-icon">🛍️</span> Store</a>
+        <a href="/keys" class="nav-item {'active' if active == 'keys' else ''}"><span class="nav-icon">🔑</span> My Keys</a>
+        <a href="/deposit" class="nav-item {'active' if active == 'deposit' else ''}"><span class="nav-icon">💰</span> Deposit</a>
+        <a href="/history" class="nav-item {'active' if active == 'history' else ''}"><span class="nav-icon">📜</span> History</a>
+        <a href="/profile" class="nav-item {'active' if active == 'profile' else ''}"><span class="nav-icon">👤</span> Profile</a>
     </div>
     """
 
@@ -253,19 +164,19 @@ def web_home():
     try:
         if 'uid' not in session:
             return render_template_string(BASE_CSS + """
-            <div class="container" style="margin-top: 50px;">
+            <div class="container" style="margin-top: 80px;">
                 <div class="hero-banner">
-                    <h1>TM PANEL SHOP</h1>
+                    <h1>SK PANEL SHOP</h1>
                     <p>Premium Panel Store</p>
                 </div>
-                <div style="background: rgba(30, 41, 59, 0.8); padding: 20px; border-radius: 15px;">
-                    <h2 style="font-size: 18px; margin-bottom: 15px;">Login to Continue</h2>
+                <div style="background: rgba(30, 41, 59, 0.9); padding: 30px; border-radius: 20px; border: 1.5px solid rgba(255,255,255,0.1);">
+                    <h2 style="font-size: 22px; margin-bottom: 20px; text-align: center; color: #38bdf8;">Login to Continue</h2>
                     <form method="POST" action="/login">
                         <div class="input-group">
-                            <label>Telegram ID</label>
+                            <label>Enter Telegram ID</label>
                             <input type="text" name="uid" placeholder="e.g. 7778093775" required>
                         </div>
-                        <button type="submit" class="submit-btn">Login</button>
+                        <button type="submit" class="submit-btn">Login Securely</button>
                     </form>
                 </div>
             </div>
@@ -274,22 +185,34 @@ def web_home():
         uid = session['uid']
         u = get_user_info(uid)
         bal = u.get('balance', 0.0)
+        discount = u.get('discount', 0)
         
-        # Fetch Live Orders (Latest 5)
         live_orders = list(orders_col.find({}).sort("_id", -1).limit(5))
         live_html = ""
         for o in live_orders:
             live_html += f"""
-            <div class="live-card">
-                <div class="user">👤 User***{str(o.get('uid', 'XXX'))[-3:]}</div>
-                <div class="prod">📦 {o.get('product', 'Unknown')}</div>
-                <div class="key">🔑 {str(o.get('key', 'XXX'))[:10]}***</div>
+            <div class="live-card" style="min-width: 200px; background: rgba(30, 41, 59, 0.9); padding: 15px; border-radius: 12px; border: 1.5px solid rgba(255,255,255,0.05); flex-shrink: 0;">
+                <div style="font-size: 11px; color: #94a3b8; font-weight: 600;">👤 User***{str(o.get('uid', 'XXX'))[-3:]}</div>
+                <div style="font-size: 14px; font-weight: 700; color: #fff; margin: 5px 0;">📦 {o.get('product', 'Unknown')}</div>
+                <div style="font-size: 11px; color: #38bdf8; font-family: monospace;">🔑 {str(o.get('key', 'XXX'))[:10]}***</div>
             </div>
             """
-        if not live_orders:
-            live_html = "<div style='color:#64748b; font-size:12px;'>No live purchases yet.</div>"
+        
+        # Reseller Logic
+        vip_html = ""
+        reseller_badge = ""
+        if discount > 0:
+            reseller_badge = f'<span class="reseller-badge">RESELLER</span>'
+            vip_html = f"""
+            <div class="vip-banner">
+                <div>
+                    <div class="vip-title">👑 RESELLER VIP ACTIVE</div>
+                    <div class="vip-desc">You get {discount}% OFF on all products.</div>
+                </div>
+                <div class="vip-badge">VIP</div>
+            </div>
+            """
 
-        # Fetch Products
         products = list(products_col.find({}))
         prod_html = ""
         for p in products:
@@ -308,59 +231,40 @@ def web_home():
 
         return render_template_string(BASE_CSS + f"""
         <div class="top-nav">
-            <div style="display:flex; align-items:center; gap:10px;">
+            <div style="display:flex; align-items:center;">
                 <a href="/" class="store-btn">📦 Store</a>
-                <span class="reseller-badge">Reseller</span>
+                {reseller_badge}
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
-                <div class="wallet-box">💳 ₹{bal:.2f}</div>
+                <div class="wallet-box">₹{bal:.2f}</div>
                 <a href="/deposit" class="top-up-btn">⚡ TOP UP</a>
             </div>
         </div>
 
         <div class="container">
             <div class="hero-banner">
-                <h1>TM PANEL SHOP</h1>
+                <h1>SK PANEL SHOP</h1>
                 <p>Premium Panel Store</p>
-                <a href="https://t.me/SakshamPannelBot" class="tg-btn">JOIN TELEGRAM BOT</a>
             </div>
 
             <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-title">💳 Wallet Balance</div>
-                    <div class="stat-value text-green">₹{bal:.2f}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-title">🔑 Keys Purchased</div>
-                    <div class="stat-value text-blue">{len(user_orders)}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-title">⚡ Today's Spend</div>
-                    <div class="stat-value text-yellow">₹0.00</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-title">🛍️ Total Spent</div>
-                    <div class="stat-value text-yellow">₹{total_spent:.2f}</div>
-                </div>
+                <div class="stat-card"><div class="stat-title">💳 Wallet Balance</div><div class="stat-value text-green">₹{bal:.2f}</div></div>
+                <div class="stat-card"><div class="stat-title">🔑 Keys Purchased</div><div class="stat-value text-blue">{len(user_orders)}</div></div>
+                <div class="stat-card"><div class="stat-title">⚡ Today's Spend</div><div class="stat-value text-yellow">₹0.00</div></div>
+                <div class="stat-card"><div class="stat-title">🛍️ Total Spent</div><div class="stat-value text-yellow">₹{total_spent:.2f}</div></div>
             </div>
 
-            <div class="vip-banner">
-                <div>
-                    <div class="vip-title">👑 RESELLER VIP PANEL ACTIVE</div>
-                    <div class="vip-desc">Main website wholesale reseller discount rates applied.</div>
-                </div>
-                <div class="vip-badge">RESELLER</div>
-            </div>
+            {vip_html}
 
-            <div class="live-title">
-                <div class="live-dot"></div> Live Purchases <span style="background:#ef4444; color:#fff; padding:2px 8px; border-radius:10px; font-size:10px;">1000+ LIVE</span>
+            <div style="display:flex; align-items:center; gap:10px; font-size:15px; font-weight:800; margin-bottom:15px;">
+                <span style="color:#ef4444; font-size:20px;">●</span> Live Purchases <span style="background:#ef4444; color:#fff; padding:3px 10px; border-radius:20px; font-size:11px;">1000+ LIVE</span>
             </div>
-            <div class="live-scroll">
+            <div style="display:flex; gap:15px; overflow-x:auto; padding-bottom:15px; margin-bottom:15px; scrollbar-width:none;">
                 {live_html}
             </div>
 
-            <div class="section-title">🔥 Browse Products</div>
-            <div style="font-size: 12px; color: #38bdf8; margin-bottom: 10px;">>> MARKETPLACE / RESELLER WHOLESALE STOCK</div>
+            <div style="font-size: 18px; font-weight: 800; margin-bottom: 15px; margin-top: 25px; color: #fff;">🔥 Browse Products</div>
+            <div style="font-size: 13px; color: #38bdf8; margin-bottom: 15px; font-weight:600;">>> MARKETPLACE / WHOLESALE STOCK</div>
             <div class="product-grid">
                 {prod_html}
             </div>
@@ -368,7 +272,7 @@ def web_home():
         {get_bottom_nav('store')}
         """)
     except Exception as e:
-        return f"System Error: {str(e)}" # Returns error to screen instead of 500 crash
+        return f"<h1>System Error</h1><p>{str(e)}</p>"
 
 @app.route('/login', methods=['POST'])
 def web_login():
@@ -383,27 +287,46 @@ def web_product(p_id):
     p = products_col.find_one({"_id": ObjectId(p_id)})
     if not p: return "Product not found", 404
     
-    price_tags = "".join([f"""
+    uid = session['uid']
+    u = get_user_info(uid)
+    discount = u.get('discount', 0)
+    
+    price_tags = ""
+    for d, pr in p.get('prices', {}).items():
+        final_price = float(pr) - (float(pr) * discount / 100) if discount > 0 else float(pr)
+        price_tags += f"""
         <form action="/buy_web" method="POST" style="margin-bottom:10px;">
             <input type="hidden" name="p_id" value="{p_id}">
             <input type="hidden" name="duration" value="{d}">
             <button type="submit" class="submit-btn" style="display:flex; justify-content:space-between; background:linear-gradient(90deg, #0ea5e9, #3b82f6);">
                 <span>⏱ {d}</span>
-                <span>₹{pr}</span>
+                <span>₹{final_price:.2f}</span>
             </button>
         </form>
-    """ for d, pr in p.get('prices', {}).items()])
+        """
+
+    # Video Buttons
+    video_html = ""
+    if p.get("video"):
+        video_html += f'<a href="{p["video"]}" target="_blank" class="video-btn" style="background:linear-gradient(90deg, #3b82f6, #2563eb);">📺 Watch Setup Video</a>'
+    if p.get("hack"):
+        video_html += f'<a href="{p["hack"]}" target="_blank" class="video-btn">🛠️ Watch Hack Video</a>'
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
         <a href="/" class="store-btn">🔙 Back</a>
-        <div class="wallet-box">💳 ₹{get_balance(session['uid']):.2f}</div>
+        <div class="wallet-box">₹{get_balance(uid):.2f}</div>
     </div>
     <div class="container" style="margin-top:20px;">
         <div class="product-card">
-            <div class="product-title" style="font-size:20px;">📦 {p.get('name', 'Unknown')}</div>
-            <p style="color:#94a3b8; font-size:12px; margin-bottom:20px;">{p.get('description', 'Instant delivery key.')}</p>
-            <div class="section-title" style="margin-top:0;">Select Duration:</div>
+            <div class="product-title" style="font-size:22px;">📦 {p.get('name', 'Unknown')}</div>
+            <p style="color:#94a3b8; font-size:14px; margin-bottom:20px; line-height:1.5;">{p.get('description', 'Instant delivery key.')}</p>
+            
+            <div style="margin-bottom: 20px;">
+                {video_html}
+            </div>
+
+            <div style="font-size:16px; font-weight:700; margin-bottom:15px; color:#38bdf8;">Select Duration to Buy:</div>
             {price_tags}
         </div>
     </div>
@@ -418,7 +341,11 @@ def buy_web():
     duration = request.form['duration']
     
     product = products_col.find_one({"_id": ObjectId(p_id)})
-    price = float(product.get("prices", {}).get(duration, 0))
+    u = get_user_info(uid)
+    discount = u.get('discount', 0)
+    
+    original_price = float(product.get("prices", {}).get(duration, 0))
+    price = original_price - (original_price * discount / 100) if discount > 0 else original_price
     
     if deduct_balance(uid, price):
         try:
@@ -433,10 +360,10 @@ def buy_web():
             return render_template_string(BASE_CSS + f"""
             <div class="container" style="margin-top:50px;">
                 <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#10b981; margin-bottom:15px;">✅ Purchase Successful!</h2>
-                    <p style="color:#94a3b8;">Your Key:</p>
-                    <div style="background:#0f172a; padding:15px; border-radius:10px; border:1px solid #38bdf8; font-family:monospace; font-size:18px; margin:15px 0;">{key}</div>
-                    <a href="/keys" class="submit-btn" style="display:block; text-decoration:none;">Go to My Keys</a>
+                    <h2 style="color:#10b981; margin-bottom:15px; font-size:24px;">✅ Purchase Successful!</h2>
+                    <p style="color:#cbd5e1; font-size:15px;">Your Key:</p>
+                    <div style="background:#0f172a; padding:20px; border-radius:12px; border:2px solid #38bdf8; font-family:monospace; font-size:20px; margin:20px 0; font-weight:700;">{key}</div>
+                    <a href="/keys" class="submit-btn" style="text-decoration:none;">Go to My Keys</a>
                 </div>
             </div>
             {get_bottom_nav('store')}
@@ -446,41 +373,135 @@ def buy_web():
             return render_template_string(BASE_CSS + f"""
             <div class="container" style="margin-top:50px;">
                 <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#ef4444; margin-bottom:15px;">❌ Out of Stock</h2>
-                    <p style="color:#94a3b8;">API Error: {result.get('message', 'Unknown')}</p>
-                    <p style="color:#10b981; margin-top:10px;">₹{price} Refunded to Wallet.</p>
-                    <br><a href="/" class="submit-btn" style="display:block; text-decoration:none;">Back to Store</a>
+                    <h2 style="color:#ef4444; margin-bottom:15px; font-size:24px;">❌ Out of Stock</h2>
+                    <p style="color:#cbd5e1;">API Error: {result.get('message', 'Unknown')}</p>
+                    <p style="color:#10b981; margin-top:15px; font-weight:700;">₹{price:.2f} Refunded to Wallet.</p>
+                    <br><a href="/" class="submit-btn" style="text-decoration:none;">Back to Store</a>
                 </div>
             </div>
             {get_bottom_nav('store')}
             """)
     return redirect(url_for('web_home'))
 
+# ---------------- ADMIN PANEL (FULL CONTROLLER) ----------------
+@app.route('/admin', methods=['GET', 'POST'])
+def admin_panel():
+    if 'uid' not in session or str(session['uid']) != str(ADMIN_ID):
+        return "Access Denied. Login with Admin ID first."
+    
+    msg = ""
+    if request.method == 'POST':
+        try:
+            name = request.form['name']
+            pid = request.form['pid']
+            desc = request.form['description']
+            video = request.form['video']
+            hack = request.form['hack']
+            is_maintenance = request.form.get('is_maintenance') == 'true'
+            
+            # Parse Durations & Prices
+            durs = request.form.getlist('duration[]')
+            prices = request.form.getlist('price[]')
+            price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
+            
+            products_col.insert_one({
+                "name": name, "pid": pid, "description": desc,
+                "video": video, "hack": hack, 
+                "is_maintenance": is_maintenance, "prices": price_dict
+            })
+            msg = "<div style='background:#10b981; color:#fff; padding:15px; border-radius:10px; margin-bottom:20px;'>✅ Product Added Successfully!</div>"
+        except Exception as e:
+            msg = f"<div style='background:#ef4444; color:#fff; padding:15px; border-radius:10px; margin-bottom:20px;'>❌ Error: {e}</div>"
+
+    products = list(products_col.find({}))
+    prod_html = ""
+    for p in products:
+        prod_html += f"""
+        <div style="background:#1e293b; padding:15px; border-radius:10px; margin-bottom:10px; border:1px solid #334155;">
+            <div style="font-weight:700; font-size:16px; color:#38bdf8;">{p.get('name', '')} (PID: {p.get('pid', '')})</div>
+            <div style="font-size:12px; color:#94a3b8;">Setup Video: {p.get('video', 'None')} | Hack Video: {p.get('hack', 'None')}</div>
+            <div style="margin-top:10px;">
+                <form action="/delete_product/{p['_id']}" method="POST" style="display:inline;">
+                    <button type="submit" style="background:#ef4444; color:#fff; border:none; padding:5px 10px; border-radius:5px; font-size:12px; cursor:pointer;">Delete</button>
+                </form>
+            </div>
+        </div>
+        """
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:800; font-size:18px;">⚙️ Admin Controller</div>
+        <a href="/" class="store-btn" style="background:#ef4444;">Exit</a>
+    </div>
+    <div class="container" style="margin-top:20px;">
+        {msg}
+        <div style="background:rgba(30,41,59,0.9); padding:20px; border-radius:15px; margin-bottom:30px;">
+            <h3 style="margin-bottom:15px; color:#38bdf8;">➕ Add New Product</h3>
+            <form method="POST">
+                <div class="input-group"><label>Product Name</label><input type="text" name="name" required></div>
+                <div class="input-group"><label>PID</label><input type="text" name="pid" required></div>
+                <div class="input-group"><label>Description</label><input type="text" name="description"></div>
+                <div class="input-group"><label>Setup Video Link (URL)</label><input type="url" name="video" placeholder="https://youtu.be/..."></div>
+                <div class="input-group"><label>Hack Video Link (URL)</label><input type="url" name="hack" placeholder="https://youtu.be/..."></div>
+                <div class="input-group">
+                    <label>Status</label>
+                    <select name="is_maintenance" style="width:100%; padding:15px; border-radius:10px; background:#0f172a; color:#fff; border:1px solid #334155;">
+                        <option value="false">🟢 Active</option>
+                        <option value="true">🔴 Maintenance</option>
+                    </select>
+                </div>
+                
+                <label style="font-weight:700; color:#38bdf8; margin-top:10px; display:block;">Durations & Prices</label>
+                <div id="price-container">
+                    <div style="display:flex; gap:10px; margin-bottom:10px;">
+                        <input type="text" name="duration[]" placeholder="e.g. 1 Day" style="flex:1; padding:12px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff;">
+                        <input type="number" name="price[]" placeholder="₹ Price" style="flex:1; padding:12px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff;">
+                    </div>
+                </div>
+                <button type="button" onclick="addPrice()" style="background:#f59e0b; color:#000; padding:10px; border:none; border-radius:8px; margin-bottom:15px; font-weight:700;">+ Add More Duration</button>
+                
+                <button type="submit" class="submit-btn">Save Product</button>
+            </form>
+        </div>
+
+        <h3 style="margin-bottom:15px; color:#38bdf8;">📦 All Products ({len(products)})</h3>
+        {prod_html}
+    </div>
+    <script>
+        function addPrice() {{
+            const c = document.getElementById('price-container');
+            const d = document.createElement('div');
+            d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:12px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:12px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff;">`;
+            c.appendChild(d);
+        }}
+    </script>
+    """)
+
+@app.route('/delete_product/<p_id>', methods=['POST'])
+def delete_product(p_id):
+    if 'uid' not in session or str(session['uid']) != str(ADMIN_ID):
+        return "Access Denied", 403
+    products_col.delete_one({"_id": ObjectId(p_id)})
+    return redirect(url_for('admin_panel'))
+
+# ---------------- OTHER ROUTES ----------------
 @app.route('/keys')
 def web_keys():
     if 'uid' not in session: return redirect(url_for('web_home'))
     uid = session['uid']
     orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
-    
-    keys_html = ""
-    for o in orders:
-        keys_html += f"""
-        <div class="product-card" style="margin-bottom:10px;">
+    keys_html = "".join([f"""
+        <div class="product-card" style="margin-bottom:15px;">
             <div style="font-size:12px; color:#94a3b8;">{o.get('time', '')}</div>
-            <div style="font-weight:700; margin:5px 0;">📦 {o.get('product', 'Unknown')}</div>
-            <div style="background:#0f172a; padding:10px; border-radius:8px; font-family:monospace; font-size:14px; color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">{o.get('key', 'N/A')}</div>
+            <div style="font-weight:800; font-size:16px; margin:8px 0; color:#38bdf8;">📦 {o.get('product', 'Unknown')}</div>
+            <div style="background:#0f172a; padding:15px; border-radius:10px; font-family:monospace; font-size:16px; color:#fff; border:1.5px solid #10b981;">{o.get('key', 'N/A')}</div>
         </div>
-        """
-    if not orders: keys_html = "<p style='color:#94a3b8; text-align:center;'>No keys purchased yet.</p>"
-
+        """ for o in orders])
+    if not orders: keys_html = "<p style='color:#94a3b8; text-align:center; font-size:16px;'>No keys purchased yet.</p>"
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="font-weight:700;">🔑 My Keys</div>
-        <div class="wallet-box">💳 ₹{get_balance(uid):.2f}</div>
-    </div>
-    <div class="container" style="margin-top:20px;">
-        {keys_html}
-    </div>
+    <div class="top-nav"><div style="font-weight:800; font-size:18px;">🔑 My Keys</div><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
+    <div class="container" style="margin-top:20px;">{keys_html}</div>
     {get_bottom_nav('keys')}
     """)
 
@@ -488,18 +509,12 @@ def web_keys():
 def web_deposit():
     if 'uid' not in session: return redirect(url_for('web_home'))
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="font-weight:700;">💰 Deposit</div>
-        <div class="wallet-box">💳 ₹{get_balance(session['uid']):.2f}</div>
-    </div>
+    <div class="top-nav"><div style="font-weight:800; font-size:18px;">💰 Deposit</div><div class="wallet-box">₹{get_balance(session['uid']):.2f}</div></div>
     <div class="container" style="margin-top:20px;">
         <div class="product-card">
-            <h3 style="margin-bottom:15px;">Add Balance to Wallet</h3>
+            <h3 style="margin-bottom:20px; font-size:20px; color:#38bdf8;">Add Balance to Wallet</h3>
             <form action="/gen_qr_web" method="POST">
-                <div class="input-group">
-                    <label>Enter Amount (₹)</label>
-                    <input type="number" name="amount" min="10" required placeholder="e.g. 100">
-                </div>
+                <div class="input-group"><label>Enter Amount (₹)</label><input type="number" name="amount" min="10" required placeholder="e.g. 100"></div>
                 <button type="submit" class="submit-btn">Generate Payment QR</button>
             </form>
         </div>
@@ -515,13 +530,13 @@ def gen_qr_web():
         order = fg.create_order(amount=amount, customer_name=session['uid'])
         return render_template_string(BASE_CSS + f"""
         <div class="top-nav"><a href="/deposit" class="store-btn">🔙 Back</a></div>
-        <div class="container" style="margin-top:20px; text-align:center;">
+        <div class="container" style="margin-top:30px; text-align:center;">
             <div class="product-card">
-                <h2 style="color:#10b981;">Pay ₹{amount}</h2>
+                <h2 style="color:#10b981; font-size:24px;">Pay ₹{amount}</h2>
                 <p style="color:#94a3b8; margin:10px 0;">Order ID: {order.order_id}</p>
-                <img src="{order.qr_url}" style="width:100%; max-width:250px; border-radius:15px; border:2px solid #38bdf8; margin:15px 0;">
-                <p style="color:#f59e0b; font-size:12px;">Scan and pay. Balance will be added automatically.</p>
-                <a href="/" class="submit-btn" style="display:block; text-decoration:none; margin-top:15px;">I have paid (Check Status)</a>
+                <img src="{order.qr_url}" style="width:100%; max-width:280px; border-radius:15px; border:2px solid #38bdf8; margin:20px 0;">
+                <p style="color:#f59e0b; font-size:13px;">Scan and pay. Balance will be added automatically.</p>
+                <a href="/" class="submit-btn" style="text-decoration:none; margin-top:20px;">I have paid (Check Status)</a>
             </div>
         </div>
         {get_bottom_nav('deposit')}
@@ -529,53 +544,40 @@ def gen_qr_web():
     except Exception as e:
         return f"API Error: {e}"
 
-@app.route('/history')
-def web_history():
-    if 'uid' not in session: return redirect(url_for('web_home'))
-    uid = session['uid']
-    orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
-    
-    html = ""
-    for o in orders:
-        html += f"""
-        <div class="product-card" style="margin-bottom:10px;">
-            <div style="display:flex; justify-content:space-between; font-size:12px; color:#94a3b8; margin-bottom:5px;">
-                <span>{o.get('time', '')}</span>
-                <span style="color:#ef4444;">-₹{o.get('price', 0)}</span>
-            </div>
-            <div style="font-weight:700;">{o.get('product', 'Unknown')}</div>
-        </div>
-        """
-    
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="font-weight:700;">📜 History</div>
-        <div class="wallet-box">💳 ₹{get_balance(uid):.2f}</div>
-    </div>
-    <div class="container" style="margin-top:20px;">
-        {html if html else '<p style="text-align:center; color:#94a3b8;">No transactions yet.</p>'}
-    </div>
-    {get_bottom_nav('history')}
-    """)
-
 @app.route('/profile')
 def web_profile():
     if 'uid' not in session: return redirect(url_for('web_home'))
     uid = session['uid']
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="font-weight:700;">👤 Profile</div>
-        <a href="/logout" class="store-btn" style="background:#ef4444;">Logout</a>
-    </div>
+    <div class="top-nav"><div style="font-weight:800; font-size:18px;">👤 Profile</div><a href="/logout" class="store-btn" style="background:#ef4444;">Logout</a></div>
     <div class="container" style="margin-top:20px;">
         <div class="product-card" style="text-align:center;">
-            <div style="font-size:50px; margin-bottom:10px;">👤</div>
-            <h2 style="color:#38bdf8;">{get_user_info(uid).get('name', 'User')}</h2>
-            <p style="color:#94a3b8; margin-bottom:15px;">ID: {uid}</p>
-            <div class="wallet-box" style="display:inline-flex; font-size:16px;">💳 ₹{get_balance(uid):.2f}</div>
+            <div style="font-size:60px; margin-bottom:15px;">👤</div>
+            <h2 style="color:#38bdf8; font-size:22px;">{get_user_info(uid).get('name', 'User')}</h2>
+            <p style="color:#94a3b8; margin-bottom:20px; font-size:15px;">ID: {uid}</p>
+            <div class="wallet-box" style="display:inline-flex; font-size:20px; padding:10px 25px;">₹{get_balance(uid):.2f}</div>
         </div>
     </div>
     {get_bottom_nav('profile')}
+    """)
+
+@app.route('/history')
+def web_history():
+    if 'uid' not in session: return redirect(url_for('web_home'))
+    uid = session['uid']
+    orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
+    html = "".join([f"""
+        <div class="product-card" style="margin-bottom:15px;">
+            <div style="display:flex; justify-content:space-between; font-size:12px; color:#94a3b8; margin-bottom:8px;">
+                <span>{o.get('time', '')}</span><span style="color:#ef4444; font-weight:700;">-₹{o.get('price', 0)}</span>
+            </div>
+            <div style="font-weight:800; font-size:16px;">{o.get('product', 'Unknown')}</div>
+        </div>
+        """ for o in orders])
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-weight:800; font-size:18px;">📜 History</div><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
+    <div class="container" style="margin-top:20px;">{html if html else '<p style="text-align:center; color:#94a3b8;">No transactions yet.</p>'}</div>
+    {get_bottom_nav('history')}
     """)
 
 @app.route('/logout')
@@ -583,31 +585,12 @@ def logout():
     session.pop('uid', None)
     return redirect(url_for('web_home'))
 
-@app.route('/admin')
-def admin_panel():
-    if 'uid' not in session or str(session['uid']) != str(ADMIN_ID):
-        return "Access Denied. Login with Admin ID first."
-    
-    products = list(products_col.find({}))
-    prod_html = "".join([f"<div style='padding:10px; border-bottom:1px solid #333;'><b>{p.get('name', 'Unknown')}</b> (PID: {p.get('pid', '')})</div>" for p in products])
-    
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><div style="font-weight:700;">💻 Admin Panel</div></div>
-    <div class="container" style="margin-top:20px;">
-        <div class="product-card">
-            <h3>All Products</h3>
-            <div style="margin-top:15px;">{prod_html}</div>
-        </div>
-    </div>
-    """)
-
-# ================== RUNNING APP ==================
+# ================== RUNNING ==================
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
 
 def run_bot():
-    print("Starting Telegram Bot...")
     try: bot.delete_webhook(drop_pending_updates=True) 
     except: pass
     bot.infinity_polling(timeout=30, long_polling_timeout=30, skip_pending=True)

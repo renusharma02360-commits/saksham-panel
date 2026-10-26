@@ -108,15 +108,16 @@ def handle_callbacks(call):
             return bot.answer_callback_query(call.id, "Store is empty!", show_alert=True)
         kb = InlineKeyboardMarkup(row_width=1)
         for p in products:
-            kb.add(InlineKeyboardButton(f"📦 {p['name']}", callback_data=f"view|{str(p['_id'])}"))
+            kb.add(InlineKeyboardButton(f"📦 {p.get('name', 'Unknown')}", callback_data=f"view|{str(p['_id'])}"))
         kb.add(InlineKeyboardButton("🔙 Back", callback_data="menu_back"))
         bot.edit_message_text("🛒 <b>STORE PRODUCTS</b>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
     elif data.startswith("view|"):
         p_id = data.split("|")[1]
         product = products_col.find_one({"_id": ObjectId(p_id)})
-        text = f"📦 <b>{product['name']}</b>\n"
+        if not product: return
+        text = f"📦 <b>{product.get('name', 'Unknown')}</b>\n"
         kb = InlineKeyboardMarkup(row_width=2)
-        for dur, price in product["prices"].items():
+        for dur, price in product.get("prices", {}).items():
             kb.add(InlineKeyboardButton(f"⏱ {dur} - ₹{price}", callback_data=f"buy|{p_id}|{dur}"))
         kb.add(InlineKeyboardButton("🔙 Back", callback_data="menu_shop"))
         bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="HTML", reply_markup=kb)
@@ -124,19 +125,20 @@ def handle_callbacks(call):
         parts = data.split("|")
         p_id, duration = parts[1], parts[2]
         product = products_col.find_one({"_id": ObjectId(p_id)})
-        price = float(product["prices"][duration])
+        if not product: return
+        price = float(product.get("prices", {}).get(duration, 0))
         
         if deduct_balance(uid, price):
             bot.edit_message_text("⚡ <i>Processing API...</i>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
             try:
-                data_req = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(product["pid"]).strip(), 'duration': str(duration).strip(), 'quantity': 1}
+                data_req = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(product.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
                 res = requests.post(RESELLER_API_URL, data=data_req, headers={'x-master-key': MASTER_KEY}, timeout=20)
                 result = res.json()
             except Exception as e: result = {"status": "error", "message": str(e)}
             
             if result.get("status") == "success" or "keys" in result:
                 key = result.get("keys", ["Key not found"])[0]
-                log_order(uid, product['name'], key, price)
+                log_order(uid, product.get('name', 'Unknown'), key, price)
                 bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL</b>\n🔑 Key: <code>{key}</code>", chat_id=chat_id, message_id=msg_id, parse_mode="HTML")
             else:
                 credit_balance(uid, price) # Refund
@@ -145,6 +147,7 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "❌ Low Balance! Please add funds on website.", show_alert=True)
     elif data == "menu_addfund":
         bot.edit_message_text("💸 Please visit the website to add balance instantly!", chat_id=chat_id, message_id=msg_id, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💻 Open Website", web_app=WebAppInfo(url=WEB_URL))))
+
 
 # ================== FLASK WEB APP (TM PANEL UI) ==================
 app = Flask(__name__)
@@ -247,118 +250,125 @@ def get_bottom_nav(active):
 
 @app.route('/')
 def web_home():
-    if 'uid' not in session:
-        return render_template_string(BASE_CSS + """
-        <div class="container" style="margin-top: 50px;">
+    try:
+        if 'uid' not in session:
+            return render_template_string(BASE_CSS + """
+            <div class="container" style="margin-top: 50px;">
+                <div class="hero-banner">
+                    <h1>TM PANEL SHOP</h1>
+                    <p>Premium Panel Store</p>
+                </div>
+                <div style="background: rgba(30, 41, 59, 0.8); padding: 20px; border-radius: 15px;">
+                    <h2 style="font-size: 18px; margin-bottom: 15px;">Login to Continue</h2>
+                    <form method="POST" action="/login">
+                        <div class="input-group">
+                            <label>Telegram ID</label>
+                            <input type="text" name="uid" placeholder="e.g. 7778093775" required>
+                        </div>
+                        <button type="submit" class="submit-btn">Login</button>
+                    </form>
+                </div>
+            </div>
+            """)
+        
+        uid = session['uid']
+        u = get_user_info(uid)
+        bal = u.get('balance', 0.0)
+        
+        # Fetch Live Orders (Latest 5)
+        live_orders = list(orders_col.find({}).sort("_id", -1).limit(5))
+        live_html = ""
+        for o in live_orders:
+            live_html += f"""
+            <div class="live-card">
+                <div class="user">👤 User***{str(o.get('uid', 'XXX'))[-3:]}</div>
+                <div class="prod">📦 {o.get('product', 'Unknown')}</div>
+                <div class="key">🔑 {str(o.get('key', 'XXX'))[:10]}***</div>
+            </div>
+            """
+        if not live_orders:
+            live_html = "<div style='color:#64748b; font-size:12px;'>No live purchases yet.</div>"
+
+        # Fetch Products
+        products = list(products_col.find({}))
+        prod_html = ""
+        for p in products:
+            prices = p.get('prices', {})
+            price_tags = "".join([f"<span class='price-tag'>{d} - ₹{pr}</span>" for d, pr in prices.items()])
+            prod_html += f"""
+            <div class="product-card">
+                <div class="product-title">📦 {p.get('name', 'Unknown')}</div>
+                <div class="price-row">{price_tags}</div>
+                <a href="/product/{str(p['_id'])}" class="buy-btn">View & Buy</a>
+            </div>
+            """
+
+        user_orders = list(orders_col.find({'uid': str(uid)}))
+        total_spent = sum([float(o.get('price', 0)) for o in user_orders])
+
+        return render_template_string(BASE_CSS + f"""
+        <div class="top-nav">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <a href="/" class="store-btn">📦 Store</a>
+                <span class="reseller-badge">Reseller</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <div class="wallet-box">💳 ₹{bal:.2f}</div>
+                <a href="/deposit" class="top-up-btn">⚡ TOP UP</a>
+            </div>
+        </div>
+
+        <div class="container">
             <div class="hero-banner">
                 <h1>TM PANEL SHOP</h1>
                 <p>Premium Panel Store</p>
+                <a href="https://t.me/SakshamPannelBot" class="tg-btn">JOIN TELEGRAM BOT</a>
             </div>
-            <div style="background: rgba(30, 41, 59, 0.8); padding: 20px; border-radius: 15px;">
-                <h2 style="font-size: 18px; margin-bottom: 15px;">Login to Continue</h2>
-                <form method="POST" action="/login">
-                    <div class="input-group">
-                        <label>Telegram ID</label>
-                        <input type="text" name="uid" placeholder="e.g. 7778093775" required>
-                    </div>
-                    <button type="submit" class="submit-btn">Login</button>
-                </form>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-title">💳 Wallet Balance</div>
+                    <div class="stat-value text-green">₹{bal:.2f}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">🔑 Keys Purchased</div>
+                    <div class="stat-value text-blue">{len(user_orders)}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">⚡ Today's Spend</div>
+                    <div class="stat-value text-yellow">₹0.00</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">🛍️ Total Spent</div>
+                    <div class="stat-value text-yellow">₹{total_spent:.2f}</div>
+                </div>
+            </div>
+
+            <div class="vip-banner">
+                <div>
+                    <div class="vip-title">👑 RESELLER VIP PANEL ACTIVE</div>
+                    <div class="vip-desc">Main website wholesale reseller discount rates applied.</div>
+                </div>
+                <div class="vip-badge">RESELLER</div>
+            </div>
+
+            <div class="live-title">
+                <div class="live-dot"></div> Live Purchases <span style="background:#ef4444; color:#fff; padding:2px 8px; border-radius:10px; font-size:10px;">1000+ LIVE</span>
+            </div>
+            <div class="live-scroll">
+                {live_html}
+            </div>
+
+            <div class="section-title">🔥 Browse Products</div>
+            <div style="font-size: 12px; color: #38bdf8; margin-bottom: 10px;">>> MARKETPLACE / RESELLER WHOLESALE STOCK</div>
+            <div class="product-grid">
+                {prod_html}
             </div>
         </div>
+        {get_bottom_nav('store')}
         """)
-    
-    uid = session['uid']
-    u = get_user_info(uid)
-    bal = u['balance']
-    
-    # Fetch Live Orders (Latest 5)
-    live_orders = list(orders_col.find({}).sort("_id", -1).limit(5))
-    live_html = ""
-    for o in live_orders:
-        live_html += f"""
-        <div class="live-card">
-            <div class="user">👤 User***{str(o['uid'])[-3:]}</div>
-            <div class="prod">📦 {o['product']}</div>
-            <div class="key">🔑 {str(o['key'])[:10]}***</div>
-        </div>
-        """
-    if not live_orders:
-        live_html = "<div style='color:#64748b; font-size:12px;'>No live purchases yet.</div>"
-
-    # Fetch Products
-    products = list(products_col.find({}))
-    prod_html = ""
-    for p in products:
-        price_tags = "".join([f"<span class='price-tag'>{d} - ₹{pr}</span>" for d, pr in p['prices'].items()])
-        prod_html += f"""
-        <div class="product-card">
-            <div class="product-title">📦 {p['name']}</div>
-            <div class="price-row">{price_tags}</div>
-            <a href="/product/{str(p['_id'])}" class="buy-btn">View & Buy</a>
-        </div>
-        """
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="display:flex; align-items:center; gap:10px;">
-            <a href="/" class="store-btn">📦 Store</a>
-            <span class="reseller-badge">Reseller</span>
-        </div>
-        <div style="display:flex; align-items:center; gap:10px;">
-            <div class="wallet-box">💳 ₹{bal:.2f}</div>
-            <a href="/deposit" class="top-up-btn">⚡ TOP UP</a>
-        </div>
-    </div>
-
-    <div class="container">
-        <div class="hero-banner">
-            <h1>TM PANEL SHOP</h1>
-            <p>Premium Panel Store</p>
-            <a href="https://t.me/SakshamPannelBot" class="tg-btn">JOIN TELEGRAM BOT</a>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-title">💳 Wallet Balance</div>
-                <div class="stat-value text-green">₹{bal:.2f}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">🔑 Keys Purchased</div>
-                <div class="stat-value text-blue">{len(list(orders_col.find({'uid': str(uid)})))}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">⚡ Today's Spend</div>
-                <div class="stat-value text-yellow">₹0.00</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">🛍️ Total Spent</div>
-                <div class="stat-value text-yellow">₹{sum([o['price'] for o in orders_col.find({'uid': str(uid)})]):.2f}</div>
-            </div>
-        </div>
-
-        <div class="vip-banner">
-            <div>
-                <div class="vip-title">👑 RESELLER VIP PANEL ACTIVE</div>
-                <div class="vip-desc">Main website wholesale reseller discount rates applied.</div>
-            </div>
-            <div class="vip-badge">RESELLER</div>
-        </div>
-
-        <div class="live-title">
-            <div class="live-dot"></div> Live Purchases <span style="background:#ef4444; color:#fff; padding:2px 8px; border-radius:10px; font-size:10px;">1000+ LIVE</span>
-        </div>
-        <div class="live-scroll">
-            {live_html}
-        </div>
-
-        <div class="section-title">🔥 Browse Products</div>
-        <div style="font-size: 12px; color: #38bdf8; margin-bottom: 10px;">>> MARKETPLACE / RESELLER WHOLESALE STOCK</div>
-        <div class="product-grid">
-            {prod_html}
-        </div>
-    </div>
-    {get_bottom_nav('store')}
-    """)
+    except Exception as e:
+        return f"System Error: {str(e)}" # Returns error to screen instead of 500 crash
 
 @app.route('/login', methods=['POST'])
 def web_login():
@@ -382,7 +392,7 @@ def web_product(p_id):
                 <span>₹{pr}</span>
             </button>
         </form>
-    """ for d, pr in p['prices'].items()])
+    """ for d, pr in p.get('prices', {}).items()])
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
@@ -391,7 +401,7 @@ def web_product(p_id):
     </div>
     <div class="container" style="margin-top:20px;">
         <div class="product-card">
-            <div class="product-title" style="font-size:20px;">📦 {p['name']}</div>
+            <div class="product-title" style="font-size:20px;">📦 {p.get('name', 'Unknown')}</div>
             <p style="color:#94a3b8; font-size:12px; margin-bottom:20px;">{p.get('description', 'Instant delivery key.')}</p>
             <div class="section-title" style="margin-top:0;">Select Duration:</div>
             {price_tags}
@@ -408,18 +418,18 @@ def buy_web():
     duration = request.form['duration']
     
     product = products_col.find_one({"_id": ObjectId(p_id)})
-    price = float(product["prices"][duration])
+    price = float(product.get("prices", {}).get(duration, 0))
     
     if deduct_balance(uid, price):
         try:
-            data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(product["pid"]).strip(), 'duration': str(duration).strip(), 'quantity': 1}
+            data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(product.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
             res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
             result = res.json()
         except Exception as e: result = {"status": "error", "message": str(e)}
             
         if result.get("status") == "success" or "keys" in result:
             key = result.get("keys", ["Key not found"])[0]
-            log_order(uid, product['name'], key, price)
+            log_order(uid, product.get('name', 'Unknown'), key, price)
             return render_template_string(BASE_CSS + f"""
             <div class="container" style="margin-top:50px;">
                 <div class="product-card" style="text-align:center;">
@@ -456,9 +466,9 @@ def web_keys():
     for o in orders:
         keys_html += f"""
         <div class="product-card" style="margin-bottom:10px;">
-            <div style="font-size:12px; color:#94a3b8;">{o['time']}</div>
-            <div style="font-weight:700; margin:5px 0;">📦 {o['product']}</div>
-            <div style="background:#0f172a; padding:10px; border-radius:8px; font-family:monospace; font-size:14px; color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">{o['key']}</div>
+            <div style="font-size:12px; color:#94a3b8;">{o.get('time', '')}</div>
+            <div style="font-weight:700; margin:5px 0;">📦 {o.get('product', 'Unknown')}</div>
+            <div style="background:#0f172a; padding:10px; border-radius:8px; font-family:monospace; font-size:14px; color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">{o.get('key', 'N/A')}</div>
         </div>
         """
     if not orders: keys_html = "<p style='color:#94a3b8; text-align:center;'>No keys purchased yet.</p>"
@@ -523,7 +533,6 @@ def gen_qr_web():
 def web_history():
     if 'uid' not in session: return redirect(url_for('web_home'))
     uid = session['uid']
-    # Just showing purchases here
     orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
     
     html = ""
@@ -531,10 +540,10 @@ def web_history():
         html += f"""
         <div class="product-card" style="margin-bottom:10px;">
             <div style="display:flex; justify-content:space-between; font-size:12px; color:#94a3b8; margin-bottom:5px;">
-                <span>{o['time']}</span>
-                <span style="color:#ef4444;">-₹{o['price']}</span>
+                <span>{o.get('time', '')}</span>
+                <span style="color:#ef4444;">-₹{o.get('price', 0)}</span>
             </div>
-            <div style="font-weight:700;">{o['product']}</div>
+            <div style="font-weight:700;">{o.get('product', 'Unknown')}</div>
         </div>
         """
     
@@ -561,7 +570,7 @@ def web_profile():
     <div class="container" style="margin-top:20px;">
         <div class="product-card" style="text-align:center;">
             <div style="font-size:50px; margin-bottom:10px;">👤</div>
-            <h2 style="color:#38bdf8;">{get_user_info(uid)['name']}</h2>
+            <h2 style="color:#38bdf8;">{get_user_info(uid).get('name', 'User')}</h2>
             <p style="color:#94a3b8; margin-bottom:15px;">ID: {uid}</p>
             <div class="wallet-box" style="display:inline-flex; font-size:16px;">💳 ₹{get_balance(uid):.2f}</div>
         </div>
@@ -574,14 +583,13 @@ def logout():
     session.pop('uid', None)
     return redirect(url_for('web_home'))
 
-# ================== ADMIN PANEL (Minimal) ==================
 @app.route('/admin')
 def admin_panel():
     if 'uid' not in session or str(session['uid']) != str(ADMIN_ID):
         return "Access Denied. Login with Admin ID first."
     
     products = list(products_col.find({}))
-    prod_html = "".join([f"<div style='padding:10px; border-bottom:1px solid #333;'><b>{p['name']}</b> (PID: {p['pid']})</div>" for p in products])
+    prod_html = "".join([f"<div style='padding:10px; border-bottom:1px solid #333;'><b>{p.get('name', 'Unknown')}</b> (PID: {p.get('pid', '')})</div>" for p in products])
     
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><div style="font-weight:700;">💻 Admin Panel</div></div>
@@ -589,7 +597,6 @@ def admin_panel():
         <div class="product-card">
             <h3>All Products</h3>
             <div style="margin-top:15px;">{prod_html}</div>
-            <p style="color:#94a3b8; font-size:12px; margin-top:20px;">(To add products, use the standard admin panel code or add directly in MongoDB)</p>
         </div>
     </div>
     """)

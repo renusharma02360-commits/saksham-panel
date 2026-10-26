@@ -82,69 +82,111 @@ def start(msg):
         kb.add(InlineKeyboardButton("⚙️ Admin Panel", web_app=WebAppInfo(url=f"{WEB_URL}/admin")))
     bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
 
-# ================== FLASK WEB APP (HD UI & ADMIN PANEL) ==================
+# ================== FLASK WEB APP (PREMIUM HD UI) ==================
 app = Flask(__name__)
 app.secret_key = "sk_panel_secret"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# -------- HD CSS --------
+# -------- HD PREMIUM CSS --------
 BASE_CSS = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
+    
     * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    body { background-color: #05070a; color: #fff; padding-bottom: 90px; background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #05070a 50%); min-height: 100vh; }
+    
+    body { 
+        background-color: #03040a; 
+        color: #fff; 
+        padding-bottom: 100px; 
+        /* Premium Background Design */
+        background-image: 
+            radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.15), transparent 25%),
+            radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.15), transparent 25%);
+        background-attachment: fixed;
+        min-height: 100vh;
+    }
+    
+    /* Grid Background Pattern */
+    body::before {
+        content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        background-size: 30px 30px; z-index: -1; pointer-events: none;
+    }
     
     /* HD Top Navbar */
-    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(15px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); }
-    .store-btn { background: linear-gradient(45deg, #0ea5e9, #3b82f6); padding: 10px 20px; border-radius: 25px; font-weight: 700; display: flex; align-items: center; gap: 8px; font-size: 15px; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); color: white; text-decoration: none; }
-    .reseller-badge { background: linear-gradient(45deg, #f59e0b, #ef4444); padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 800; color: #fff; text-transform: uppercase; margin-left: 8px; box-shadow: 0 0 10px rgba(245, 158, 11, 0.5); }
-    .wallet-box { background: rgba(16, 185, 129, 0.15); border: 1.5px solid #10b981; padding: 8px 16px; border-radius: 25px; font-weight: 800; color: #10b981; font-size: 15px; box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
-    .top-up-btn { background: linear-gradient(45deg, #6366f1, #a855f7); padding: 10px 18px; border-radius: 25px; font-weight: 800; font-size: 14px; color: white; border: none; box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4); text-decoration: none; }
+    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: rgba(10, 15, 30, 0.8); backdrop-filter: blur(20px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
+    .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 12px 24px; border-radius: 30px; font-weight: 800; display: flex; align-items: center; gap: 10px; font-size: 16px; box-shadow: 0 5px 20px rgba(14, 165, 233, 0.5); color: white; text-decoration: none; }
+    .reseller-badge { background: linear-gradient(135deg, #f59e0b, #ef4444); padding: 8px 16px; border-radius: 25px; font-size: 12px; font-weight: 900; color: #fff; text-transform: uppercase; margin-left: 10px; box-shadow: 0 0 15px rgba(245, 158, 11, 0.6); letter-spacing: 1px; }
+    .wallet-box { background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; padding: 10px 20px; border-radius: 30px; font-weight: 900; color: #10b981; font-size: 18px; box-shadow: 0 0 20px rgba(16, 185, 129, 0.3); }
+    .top-up-btn { background: linear-gradient(135deg, #8b5cf6, #d946ef); padding: 12px 22px; border-radius: 30px; font-weight: 900; font-size: 15px; color: white; border: none; box-shadow: 0 5px 20px rgba(168, 85, 247, 0.5); text-decoration: none; }
     
     /* Container */
-    .container { padding: 20px; max-width: 600px; margin: 0 auto; }
+    .container { padding: 25px; max-width: 800px; margin: 0 auto; }
     
-    /* HD Hero Banner */
-    .hero-banner { width: 100%; height: 200px; background: linear-gradient(135deg, #1e1b4b, #312e81, #4338ca); border-radius: 20px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 25px; border: 2px solid #6366f1; box-shadow: 0 15px 35px rgba(99, 102, 241, 0.3); }
-    .hero-banner h1 { font-size: 28px; font-weight: 800; text-shadow: 0 0 15px rgba(255,255,255,0.6); background: linear-gradient(90deg, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 1px; }
-    .hero-banner p { font-size: 14px; color: #cbd5e1; margin-top: 8px; font-weight: 500; }
+    /* Premium Logo & Hero Banner */
+    .hero-banner { 
+        width: 100%; padding: 40px 20px; 
+        background: linear-gradient(145deg, #111827, #0f172a); 
+        border-radius: 25px; 
+        display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; 
+        margin-bottom: 30px; 
+        border: 2px solid rgba(56, 189, 248, 0.3); 
+        box-shadow: inset 0 0 30px rgba(56, 189, 248, 0.1), 0 15px 40px rgba(0, 0, 0, 0.5);
+        position: relative; overflow: hidden;
+    }
+    
+    /* Logo Design */
+    .logo-container { position: relative; z-index: 2; }
+    .logo-text { 
+        font-size: 42px; font-weight: 900; text-transform: uppercase; letter-spacing: 3px;
+        background: linear-gradient(to right, #fbbf24, #f59e0b, #fbbf24); 
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
+        text-shadow: 0 0 30px rgba(245, 158, 11, 0.6);
+        margin-bottom: 10px;
+    }
+    .logo-sub { font-size: 16px; color: #94a3b8; font-weight: 600; letter-spacing: 5px; text-transform: uppercase; }
+    
+    /* Crown Icon behind text */
+    .crown-icon { position: absolute; top: -30px; left: 50%; transform: translateX(-50%); font-size: 50px; opacity: 0.2; z-index: 1; }
 
     /* Stats Grid HD */
-    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; }
-    .stat-card { background: rgba(30, 41, 59, 0.8); border-radius: 15px; padding: 18px; border: 1.5px solid rgba(255,255,255,0.08); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
-    .stat-title { font-size: 12px; color: #94a3b8; font-weight: 700; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .stat-value { font-size: 24px; font-weight: 800; }
-    .text-green { color: #10b981; text-shadow: 0 0 10px rgba(16,185,129,0.4); }
-    .text-blue { color: #38bdf8; text-shadow: 0 0 10px rgba(56,189,248,0.4); }
-    .text-yellow { color: #f59e0b; text-shadow: 0 0 10px rgba(245,158,11,0.4); }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+    .stat-card { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 25px 20px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+    .stat-title { font-size: 13px; color: #cbd5e1; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+    .stat-value { font-size: 30px; font-weight: 900; }
+    .text-green { color: #10b981; text-shadow: 0 0 20px rgba(16,185,129,0.5); }
+    .text-blue { color: #38bdf8; text-shadow: 0 0 20px rgba(56,189,248,0.5); }
+    .text-yellow { color: #f59e0b; text-shadow: 0 0 20px rgba(245,158,11,0.5); }
 
     /* VIP Banner */
-    .vip-banner { background: linear-gradient(90deg, rgba(16, 185, 129, 0.25), rgba(16, 185, 129, 0.05)); border: 2px solid #10b981; border-radius: 15px; padding: 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; box-shadow: 0 0 20px rgba(16, 185, 129, 0.3); }
-    .vip-title { font-size: 16px; font-weight: 800; color: #10b981; }
-    .vip-desc { font-size: 12px; color: #cbd5e1; margin-top: 5px; font-weight: 500; }
-    .vip-badge { background: #10b981; color: #000; padding: 8px 15px; border-radius: 10px; font-size: 12px; font-weight: 800; box-shadow: 0 0 10px rgba(16,185,129,0.5); }
+    .vip-banner { background: linear-gradient(90deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.05)); border: 2px solid #10b981; border-radius: 20px; padding: 25px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; box-shadow: 0 0 25px rgba(16, 185, 129, 0.3); }
+    .vip-title { font-size: 20px; font-weight: 900; color: #10b981; }
+    .vip-desc { font-size: 14px; color: #e2e8f0; margin-top: 5px; font-weight: 500; }
+    .vip-badge { background: #10b981; color: #000; padding: 10px 20px; border-radius: 12px; font-size: 14px; font-weight: 900; box-shadow: 0 0 15px rgba(16,185,129,0.6); }
 
-    /* Products */
-    .product-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
-    .product-card { background: linear-gradient(145deg, #111827, #0f172a); border-radius: 18px; padding: 20px; border: 1.5px solid rgba(255,255,255,0.08); box-shadow: 0 8px 25px rgba(0,0,0,0.4); }
-    .product-title { font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 15px; letter-spacing: 0.5px; }
-    .price-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
-    .price-tag { background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 700; border: 1px solid rgba(56,189,248,0.3); }
-    .buy-btn { background: linear-gradient(90deg, #0ea5e9, #3b82f6); color: white; text-align: center; padding: 15px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 16px; border: none; box-shadow: 0 5px 15px rgba(14, 165, 233, 0.4); display: block; }
+    /* Products HD */
+    .product-grid { display: grid; grid-template-columns: 1fr; gap: 25px; }
+    .product-card { background: linear-gradient(145deg, #0f172a, #05070a); border-radius: 22px; padding: 25px; border: 1.5px solid rgba(255,255,255,0.1); box-shadow: 0 12px 35px rgba(0,0,0,0.5); }
+    .product-title { font-size: 24px; font-weight: 900; color: #fff; margin-bottom: 20px; letter-spacing: 0.5px; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
+    .price-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 25px; }
+    .price-tag { background: rgba(56, 189, 248, 0.1); color: #38bdf8; padding: 10px 16px; border-radius: 12px; font-size: 16px; font-weight: 800; border: 1.5px solid rgba(56,189,248,0.4); box-shadow: inset 0 0 10px rgba(56,189,248,0.1); }
+    .buy-btn { background: linear-gradient(135deg, #0ea5e9, #3b82f6); color: white; text-align: center; padding: 18px; border-radius: 15px; text-decoration: none; font-weight: 900; font-size: 18px; border: none; box-shadow: 0 8px 25px rgba(14, 165, 233, 0.4); display: block; text-transform: uppercase; letter-spacing: 1px; }
 
-    /* Forms & Inputs (HD) */
-    .input-group { margin-bottom: 20px; }
-    .input-group label { display: block; font-size: 14px; color: #cbd5e1; margin-bottom: 8px; font-weight: 600; }
-    .input-group input, .input-group textarea { width: 100%; padding: 16px; border-radius: 12px; border: 1.5px solid #334155; background: #0f172a; color: #fff; font-size: 16px; outline: none; font-weight: 500; transition: 0.3s; }
-    .input-group input:focus { border-color: #38bdf8; box-shadow: 0 0 10px rgba(56, 189, 248, 0.2); }
-    .submit-btn { width: 100%; background: linear-gradient(90deg, #10b981, #059669); color: #fff; padding: 16px; border-radius: 12px; border: none; font-weight: 800; font-size: 16px; box-shadow: 0 5px 15px rgba(16, 185, 129, 0.3); display: block; text-align: center; }
-    .video-btn { background: linear-gradient(90deg, #ef4444, #dc2626); color: #fff; padding: 12px; border-radius: 10px; border: none; font-weight: 700; font-size: 14px; display: block; width: 100%; margin-bottom: 10px; text-align: center; text-decoration: none; }
+    /* Forms & Inputs HD */
+    .input-group { margin-bottom: 25px; }
+    .input-group label { display: block; font-size: 16px; color: #cbd5e1; margin-bottom: 10px; font-weight: 700; }
+    .input-group input, .input-group textarea { width: 100%; padding: 20px; border-radius: 15px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 18px; outline: none; font-weight: 600; transition: 0.3s; }
+    .input-group input:focus { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56, 189, 248, 0.3); }
+    .submit-btn { width: 100%; background: linear-gradient(135deg, #10b981, #059669); color: #fff; padding: 20px; border-radius: 15px; border: none; font-weight: 900; font-size: 18px; box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4); display: block; text-align: center; text-transform: uppercase; letter-spacing: 1px; }
+    
+    /* Video Buttons */
+    .video-btn { background: linear-gradient(135deg, #ef4444, #b91c1c); color: #fff; padding: 16px; border-radius: 12px; border: none; font-weight: 800; font-size: 16px; display: block; width: 100%; margin-bottom: 12px; text-align: center; text-decoration: none; box-shadow: 0 5px 15px rgba(239, 68, 68, 0.4); }
 
     /* Bottom Nav HD */
-    .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); display: flex; justify-content: space-around; padding: 15px 0; border-top: 1.5px solid rgba(255,255,255,0.08); z-index: 100; padding-bottom: env(safe-area-inset-bottom, 15px); }
-    .nav-item { display: flex; flex-direction: column; align-items: center; color: #64748b; text-decoration: none; font-size: 11px; font-weight: 700; gap: 6px; transition: 0.3s; }
-    .nav-item.active { color: #38bdf8; }
-    .nav-icon { font-size: 22px; }
+    .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(10, 15, 30, 0.95); backdrop-filter: blur(20px); display: flex; justify-content: space-around; padding: 15px 0; border-top: 1px solid rgba(255,255,255,0.1); z-index: 100; padding-bottom: env(safe-area-inset-bottom, 15px); box-shadow: 0 -5px 20px rgba(0,0,0,0.5); }
+    .nav-item { display: flex; flex-direction: column; align-items: center; color: #64748b; text-decoration: none; font-size: 12px; font-weight: 800; gap: 8px; transition: 0.3s; }
+    .nav-item.active { color: #38bdf8; transform: translateY(-3px); }
+    .nav-icon { font-size: 26px; }
 </style>
 """
 
@@ -164,13 +206,16 @@ def web_home():
     try:
         if 'uid' not in session:
             return render_template_string(BASE_CSS + """
-            <div class="container" style="margin-top: 80px;">
+            <div class="container" style="margin-top: 60px;">
                 <div class="hero-banner">
-                    <h1>SK PANEL SHOP</h1>
-                    <p>Premium Panel Store</p>
+                    <div class="crown-icon">👑</div>
+                    <div class="logo-container">
+                        <div class="logo-text">SK PANEL</div>
+                        <div class="logo-sub">Premium Store</div>
+                    </div>
                 </div>
-                <div style="background: rgba(30, 41, 59, 0.9); padding: 30px; border-radius: 20px; border: 1.5px solid rgba(255,255,255,0.1);">
-                    <h2 style="font-size: 22px; margin-bottom: 20px; text-align: center; color: #38bdf8;">Login to Continue</h2>
+                <div style="background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(15px); padding: 35px 25px; border-radius: 25px; border: 1.5px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5);">
+                    <h2 style="font-size: 24px; margin-bottom: 25px; text-align: center; color: #38bdf8; font-weight: 900;">Login to Continue</h2>
                     <form method="POST" action="/login">
                         <div class="input-group">
                             <label>Enter Telegram ID</label>
@@ -191,14 +236,13 @@ def web_home():
         live_html = ""
         for o in live_orders:
             live_html += f"""
-            <div class="live-card" style="min-width: 200px; background: rgba(30, 41, 59, 0.9); padding: 15px; border-radius: 12px; border: 1.5px solid rgba(255,255,255,0.05); flex-shrink: 0;">
-                <div style="font-size: 11px; color: #94a3b8; font-weight: 600;">👤 User***{str(o.get('uid', 'XXX'))[-3:]}</div>
-                <div style="font-size: 14px; font-weight: 700; color: #fff; margin: 5px 0;">📦 {o.get('product', 'Unknown')}</div>
-                <div style="font-size: 11px; color: #38bdf8; font-family: monospace;">🔑 {str(o.get('key', 'XXX'))[:10]}***</div>
+            <div class="live-card" style="min-width: 220px; background: rgba(30, 41, 59, 0.8); padding: 20px; border-radius: 15px; border: 1px solid rgba(56, 189, 248, 0.3); flex-shrink: 0; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
+                <div style="font-size: 13px; color: #94a3b8; font-weight: 700;">👤 User***{str(o.get('uid', 'XXX'))[-3:]}</div>
+                <div style="font-size: 16px; font-weight: 800; color: #fff; margin: 8px 0;">📦 {o.get('product', 'Unknown')}</div>
+                <div style="font-size: 13px; color: #38bdf8; font-family: monospace; font-weight: 600;">🔑 {str(o.get('key', 'XXX'))[:10]}***</div>
             </div>
             """
         
-        # Reseller Logic
         vip_html = ""
         reseller_badge = ""
         if discount > 0:
@@ -206,7 +250,7 @@ def web_home():
             vip_html = f"""
             <div class="vip-banner">
                 <div>
-                    <div class="vip-title">👑 RESELLER VIP ACTIVE</div>
+                    <div class="vip-title">👑 VIP ACTIVE</div>
                     <div class="vip-desc">You get {discount}% OFF on all products.</div>
                 </div>
                 <div class="vip-badge">VIP</div>
@@ -235,7 +279,7 @@ def web_home():
                 <a href="/" class="store-btn">📦 Store</a>
                 {reseller_badge}
             </div>
-            <div style="display:flex; align-items:center; gap:10px;">
+            <div style="display:flex; align-items:center; gap:15px;">
                 <div class="wallet-box">₹{bal:.2f}</div>
                 <a href="/deposit" class="top-up-btn">⚡ TOP UP</a>
             </div>
@@ -243,8 +287,11 @@ def web_home():
 
         <div class="container">
             <div class="hero-banner">
-                <h1>SK PANEL SHOP</h1>
-                <p>Premium Panel Store</p>
+                <div class="crown-icon">👑</div>
+                <div class="logo-container">
+                    <div class="logo-text">SK PANEL</div>
+                    <div class="logo-sub">Premium Store</div>
+                </div>
             </div>
 
             <div class="stats-grid">
@@ -256,15 +303,15 @@ def web_home():
 
             {vip_html}
 
-            <div style="display:flex; align-items:center; gap:10px; font-size:15px; font-weight:800; margin-bottom:15px;">
-                <span style="color:#ef4444; font-size:20px;">●</span> Live Purchases <span style="background:#ef4444; color:#fff; padding:3px 10px; border-radius:20px; font-size:11px;">1000+ LIVE</span>
+            <div style="display:flex; align-items:center; gap:12px; font-size:18px; font-weight:900; margin-bottom:20px; margin-top:10px;">
+                <span style="color:#ef4444; font-size:24px; animation: pulse 1s infinite;">●</span> Live Purchases <span style="background:#ef4444; color:#fff; padding:5px 15px; border-radius:20px; font-size:13px; box-shadow: 0 0 15px rgba(239,68,68,0.5);">1000+ LIVE</span>
             </div>
-            <div style="display:flex; gap:15px; overflow-x:auto; padding-bottom:15px; margin-bottom:15px; scrollbar-width:none;">
+            <div style="display:flex; gap:15px; overflow-x:auto; padding-bottom:20px; margin-bottom:20px; scrollbar-width:none;">
                 {live_html}
             </div>
 
-            <div style="font-size: 18px; font-weight: 800; margin-bottom: 15px; margin-top: 25px; color: #fff;">🔥 Browse Products</div>
-            <div style="font-size: 13px; color: #38bdf8; margin-bottom: 15px; font-weight:600;">>> MARKETPLACE / WHOLESALE STOCK</div>
+            <div style="font-size: 24px; font-weight: 900; margin-bottom: 20px; margin-top: 30px; color: #fff; text-shadow: 0 0 15px rgba(255,255,255,0.3);">🔥 Browse Products</div>
+            <div style="font-size: 15px; color: #38bdf8; margin-bottom: 20px; font-weight:800; letter-spacing: 1px;">>> MARKETPLACE / WHOLESALE STOCK</div>
             <div class="product-grid">
                 {prod_html}
             </div>
@@ -295,20 +342,19 @@ def web_product(p_id):
     for d, pr in p.get('prices', {}).items():
         final_price = float(pr) - (float(pr) * discount / 100) if discount > 0 else float(pr)
         price_tags += f"""
-        <form action="/buy_web" method="POST" style="margin-bottom:10px;">
+        <form action="/buy_web" method="POST" style="margin-bottom:15px;">
             <input type="hidden" name="p_id" value="{p_id}">
             <input type="hidden" name="duration" value="{d}">
-            <button type="submit" class="submit-btn" style="display:flex; justify-content:space-between; background:linear-gradient(90deg, #0ea5e9, #3b82f6);">
+            <button type="submit" class="submit-btn" style="display:flex; justify-content:space-between; background:linear-gradient(135deg, #0ea5e9, #3b82f6); padding: 20px;">
                 <span>⏱ {d}</span>
                 <span>₹{final_price:.2f}</span>
             </button>
         </form>
         """
 
-    # Video Buttons
     video_html = ""
     if p.get("video"):
-        video_html += f'<a href="{p["video"]}" target="_blank" class="video-btn" style="background:linear-gradient(90deg, #3b82f6, #2563eb);">📺 Watch Setup Video</a>'
+        video_html += f'<a href="{p["video"]}" target="_blank" class="video-btn" style="background:linear-gradient(135deg, #3b82f6, #2563eb);">📺 Watch Setup Video</a>'
     if p.get("hack"):
         video_html += f'<a href="{p["hack"]}" target="_blank" class="video-btn">🛠️ Watch Hack Video</a>'
 
@@ -317,16 +363,16 @@ def web_product(p_id):
         <a href="/" class="store-btn">🔙 Back</a>
         <div class="wallet-box">₹{get_balance(uid):.2f}</div>
     </div>
-    <div class="container" style="margin-top:20px;">
+    <div class="container" style="margin-top:30px;">
         <div class="product-card">
-            <div class="product-title" style="font-size:22px;">📦 {p.get('name', 'Unknown')}</div>
-            <p style="color:#94a3b8; font-size:14px; margin-bottom:20px; line-height:1.5;">{p.get('description', 'Instant delivery key.')}</p>
+            <div class="product-title" style="font-size:28px; color:#38bdf8;">📦 {p.get('name', 'Unknown')}</div>
+            <p style="color:#cbd5e1; font-size:16px; margin-bottom:25px; line-height:1.6;">{p.get('description', 'Instant delivery key.')}</p>
             
-            <div style="margin-bottom: 20px;">
+            <div style="margin-bottom: 30px;">
                 {video_html}
             </div>
 
-            <div style="font-size:16px; font-weight:700; margin-bottom:15px; color:#38bdf8;">Select Duration to Buy:</div>
+            <div style="font-size:20px; font-weight:900; margin-bottom:20px; color:#fff;">Select Duration:</div>
             {price_tags}
         </div>
     </div>
@@ -358,11 +404,11 @@ def buy_web():
             key = result.get("keys", ["Key not found"])[0]
             log_order(uid, product.get('name', 'Unknown'), key, price)
             return render_template_string(BASE_CSS + f"""
-            <div class="container" style="margin-top:50px;">
-                <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#10b981; margin-bottom:15px; font-size:24px;">✅ Purchase Successful!</h2>
-                    <p style="color:#cbd5e1; font-size:15px;">Your Key:</p>
-                    <div style="background:#0f172a; padding:20px; border-radius:12px; border:2px solid #38bdf8; font-family:monospace; font-size:20px; margin:20px 0; font-weight:700;">{key}</div>
+            <div class="container" style="margin-top:60px;">
+                <div class="product-card" style="text-align:center; border-color: #10b981;">
+                    <h2 style="color:#10b981; margin-bottom:20px; font-size:28px;">✅ Purchase Successful!</h2>
+                    <p style="color:#cbd5e1; font-size:16px;">Your Key:</p>
+                    <div style="background:#05070a; padding:25px; border-radius:15px; border:2px solid #38bdf8; font-family:monospace; font-size:22px; margin:25px 0; font-weight:900; color:#38bdf8; box-shadow: inset 0 0 20px rgba(56,189,248,0.2);">{key}</div>
                     <a href="/keys" class="submit-btn" style="text-decoration:none;">Go to My Keys</a>
                 </div>
             </div>
@@ -371,11 +417,11 @@ def buy_web():
         else:
             credit_balance(uid, price)
             return render_template_string(BASE_CSS + f"""
-            <div class="container" style="margin-top:50px;">
-                <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#ef4444; margin-bottom:15px; font-size:24px;">❌ Out of Stock</h2>
-                    <p style="color:#cbd5e1;">API Error: {result.get('message', 'Unknown')}</p>
-                    <p style="color:#10b981; margin-top:15px; font-weight:700;">₹{price:.2f} Refunded to Wallet.</p>
+            <div class="container" style="margin-top:60px;">
+                <div class="product-card" style="text-align:center; border-color: #ef4444;">
+                    <h2 style="color:#ef4444; margin-bottom:20px; font-size:28px;">❌ Out of Stock</h2>
+                    <p style="color:#cbd5e1; font-size:16px;">API Error: {result.get('message', 'Unknown')}</p>
+                    <p style="color:#10b981; margin-top:20px; font-weight:900; font-size:18px;">₹{price:.2f} Refunded to Wallet.</p>
                     <br><a href="/" class="submit-btn" style="text-decoration:none;">Back to Store</a>
                 </div>
             </div>
@@ -383,7 +429,6 @@ def buy_web():
             """)
     return redirect(url_for('web_home'))
 
-# ---------------- ADMIN PANEL (FULL CONTROLLER) ----------------
 @app.route('/admin', methods=['GET', 'POST'])
 def admin_panel():
     if 'uid' not in session or str(session['uid']) != str(ADMIN_ID):
@@ -399,7 +444,6 @@ def admin_panel():
             hack = request.form['hack']
             is_maintenance = request.form.get('is_maintenance') == 'true'
             
-            # Parse Durations & Prices
             durs = request.form.getlist('duration[]')
             prices = request.form.getlist('price[]')
             price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
@@ -409,20 +453,21 @@ def admin_panel():
                 "video": video, "hack": hack, 
                 "is_maintenance": is_maintenance, "prices": price_dict
             })
-            msg = "<div style='background:#10b981; color:#fff; padding:15px; border-radius:10px; margin-bottom:20px;'>✅ Product Added Successfully!</div>"
+            msg = "<div style='background:#10b981; color:#fff; padding:20px; border-radius:15px; margin-bottom:20px; font-weight:800; text-align:center;'>✅ Product Added Successfully!</div>"
         except Exception as e:
-            msg = f"<div style='background:#ef4444; color:#fff; padding:15px; border-radius:10px; margin-bottom:20px;'>❌ Error: {e}</div>"
+            msg = f"<div style='background:#ef4444; color:#fff; padding:20px; border-radius:15px; margin-bottom:20px; font-weight:800; text-align:center;'>❌ Error: {e}</div>"
 
     products = list(products_col.find({}))
     prod_html = ""
     for p in products:
         prod_html += f"""
-        <div style="background:#1e293b; padding:15px; border-radius:10px; margin-bottom:10px; border:1px solid #334155;">
-            <div style="font-weight:700; font-size:16px; color:#38bdf8;">{p.get('name', '')} (PID: {p.get('pid', '')})</div>
-            <div style="font-size:12px; color:#94a3b8;">Setup Video: {p.get('video', 'None')} | Hack Video: {p.get('hack', 'None')}</div>
-            <div style="margin-top:10px;">
-                <form action="/delete_product/{p['_id']}" method="POST" style="display:inline;">
-                    <button type="submit" style="background:#ef4444; color:#fff; border:none; padding:5px 10px; border-radius:5px; font-size:12px; cursor:pointer;">Delete</button>
+        <div style="background:#1e293b; padding:20px; border-radius:15px; margin-bottom:15px; border:1.5px solid #334155;">
+            <div style="font-weight:900; font-size:20px; color:#38bdf8; margin-bottom:5px;">{p.get('name', '')}</div>
+            <div style="font-size:14px; color:#cbd5e1; margin-bottom:10px;">PID: {p.get('pid', '')}</div>
+            <div style="font-size:12px; color:#94a3b8; word-break:break-all;">Setup: {p.get('video', 'None')} | Hack: {p.get('hack', 'None')}</div>
+            <div style="margin-top:15px;">
+                <form action="/delete_product/{p['_id']}" method="POST">
+                    <button type="submit" style="background:#ef4444; color:#fff; border:none; padding:10px 20px; border-radius:8px; font-size:14px; font-weight:800; cursor:pointer;">Delete</button>
                 </form>
             </div>
         </div>
@@ -430,13 +475,13 @@ def admin_panel():
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
-        <div style="font-weight:800; font-size:18px;">⚙️ Admin Controller</div>
-        <a href="/" class="store-btn" style="background:#ef4444;">Exit</a>
+        <div style="font-weight:900; font-size:22px; color:#38bdf8;">⚙️ Admin Panel</div>
+        <a href="/" class="store-btn" style="background:#ef4444; box-shadow:0 5px 15px rgba(239,68,68,0.5);">Exit</a>
     </div>
-    <div class="container" style="margin-top:20px;">
+    <div class="container" style="margin-top:30px;">
         {msg}
-        <div style="background:rgba(30,41,59,0.9); padding:20px; border-radius:15px; margin-bottom:30px;">
-            <h3 style="margin-bottom:15px; color:#38bdf8;">➕ Add New Product</h3>
+        <div style="background:rgba(30,41,59,0.9); padding:30px; border-radius:20px; margin-bottom:40px; border:1.5px solid #334155;">
+            <h3 style="margin-bottom:25px; color:#38bdf8; font-size:22px; font-weight:900;">➕ Add New Product</h3>
             <form method="POST">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" required></div>
                 <div class="input-group"><label>PID</label><input type="text" name="pid" required></div>
@@ -445,26 +490,26 @@ def admin_panel():
                 <div class="input-group"><label>Hack Video Link (URL)</label><input type="url" name="hack" placeholder="https://youtu.be/..."></div>
                 <div class="input-group">
                     <label>Status</label>
-                    <select name="is_maintenance" style="width:100%; padding:15px; border-radius:10px; background:#0f172a; color:#fff; border:1px solid #334155;">
+                    <select name="is_maintenance" style="width:100%; padding:20px; border-radius:15px; background:#0f172a; color:#fff; border:2px solid #334155; font-size:16px;">
                         <option value="false">🟢 Active</option>
                         <option value="true">🔴 Maintenance</option>
                     </select>
                 </div>
                 
-                <label style="font-weight:700; color:#38bdf8; margin-top:10px; display:block;">Durations & Prices</label>
+                <label style="font-weight:900; color:#38bdf8; margin-top:20px; margin-bottom:10px; display:block; font-size:16px;">Durations & Prices</label>
                 <div id="price-container">
                     <div style="display:flex; gap:10px; margin-bottom:10px;">
-                        <input type="text" name="duration[]" placeholder="e.g. 1 Day" style="flex:1; padding:12px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff;">
-                        <input type="number" name="price[]" placeholder="₹ Price" style="flex:1; padding:12px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff;">
+                        <input type="text" name="duration[]" placeholder="e.g. 1 Day" style="flex:1; padding:20px; border-radius:15px; background:#0f172a; border:2px solid #334155; color:#fff; font-size:16px;">
+                        <input type="number" name="price[]" placeholder="₹ Price" style="flex:1; padding:20px; border-radius:15px; background:#0f172a; border:2px solid #334155; color:#fff; font-size:16px;">
                     </div>
                 </div>
-                <button type="button" onclick="addPrice()" style="background:#f59e0b; color:#000; padding:10px; border:none; border-radius:8px; margin-bottom:15px; font-weight:700;">+ Add More Duration</button>
+                <button type="button" onclick="addPrice()" style="background:#f59e0b; color:#000; padding:15px; border:none; border-radius:12px; margin-bottom:25px; font-weight:900; font-size:16px; width:100%;">+ Add More Duration</button>
                 
-                <button type="submit" class="submit-btn">Save Product</button>
+                <button type="submit" class="submit-btn" style="background:linear-gradient(135deg, #10b981, #059669);">Save Product</button>
             </form>
         </div>
 
-        <h3 style="margin-bottom:15px; color:#38bdf8;">📦 All Products ({len(products)})</h3>
+        <h3 style="margin-bottom:20px; color:#38bdf8; font-size:22px; font-weight:900;">📦 All Products ({len(products)})</h3>
         {prod_html}
     </div>
     <script>
@@ -472,7 +517,7 @@ def admin_panel():
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
             d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:12px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:12px; border-radius:8px; background:#0f172a; border:1px solid #334155; color:#fff;">`;
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:20px; border-radius:15px; background:#0f172a; border:2px solid #334155; color:#fff; font-size:16px;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:20px; border-radius:15px; background:#0f172a; border:2px solid #334155; color:#fff; font-size:16px;">`;
             c.appendChild(d);
         }}
     </script>
@@ -485,23 +530,22 @@ def delete_product(p_id):
     products_col.delete_one({"_id": ObjectId(p_id)})
     return redirect(url_for('admin_panel'))
 
-# ---------------- OTHER ROUTES ----------------
 @app.route('/keys')
 def web_keys():
     if 'uid' not in session: return redirect(url_for('web_home'))
     uid = session['uid']
     orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
     keys_html = "".join([f"""
-        <div class="product-card" style="margin-bottom:15px;">
-            <div style="font-size:12px; color:#94a3b8;">{o.get('time', '')}</div>
-            <div style="font-weight:800; font-size:16px; margin:8px 0; color:#38bdf8;">📦 {o.get('product', 'Unknown')}</div>
-            <div style="background:#0f172a; padding:15px; border-radius:10px; font-family:monospace; font-size:16px; color:#fff; border:1.5px solid #10b981;">{o.get('key', 'N/A')}</div>
+        <div class="product-card" style="margin-bottom:20px;">
+            <div style="font-size:14px; color:#94a3b8; margin-bottom:10px;">{o.get('time', '')}</div>
+            <div style="font-weight:900; font-size:20px; margin-bottom:15px; color:#38bdf8;">📦 {o.get('product', 'Unknown')}</div>
+            <div style="background:#05070a; padding:20px; border-radius:15px; font-family:monospace; font-size:18px; color:#fff; border:2px solid #10b981; word-break:break-all;">{o.get('key', 'N/A')}</div>
         </div>
         """ for o in orders])
-    if not orders: keys_html = "<p style='color:#94a3b8; text-align:center; font-size:16px;'>No keys purchased yet.</p>"
+    if not orders: keys_html = "<p style='color:#94a3b8; text-align:center; font-size:18px; margin-top:50px; font-weight:600;'>No keys purchased yet.</p>"
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><div style="font-weight:800; font-size:18px;">🔑 My Keys</div><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
-    <div class="container" style="margin-top:20px;">{keys_html}</div>
+    <div class="top-nav"><div style="font-weight:900; font-size:22px;">🔑 My Keys</div><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
+    <div class="container" style="margin-top:30px;">{keys_html}</div>
     {get_bottom_nav('keys')}
     """)
 
@@ -509,13 +553,13 @@ def web_keys():
 def web_deposit():
     if 'uid' not in session: return redirect(url_for('web_home'))
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><div style="font-weight:800; font-size:18px;">💰 Deposit</div><div class="wallet-box">₹{get_balance(session['uid']):.2f}</div></div>
-    <div class="container" style="margin-top:20px;">
+    <div class="top-nav"><div style="font-weight:900; font-size:22px;">💰 Deposit</div><div class="wallet-box">₹{get_balance(session['uid']):.2f}</div></div>
+    <div class="container" style="margin-top:30px;">
         <div class="product-card">
-            <h3 style="margin-bottom:20px; font-size:20px; color:#38bdf8;">Add Balance to Wallet</h3>
+            <h3 style="margin-bottom:25px; font-size:24px; color:#38bdf8; font-weight:900;">Add Balance</h3>
             <form action="/gen_qr_web" method="POST">
                 <div class="input-group"><label>Enter Amount (₹)</label><input type="number" name="amount" min="10" required placeholder="e.g. 100"></div>
-                <button type="submit" class="submit-btn">Generate Payment QR</button>
+                <button type="submit" class="submit-btn">Generate QR</button>
             </form>
         </div>
     </div>
@@ -530,13 +574,13 @@ def gen_qr_web():
         order = fg.create_order(amount=amount, customer_name=session['uid'])
         return render_template_string(BASE_CSS + f"""
         <div class="top-nav"><a href="/deposit" class="store-btn">🔙 Back</a></div>
-        <div class="container" style="margin-top:30px; text-align:center;">
+        <div class="container" style="margin-top:40px; text-align:center;">
             <div class="product-card">
-                <h2 style="color:#10b981; font-size:24px;">Pay ₹{amount}</h2>
-                <p style="color:#94a3b8; margin:10px 0;">Order ID: {order.order_id}</p>
-                <img src="{order.qr_url}" style="width:100%; max-width:280px; border-radius:15px; border:2px solid #38bdf8; margin:20px 0;">
-                <p style="color:#f59e0b; font-size:13px;">Scan and pay. Balance will be added automatically.</p>
-                <a href="/" class="submit-btn" style="text-decoration:none; margin-top:20px;">I have paid (Check Status)</a>
+                <h2 style="color:#10b981; font-size:28px; font-weight:900;">Pay ₹{amount}</h2>
+                <p style="color:#94a3b8; margin:15px 0; font-size:16px;">Order ID: {order.order_id}</p>
+                <img src="{order.qr_url}" style="width:100%; max-width:300px; border-radius:20px; border:3px solid #38bdf8; margin:25px 0; box-shadow: 0 10px 30px rgba(56,189,248,0.3);">
+                <p style="color:#f59e0b; font-size:15px; font-weight:600; margin-bottom:20px;">Scan and pay. Balance will be added automatically.</p>
+                <a href="/" class="submit-btn" style="text-decoration:none;">I have paid (Check)</a>
             </div>
         </div>
         {get_bottom_nav('deposit')}
@@ -549,13 +593,13 @@ def web_profile():
     if 'uid' not in session: return redirect(url_for('web_home'))
     uid = session['uid']
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><div style="font-weight:800; font-size:18px;">👤 Profile</div><a href="/logout" class="store-btn" style="background:#ef4444;">Logout</a></div>
-    <div class="container" style="margin-top:20px;">
-        <div class="product-card" style="text-align:center;">
-            <div style="font-size:60px; margin-bottom:15px;">👤</div>
-            <h2 style="color:#38bdf8; font-size:22px;">{get_user_info(uid).get('name', 'User')}</h2>
-            <p style="color:#94a3b8; margin-bottom:20px; font-size:15px;">ID: {uid}</p>
-            <div class="wallet-box" style="display:inline-flex; font-size:20px; padding:10px 25px;">₹{get_balance(uid):.2f}</div>
+    <div class="top-nav"><div style="font-weight:900; font-size:22px;">👤 Profile</div><a href="/logout" class="store-btn" style="background:#ef4444; box-shadow:0 5px 15px rgba(239,68,68,0.5);">Logout</a></div>
+    <div class="container" style="margin-top:30px;">
+        <div class="product-card" style="text-align:center; padding:40px 20px;">
+            <div style="font-size:80px; margin-bottom:20px; text-shadow: 0 0 20px rgba(255,255,255,0.2);">👤</div>
+            <h2 style="color:#38bdf8; font-size:26px; font-weight:900;">{get_user_info(uid).get('name', 'User')}</h2>
+            <p style="color:#94a3b8; margin-bottom:25px; font-size:16px; font-weight:600;">ID: {uid}</p>
+            <div class="wallet-box" style="display:inline-flex; font-size:24px; padding:15px 30px; font-weight:900;">₹{get_balance(uid):.2f}</div>
         </div>
     </div>
     {get_bottom_nav('profile')}
@@ -567,16 +611,16 @@ def web_history():
     uid = session['uid']
     orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
     html = "".join([f"""
-        <div class="product-card" style="margin-bottom:15px;">
-            <div style="display:flex; justify-content:space-between; font-size:12px; color:#94a3b8; margin-bottom:8px;">
-                <span>{o.get('time', '')}</span><span style="color:#ef4444; font-weight:700;">-₹{o.get('price', 0)}</span>
+        <div class="product-card" style="margin-bottom:20px;">
+            <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px; font-weight:600;">
+                <span>{o.get('time', '')}</span><span style="color:#ef4444; font-weight:800; font-size:16px;">-₹{o.get('price', 0)}</span>
             </div>
-            <div style="font-weight:800; font-size:16px;">{o.get('product', 'Unknown')}</div>
+            <div style="font-weight:900; font-size:18px; color:#fff;">{o.get('product', 'Unknown')}</div>
         </div>
         """ for o in orders])
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><div style="font-weight:800; font-size:18px;">📜 History</div><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
-    <div class="container" style="margin-top:20px;">{html if html else '<p style="text-align:center; color:#94a3b8;">No transactions yet.</p>'}</div>
+    <div class="top-nav"><div style="font-weight:900; font-size:22px;">📜 History</div><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
+    <div class="container" style="margin-top:30px;">{html if html else '<p style="text-align:center; color:#94a3b8; font-size:18px; margin-top:50px;">No transactions yet.</p>'}</div>
     {get_bottom_nav('history')}
     """)
 

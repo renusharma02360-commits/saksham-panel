@@ -7,7 +7,7 @@ import telebot
 import uuid
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from famgateway import FamGateway
-from flask import Flask, request, render_template_string, redirect, url_for, session
+from flask import Flask, request, render_template_string, redirect, url_for, session, jsonify
 from werkzeug.utils import secure_filename
 from pymongo import MongoClient
 from bson.objectid import ObjectId
@@ -66,8 +66,17 @@ def credit_balance(uid, amount):
     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
     return get_balance(uid)
 
+def credit_atomic(uid, amount, utr):
+    # Prevents double crediting if utr is already used
+    if orders_col.find_one({"utr": utr, "type": "deposit"}):
+        return True, get_balance(uid)
+    
+    orders_col.insert_one({"utr": utr, "uid": str(uid), "amount": amount, "type": "deposit", "time": time.strftime("%d-%m-%Y %I:%M %p")})
+    users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
+    return True, get_balance(uid)
+
 def log_order(uid, product, key, price):
-    orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "time": time.strftime("%d-%m-%Y %I:%M %p")})
+    orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
 # ================== TELEGRAM BOT ==================
 @bot.message_handler(commands=["start"])
@@ -86,7 +95,7 @@ app = Flask(__name__)
 app.secret_key = "sk_panel_secret"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# -------- HD CSS (Bada aur Clean) --------
+# -------- HD CSS --------
 BASE_CSS = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
@@ -94,33 +103,27 @@ BASE_CSS = """
     body { background-color: #050810; color: #fff; padding-bottom: 100px; background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #050810 70%); background-attachment: fixed; min-height: 100vh; animation: bodyFadeIn 0.8s ease-out; }
     @keyframes bodyFadeIn { from { opacity: 0; } to { opacity: 1; } }
     
-    /* Bada Container */
     .container { padding: 25px; max-width: 950px; margin: 0 auto; animation: slideUp 0.5s ease-out; }
     @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     
-    /* Top Navbar */
     .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(15px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); }
     .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 15px 30px; border-radius: 25px; font-weight: 800; font-size: 18px; color: white; text-decoration: none; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); }
     .wallet-box { background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; padding: 12px 25px; border-radius: 25px; font-weight: 900; color: #10b981; font-size: 20px; }
     
-    /* Hero Banner */
     .hero-banner { width: 100%; padding: 50px 20px; background: linear-gradient(145deg, #1e1b4b, #0f172a); border-radius: 25px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 35px; border: 2px solid #6366f1; box-shadow: inset 0 0 30px rgba(99, 102, 241, 0.2), 0 10px 40px rgba(0, 0, 0, 0.6); }
     .logo-text { font-size: 50px; font-weight: 900; background: linear-gradient(to right, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); }
     
-    /* Stats Grid */
     .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
     .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 30px; border: 1px solid rgba(255,255,255,0.08); }
     .stat-title { font-size: 16px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; }
     .stat-value { font-size: 36px; font-weight: 900; }
 
-    /* Products */
     .product-grid { display: grid; grid-template-columns: 1fr; gap: 25px; }
     .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 25px; padding: 35px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5); }
     .product-title { font-size: 30px; font-weight: 900; color: #fff; margin-bottom: 20px; }
     .price-row { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 30px; }
     .price-tag { background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 15px 25px; border-radius: 12px; font-size: 20px; font-weight: 800; border: 1px solid rgba(56,189,248,0.4); }
 
-    /* Buttons & Inputs (Bade) */
     .action-btn { display: block; width: 100%; padding: 25px; border-radius: 20px; text-align: center; font-weight: 900; font-size: 22px; text-decoration: none; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
     .btn-primary { background: linear-gradient(135deg, #0ea5e9, #3b82f6); color: white; box-shadow: 0 8px 25px rgba(14, 165, 233, 0.4); }
     .btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4); }
@@ -132,9 +135,10 @@ BASE_CSS = """
     .input-group input, .input-group textarea { width: 100%; padding: 25px; border-radius: 20px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 20px; outline: none; font-weight: 600; }
     .input-group input:focus { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56, 189, 248, 0.3); }
     
-    /* Video Player */
     .gameplay-container { margin-bottom: 20px; border-radius: 15px; overflow: hidden; border: 2px solid #0ea5e9; box-shadow: 0 5px 20px rgba(14, 165, 233, 0.3); }
     .gameplay-container video { width: 100%; display: block; background: #000; }
+    
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
 """
 
@@ -256,7 +260,7 @@ def web_home():
         <div class="hero-banner"><div class="logo-text">SK PANEL</div></div>
         <div class="stats-grid">
             <div class="stat-card"><div class="stat-title">💳 Wallet</div><div class="stat-value text-green">₹{bal:.2f}</div></div>
-            <div class="stat-card"><div class="stat-title">🔑 Keys</div><div class="stat-value text-blue">{len(list(orders_col.find({'uid': str(uid)})))}</div></div>
+            <div class="stat-card"><div class="stat-title">🔑 Keys</div><div class="stat-value text-blue">{len(list(orders_col.find({'uid': str(uid), 'type': 'purchase'})))}</div></div>
         </div>
         <a href="/deposit" class="action-btn btn-warning" style="margin-bottom:40px;">⚡ Add Balance</a>
         <div class="product-grid">{prod_html}</div>
@@ -350,6 +354,7 @@ def buy_web():
             """)
     return redirect(url_for('web_home'))
 
+# ================== AUTO-VERIFY DEPOSIT ==================
 @app.route('/deposit', methods=['GET', 'POST'])
 def web_deposit():
     if 'uid' not in session: return redirect(url_for('login'))
@@ -358,17 +363,60 @@ def web_deposit():
         amount = float(request.form['amount'])
         try:
             order = fg.create_order(amount=amount, customer_name=session['uid'])
-            return render_template_string(BASE_CSS + f"""
+            
+            QR_HTML = BASE_CSS + f"""
             <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
             <div class="container fade-in" style="margin-top:40px; text-align:center;">
-                <div class="product-card">
-                    <h2 style="color:#10b981; font-size:32px;">Pay ₹{amount}</h2>
-                    <img src="{order.qr_url}" style="width:100%; max-width:350px; border-radius:20px; border:2px solid #38bdf8; margin:30px 0;">
-                    <a href="/" class="action-btn btn-primary">I have paid</a>
+                <div class="product-card" style="padding: 40px 20px;">
+                    <h2 style="color:#10b981; font-size:32px; font-weight:900; margin-bottom:10px;">Pay ₹{amount}</h2>
+                    <p style="color:#94a3b8; font-size:16px; margin-bottom:30px;">Scan the QR Code below to pay</p>
+                    
+                    <div id="qr-section">
+                        <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(56, 189, 248, 0.4);">
+                            <img src="{order.qr_url}" style="width:100%; max-width:250px; display:block;">
+                        </div>
+                        
+                        <div id="loading-section" style="margin-top:30px;">
+                            <div style="display:inline-block; width:40px; height:40px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #38bdf8; border-radius:50%; animation: spin 1s linear infinite;"></div>
+                            <h3 style="color:#38bdf8; margin-top:15px; font-weight:700;">Waiting for Payment...</h3>
+                            <p style="color:#94a3b8; font-size:14px;">Auto-verifying. Do not close this page.</p>
+                        </div>
+                    </div>
+
+                    <div id="success-section" style="display:none; margin-top:30px;">
+                        <div style="font-size:60px; margin-bottom:20px;">✅</div>
+                        <h2 style="color:#10b981; font-size:28px; font-weight:900;">Payment Successful!</h2>
+                        <p style="color:#cbd5e1; font-size:18px; margin-top:10px;">New Balance: <b id="new-balance" style="color:#38bdf8;">₹0.00</b></p>
+                        <p style="color:#94a3b8; font-size:14px; margin-top:15px;">Redirecting to store...</p>
+                    </div>
                 </div>
             </div>
-            """)
-        except Exception as e: return f"Error: {e}"
+            <script>
+                let checkCount = 0;
+                const maxChecks = 100; 
+                
+                function checkPaymentStatus() {{
+                    fetch('/check_payment/{order.order_id}/{amount}')
+                    .then(response => response.json())
+                    .then(data => {{
+                        if (data.status === 'success') {{
+                            document.getElementById('qr-section').style.display = 'none';
+                            document.getElementById('success-section').style.display = 'block';
+                            document.getElementById('new-balance').innerText = '₹' + data.new_balance.toFixed(2);
+                            setTimeout(() => {{ window.location.href = '/'; }}, 3000);
+                        }} else if (data.status === 'expired') {{
+                            document.getElementById('loading-section').innerHTML = '<h3 style="color:#ef4444;">QR Expired! Please try again.</h3>';
+                        }}
+                    }});
+                    checkCount++;
+                    if(checkCount >= maxChecks) {{ clearInterval(pollInterval); }}
+                }}
+                const pollInterval = setInterval(checkPaymentStatus, 3000);
+            </script>
+            """
+            return render_template_string(QR_HTML)
+        except Exception as e: 
+            return f"<h2 style='color:red; text-align:center; margin-top:50px;'>API Error: {e}</h2>"
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
@@ -383,10 +431,26 @@ def web_deposit():
     </div>
     """)
 
-# ================== ADMIN PANEL (Dedicated Login & Edit Feature) ==================
+@app.route('/check_payment/<order_id>/<float:amount>')
+def check_payment(order_id, amount):
+    if 'uid' not in session: return jsonify({"status": "unauthorized"})
+    
+    try:
+        status = fg.get_status(order_id)
+        if status.is_paid:
+            uid = session['uid']
+            ok, new_bal = credit_atomic(uid, amount, status.utr)
+            return jsonify({"status": "success", "new_balance": new_bal})
+        elif status.is_expired:
+            return jsonify({"status": "expired"})
+        else:
+            return jsonify({"status": "pending"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+# ================== ADMIN PANEL ==================
 @app.route('/admin', methods=['GET', 'POST'])
 def admin_panel():
-    # If not logged in as Admin, show clean login page without 'Access Denied'
     if 'uid' not in session or str(session['uid']) != str(ADMIN_ID):
         if request.method == 'POST':
             user = request.form['username']
@@ -505,7 +569,7 @@ def add_product():
         price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
         
         products_col.insert_one({
-            "name": request.form['name'], "pid": request.form['pid'], "features": request.form.get('features', ''),
+            "name": request.form['name'], "pid": request.form['pid'], 
             "gameplay_video": gameplay_video_path,
             "setup_video": setup_video_path, "hack_video": hack_video_path, "prices": price_dict
         })
@@ -551,7 +615,7 @@ def edit_product(p_id):
             price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
             
             products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {
-                "name": request.form['name'], "pid": request.form['pid'], "features": request.form.get('features', ''),
+                "name": request.form['name'], "pid": request.form['pid'], 
                 "gameplay_video": gameplay_video_path,
                 "setup_video": setup_video_path, "hack_video": hack_video_path, "prices": price_dict
             }})

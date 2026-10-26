@@ -96,52 +96,52 @@ BASE_CSS = """
     body { background-color: #050810; color: #fff; padding-bottom: 100px; background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #050810 70%); background-attachment: fixed; min-height: 100vh; animation: bodyFadeIn 0.8s ease-out; }
     @keyframes bodyFadeIn { from { opacity: 0; } to { opacity: 1; } }
     
-    .container { padding: 20px; max-width: 900px; margin: 0 auto; animation: slideUp 0.5s ease-out; }
+    .container { padding: 15px; max-width: 900px; margin: 0 auto; animation: slideUp 0.5s ease-out; }
     @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     
     .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(15px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); }
-    .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 12px 20px; border-radius: 25px; font-weight: 800; font-size: 16px; color: white; text-decoration: none; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); }
-    .wallet-box { background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; padding: 10px 20px; border-radius: 25px; font-weight: 900; color: #10b981; font-size: 18px; }
+    .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 10px 20px; border-radius: 25px; font-weight: 800; font-size: 14px; color: white; text-decoration: none; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); }
+    .wallet-box { background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; padding: 8px 15px; border-radius: 25px; font-weight: 900; color: #10b981; font-size: 16px; }
     
-    .hero-banner { width: 100%; padding: 40px 20px; background: linear-gradient(145deg, #1e1b4b, #0f172a); border-radius: 25px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 30px; border: 2px solid #6366f1; box-shadow: inset 0 0 30px rgba(99, 102, 241, 0.2), 0 10px 40px rgba(0, 0, 0, 0.6); }
-    .logo-text { font-size: 45px; font-weight: 900; background: linear-gradient(to right, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); }
+    .hero-banner { width: 100%; padding: 30px 20px; background: linear-gradient(145deg, #1e1b4b, #0f172a); border-radius: 20px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 20px; border: 2px solid #6366f1; box-shadow: inset 0 0 30px rgba(99, 102, 241, 0.2), 0 10px 40px rgba(0, 0, 0, 0.6); }
+    .logo-text { font-size: 40px; font-weight: 900; background: linear-gradient(to right, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 5px; text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); }
     
-    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 30px; }
-    .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.08); }
-    .stat-title { font-size: 14px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; }
-    .stat-value { font-size: 32px; font-weight: 900; }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+    .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 15px; padding: 20px; border: 1px solid rgba(255,255,255,0.08); }
+    .stat-title { font-size: 13px; color: #94a3b8; font-weight: 700; margin-bottom: 8px; text-transform: uppercase; }
+    .stat-value { font-size: 26px; font-weight: 900; }
 
-    .product-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
-    .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5); }
-    .product-title { font-size: 24px; font-weight: 900; color: #fff; margin-bottom: 15px; }
-    .price-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
-    .price-tag { background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 10px 15px; border-radius: 10px; font-size: 16px; font-weight: 800; border: 1px solid rgba(56,189,248,0.4); }
+    .product-grid { display: grid; grid-template-columns: 1fr; gap: 15px; }
+    .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 20px; padding: 20px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5); }
+    .product-title { font-size: 20px; font-weight: 900; color: #fff; margin-bottom: 10px; }
+    .price-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
+    .price-tag { background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 800; border: 1px solid rgba(56,189,248,0.4); }
 
-    .action-btn { display: block; width: 100%; padding: 20px; border-radius: 15px; text-align: center; font-weight: 900; font-size: 18px; text-decoration: none; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
+    .action-btn { display: block; width: 100%; padding: 15px; border-radius: 12px; text-align: center; font-weight: 900; font-size: 16px; text-decoration: none; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
     .btn-primary { background: linear-gradient(135deg, #0ea5e9, #3b82f6); color: white; box-shadow: 0 8px 25px rgba(14, 165, 233, 0.4); }
     .btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4); }
     .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4); }
     .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: black; box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4); }
 
-    .input-group { margin-bottom: 20px; }
-    .input-group label { display: block; font-size: 16px; color: #cbd5e1; margin-bottom: 8px; font-weight: 700; }
-    .input-group input, .input-group textarea { width: 100%; padding: 18px; border-radius: 15px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 16px; outline: none; font-weight: 600; }
+    .input-group { margin-bottom: 15px; }
+    .input-group label { display: block; font-size: 14px; color: #cbd5e1; margin-bottom: 8px; font-weight: 700; }
+    .input-group input, .input-group textarea { width: 100%; padding: 15px; border-radius: 12px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 15px; outline: none; font-weight: 600; }
     
-    /* Screenshot Style Product Page */
-    .gameplay-banner { width: 100%; border-radius: 15px; border: 2px solid #00f0ff; box-shadow: 0 0 25px rgba(0, 240, 255, 0.4); margin-bottom: 20px; }
-    .product-page-title { text-align: center; font-size: 26px; font-weight: 900; color: white; text-shadow: 0 0 10px rgba(255,255,255,0.5); margin-bottom: 20px; }
-    .feature-item { background: #0a101f; border: 1px solid #1e293b; border-radius: 10px; padding: 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px; font-weight: 700; color: #e2e8f0; font-size: 16px; }
-    .feature-item::before { content: '✅'; font-size: 20px; filter: drop-shadow(0 0 5px #10b981); }
-    .check-btns { display: flex; gap: 10px; margin-top: 20px; margin-bottom: 30px; }
-    .btn-cyan { flex: 1; background: transparent; border: 1.5px solid #00f0ff; color: #00f0ff; padding: 15px 10px; border-radius: 10px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 5px; box-shadow: 0 0 15px rgba(0,240,255,0.2); }
-    .btn-red { flex: 1; background: transparent; border: 1.5px solid #ef4444; color: #ef4444; padding: 15px 10px; border-radius: 10px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 5px; box-shadow: 0 0 15px rgba(239,68,68,0.2); }
+    /* Screenshot Style Product Page (Compact) */
+    .gameplay-banner { width: 100%; height: 180px; object-fit: cover; border-radius: 12px; border: 2px solid #00f0ff; box-shadow: 0 0 20px rgba(0, 240, 255, 0.3); margin-bottom: 15px; }
+    .product-page-title { text-align: center; font-size: 20px; font-weight: 900; color: white; text-shadow: 0 0 10px rgba(255,255,255,0.3); margin-bottom: 15px; }
+    .feature-item { background: #0a101f; border: 1px solid #1e293b; border-radius: 8px; padding: 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; font-weight: 700; color: #e2e8f0; font-size: 14px; }
+    .feature-item::before { content: '✅'; font-size: 16px; filter: drop-shadow(0 0 5px #10b981); }
+    .check-btns { display: flex; gap: 8px; margin-top: 15px; margin-bottom: 20px; }
+    .btn-cyan { flex: 1; background: transparent; border: 1.5px solid #00f0ff; color: #00f0ff; padding: 12px 5px; border-radius: 8px; font-weight: 800; font-size: 12px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 5px; box-shadow: 0 0 10px rgba(0,240,255,0.2); }
+    .btn-red { flex: 1; background: transparent; border: 1.5px solid #ef4444; color: #ef4444; padding: 12px 5px; border-radius: 8px; font-weight: 800; font-size: 12px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 5px; box-shadow: 0 0 10px rgba(239,68,68,0.2); }
     
-    .purchase-header { background: linear-gradient(90deg, #8b5cf6, #6366f1); color: white; padding: 15px; border-radius: 12px; text-align: center; font-weight: 900; font-size: 20px; text-transform: uppercase; margin-bottom: 20px; letter-spacing: 1px; box-shadow: 0 5px 20px rgba(139, 92, 246, 0.4); }
+    .purchase-header { background: linear-gradient(90deg, #8b5cf6, #6366f1); color: white; padding: 12px; border-radius: 10px; text-align: center; font-weight: 900; font-size: 16px; text-transform: uppercase; margin-bottom: 15px; letter-spacing: 1px; box-shadow: 0 5px 15px rgba(139, 92, 246, 0.3); }
     
-    .price-row-ui { display: flex; align-items: center; justify-content: space-between; background: #0a101f; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 18px; margin-bottom: 12px; }
-    .price-dur { font-weight: 800; font-size: 18px; color: #00f0ff; margin-bottom: 5px; }
-    .price-amt { font-weight: 900; font-size: 22px; color: white; }
-    .buy-btn-ui { background: linear-gradient(90deg, #ff00cc, #ff3366); color: white; padding: 12px 25px; border-radius: 8px; font-weight: 900; font-size: 16px; border: none; cursor: pointer; box-shadow: 0 0 15px rgba(255, 0, 204, 0.4); text-transform: uppercase; }
+    .price-row-ui { display: flex; align-items: center; justify-content: space-between; background: #0a101f; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 15px; margin-bottom: 10px; }
+    .price-dur { font-weight: 800; font-size: 15px; color: #00f0ff; margin-bottom: 2px; }
+    .price-amt { font-weight: 900; font-size: 18px; color: white; }
+    .buy-btn-ui { background: linear-gradient(90deg, #ff00cc, #ff3366); color: white; padding: 10px 20px; border-radius: 6px; font-weight: 900; font-size: 14px; border: none; cursor: pointer; box-shadow: 0 0 12px rgba(255, 0, 204, 0.4); text-transform: uppercase; }
 
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
@@ -173,14 +173,14 @@ def login():
     <div class="container fade-in" style="margin-top: 50px;">
         <div class="hero-banner"><div class="logo-text">SK PANEL</div></div>
         <div class="product-card">
-            <h2 style="font-size: 28px; margin-bottom: 25px; text-align: center; color: #38bdf8; font-weight: 900;">User Login</h2>
+            <h2 style="font-size: 24px; margin-bottom: 20px; text-align: center; color: #38bdf8; font-weight: 900;">User Login</h2>
             <form method="POST" action="/login">
                 <div class="input-group"><label>Username</label><input type="text" name="username" required></div>
                 <div class="input-group"><label>Password</label><input type="password" name="password" required></div>
                 <button type="submit" class="action-btn btn-success">Login</button>
             </form>
             <div style="text-align: center; margin-top: 20px;">
-                <a href="/register" style="color: #38bdf8; text-decoration: none; font-weight: 700; font-size:16px;">Don't have an account? Register</a>
+                <a href="/register" style="color: #38bdf8; text-decoration: none; font-weight: 700; font-size:14px;">Don't have an account? Register</a>
             </div>
         </div>
     </div>
@@ -193,7 +193,7 @@ def register():
         pw = request.form['password'].strip()
         
         if web_users_col.find_one({"username": user}):
-            return render_template_string(BASE_CSS + "<h2 style='text-align:center; color:red; margin-top:50px; font-size:26px;'>Username already exists! <a href='/register'>Try again</a></h2>")
+            return render_template_string(BASE_CSS + "<h2 style='text-align:center; color:red; margin-top:50px; font-size:24px;'>Username already exists! <a href='/register'>Try again</a></h2>")
         
         uid = "web_" + str(uuid.uuid4())[:8]
         get_user_info(uid) 
@@ -206,14 +206,14 @@ def register():
     <div class="container fade-in" style="margin-top: 50px;">
         <div class="hero-banner"><div class="logo-text">SK PANEL</div></div>
         <div class="product-card">
-            <h2 style="font-size: 28px; margin-bottom: 25px; text-align: center; color: #38bdf8; font-weight: 900;">Register</h2>
+            <h2 style="font-size: 24px; margin-bottom: 20px; text-align: center; color: #38bdf8; font-weight: 900;">Register</h2>
             <form method="POST" action="/register">
                 <div class="input-group"><label>Username</label><input type="text" name="username" required></div>
                 <div class="input-group"><label>Password</label><input type="password" name="password" required></div>
                 <button type="submit" class="action-btn btn-primary">Register</button>
             </form>
             <div style="text-align: center; margin-top: 20px;">
-                <a href="/login" style="color: #38bdf8; text-decoration: none; font-weight: 700; font-size:16px;">Already have an account? Login</a>
+                <a href="/login" style="color: #38bdf8; text-decoration: none; font-weight: 700; font-size:14px;">Already have an account? Login</a>
             </div>
         </div>
     </div>
@@ -250,7 +250,7 @@ def web_home():
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
         <a href="/" class="store-btn">📦 Store</a>
-        <div style="display:flex; align-items:center; gap:15px;">
+        <div style="display:flex; align-items:center; gap:10px;">
             <div class="wallet-box">₹{bal:.2f}</div>
             <a href="/logout" class="store-btn" style="background:#ef4444;">Logout</a>
         </div>
@@ -261,7 +261,7 @@ def web_home():
             <div class="stat-card"><div class="stat-title">💳 Wallet Balance</div><div class="stat-value text-green">₹{bal:.2f}</div></div>
             <div class="stat-card"><div class="stat-title">🔑 Purchased Keys</div><div class="stat-value text-blue">{len(list(orders_col.find({'uid': str(uid), 'type': 'purchase'})))}</div></div>
         </div>
-        <a href="/deposit" class="action-btn btn-warning" style="margin-bottom:30px;">⚡ Add Balance</a>
+        <a href="/deposit" class="action-btn btn-warning" style="margin-bottom:20px;">⚡ Add Balance</a>
         <div class="product-grid">{prod_html}</div>
     </div>
     """)
@@ -301,22 +301,22 @@ def web_product(p_id):
         </div>
         """
 
-    # Banner Image
+    # Banner Image (Fixed Height)
     banner_html = ""
     if p.get("image") and os.path.exists(p["image"]):
         banner_html = f'<img src="/{p["image"]}" class="gameplay-banner">'
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
-    <div class="container fade-in" style="margin-top:20px;">
+    <div class="container fade-in" style="margin-top:15px;">
         {banner_html}
         <div class="product-page-title">{p.get('name', 'Unknown')}</div>
         
         {features_html}
         
         <div class="check-btns">
-            <a href="{p.get('setup_video', '#')}" target="_blank" class="btn-cyan">📥 CHECK UPDATE FILE</a>
-            <a href="{p.get('hack_video', '#')}" target="_blank" class="btn-red">▶️ CHECK VIDEO / FEEDBACK</a>
+            <a href="{p.get('setup_video', '#')}" target="_blank" class="btn-cyan">📥 UPDATE FILE</a>
+            <a href="{p.get('hack_video', '#')}" target="_blank" class="btn-red">▶️ VIDEO / FEEDBACK</a>
         </div>
 
         <div class="purchase-header">PURCHASE KEY</div>
@@ -351,8 +351,8 @@ def buy_web():
             return render_template_string(BASE_CSS + f"""
             <div class="container fade-in" style="margin-top:50px;">
                 <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#10b981; font-size:32px;">✅ Successful!</h2>
-                    <div style="background:#050810; padding:25px; border-radius:15px; border:2px solid #38bdf8; font-family:monospace; font-size:24px; margin:25px 0; font-weight:900; color:#38bdf8;">{key}</div>
+                    <h2 style="color:#10b981; font-size:28px;">✅ Successful!</h2>
+                    <div style="background:#050810; padding:20px; border-radius:15px; border:2px solid #38bdf8; font-family:monospace; font-size:20px; margin:20px 0; font-weight:900; color:#38bdf8;">{key}</div>
                     <a href="/" class="action-btn btn-primary">Back to Store</a>
                 </div>
             </div>
@@ -362,8 +362,8 @@ def buy_web():
             return render_template_string(BASE_CSS + f"""
             <div class="container fade-in" style="margin-top:50px;">
                 <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#ef4444; font-size:32px;">❌ Out of Stock</h2>
-                    <p style="color:#10b981; margin-top:20px; font-weight:900; font-size:20px;">₹{price:.2f} Refunded to Wallet.</p>
+                    <h2 style="color:#ef4444; font-size:28px;">❌ Out of Stock</h2>
+                    <p style="color:#10b981; margin-top:20px; font-weight:900; font-size:18px;">₹{price:.2f} Refunded to Wallet.</p>
                     <br><a href="/" class="action-btn btn-warning">Back to Store</a>
                 </div>
             </div>
@@ -380,9 +380,9 @@ def web_keys():
     for o in orders:
         keys_html += f"""
         <div class="product-card" style="margin-bottom:15px;">
-            <div style="font-size:13px; color:#94a3b8;">{o.get('time', '')}</div>
-            <div style="font-weight:900; font-size:18px; margin:8px 0; color:#38bdf8;">📦 {o.get('product', 'Unknown')}</div>
-            <div style="background:#050810; padding:15px; border-radius:10px; font-family:monospace; font-size:16px; color:#fff; border:1.5px solid #10b981;">{o.get('key', 'N/A')}</div>
+            <div style="font-size:12px; color:#94a3b8;">{o.get('time', '')}</div>
+            <div style="font-weight:900; font-size:16px; margin:5px 0; color:#38bdf8;">📦 {o.get('product', 'Unknown')}</div>
+            <div style="background:#050810; padding:12px; border-radius:10px; font-family:monospace; font-size:15px; color:#fff; border:1.5px solid #10b981;">{o.get('key', 'N/A')}</div>
         </div>
         """
     
@@ -406,28 +406,28 @@ def web_deposit():
             
             QR_HTML = BASE_CSS + f"""
             <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
-            <div class="container fade-in" style="margin-top:40px; text-align:center;">
-                <div class="product-card" style="padding: 40px 20px;">
-                    <h2 style="color:#10b981; font-size:32px; font-weight:900; margin-bottom:10px;">Pay ₹{amount}</h2>
-                    <p style="color:#94a3b8; font-size:16px; margin-bottom:30px;">Scan the QR Code below to pay</p>
+            <div class="container fade-in" style="margin-top:30px; text-align:center;">
+                <div class="product-card" style="padding: 30px 20px;">
+                    <h2 style="color:#10b981; font-size:28px; font-weight:900; margin-bottom:10px;">Pay ₹{amount}</h2>
+                    <p style="color:#94a3b8; font-size:14px; margin-bottom:20px;">Scan the QR Code below to pay</p>
                     
                     <div id="qr-section">
                         <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(56, 189, 248, 0.4);">
-                            <img src="{order.qr_url}" style="width:100%; max-width:250px; display:block;">
+                            <img src="{order.qr_url}" style="width:100%; max-width:220px; display:block;">
                         </div>
                         
-                        <div id="loading-section" style="margin-top:30px;">
-                            <div style="display:inline-block; width:40px; height:40px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #38bdf8; border-radius:50%; animation: spin 1s linear infinite;"></div>
-                            <h3 style="color:#38bdf8; margin-top:15px; font-weight:700;">Waiting for Payment...</h3>
-                            <p style="color:#94a3b8; font-size:14px;">Auto-verifying. Do not close this page.</p>
+                        <div id="loading-section" style="margin-top:25px;">
+                            <div style="display:inline-block; width:35px; height:35px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #38bdf8; border-radius:50%; animation: spin 1s linear infinite;"></div>
+                            <h3 style="color:#38bdf8; margin-top:15px; font-weight:700; font-size:16px;">Waiting for Payment...</h3>
+                            <p style="color:#94a3b8; font-size:12px;">Auto-verifying. Do not close this page.</p>
                         </div>
                     </div>
 
-                    <div id="success-section" style="display:none; margin-top:30px;">
-                        <div style="font-size:60px; margin-bottom:20px;">✅</div>
-                        <h2 style="color:#10b981; font-size:28px; font-weight:900;">Payment Successful!</h2>
-                        <p style="color:#cbd5e1; font-size:18px; margin-top:10px;">New Balance: <b id="new-balance" style="color:#38bdf8;">₹0.00</b></p>
-                        <p style="color:#94a3b8; font-size:14px; margin-top:15px;">Redirecting to store...</p>
+                    <div id="success-section" style="display:none; margin-top:25px;">
+                        <div style="font-size:50px; margin-bottom:15px;">✅</div>
+                        <h2 style="color:#10b981; font-size:24px; font-weight:900;">Payment Successful!</h2>
+                        <p style="color:#cbd5e1; font-size:16px; margin-top:10px;">New Balance: <b id="new-balance" style="color:#38bdf8;">₹0.00</b></p>
+                        <p style="color:#94a3b8; font-size:12px; margin-top:10px;">Redirecting to store...</p>
                     </div>
                 </div>
             </div>
@@ -460,9 +460,9 @@ def web_deposit():
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
-    <div class="container fade-in" style="margin-top:30px;">
+    <div class="container fade-in" style="margin-top:20px;">
         <div class="product-card">
-            <h2 style="font-size:32px; margin-bottom:30px; color:#38bdf8; text-align:center;">Add Balance</h2>
+            <h2 style="font-size:24px; margin-bottom:20px; color:#38bdf8; text-align:center;">Add Balance</h2>
             <form method="POST" action="/deposit">
                 <div class="input-group"><label>Enter Amount (₹)</label><input type="number" name="amount" min="10" required placeholder="100"></div>
                 <button type="submit" class="action-btn btn-success">Generate QR</button>
@@ -495,15 +495,15 @@ def admin_panel():
     prod_html = ""
     for p in products:
         prod_html += f"""
-        <div class="product-card" style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; padding:20px;">
+        <div class="product-card" style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; padding:15px;">
             <div>
-                <div style="font-size:20px; font-weight:900; color:#38bdf8;">{p.get('name', '')}</div>
-                <div style="font-size:14px; color:#94a3b8;">PID: {p.get('pid', '')}</div>
+                <div style="font-size:18px; font-weight:900; color:#38bdf8;">{p.get('name', '')}</div>
+                <div style="font-size:13px; color:#94a3b8;">PID: {p.get('pid', '')}</div>
             </div>
             <div style="display:flex; gap:10px;">
-                <a href="/edit_product/{p['_id']}" class="action-btn btn-warning" style="padding:12px 20px; font-size:14px; width:auto;">✏️ Edit</a>
+                <a href="/edit_product/{p['_id']}" class="action-btn btn-warning" style="padding:10px 15px; font-size:13px; width:auto;">✏️ Edit</a>
                 <form action="/delete_product/{p['_id']}" method="POST">
-                    <button type="submit" class="action-btn btn-danger" style="padding:12px 20px; font-size:14px; width:auto;">🗑️ Del</button>
+                    <button type="submit" class="action-btn btn-danger" style="padding:10px 15px; font-size:13px; width:auto;">🗑️ Del</button>
                 </form>
             </div>
         </div>
@@ -511,38 +511,38 @@ def admin_panel():
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
-        <div style="font-weight:900; font-size:22px; color:#38bdf8;">⚙️ Controller</div>
+        <div style="font-weight:900; font-size:20px; color:#38bdf8;">⚙️ Controller</div>
         <div style="display:flex; gap:10px;">
             <a href="/admin_users" class="store-btn" style="background:#f59e0b; color:#000;">👥 Users</a>
             <a href="/" class="store-btn" style="background:#ef4444;">Exit</a>
         </div>
     </div>
     <div class="container fade-in" style="margin-top:20px;">
-        <div class="product-card" style="margin-bottom:30px; border-color:#0ea5e9;">
-            <h3 style="margin-bottom:20px; color:#38bdf8; font-size:22px;">➕ Add New Product</h3>
+        <div class="product-card" style="margin-bottom:25px; border-color:#0ea5e9;">
+            <h3 style="margin-bottom:20px; color:#38bdf8; font-size:20px;">➕ Add New Product</h3>
             <form method="POST" action="/add_product" enctype="multipart/form-data">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" required></div>
                 <div class="input-group"><label>PID</label><input type="text" name="pid" required></div>
                 
-                <div class="input-group"><label>Banner Image (Gameplay Image)</label><input type="file" name="image_file" accept="image/*" style="padding:15px; background:#050810; border:2px solid #334155; border-radius:15px;"></div>
+                <div class="input-group"><label>Banner Image (Square/Width size)</label><input type="file" name="image_file" accept="image/*" style="padding:12px; background:#050810; border:2px solid #334155; border-radius:12px;"></div>
                 
-                <div class="input-group"><label>Features (One per line)</label><textarea name="features" rows="4" placeholder="AIMBOT ADD&#10;AUTO REVIVE&#10;TP MARK"></textarea></div>
+                <div class="input-group"><label>Features (One per line)</label><textarea name="features" rows="4" placeholder="AIMBOT ADD&#10;AUTO REVIVE"></textarea></div>
 
-                <div class="input-group"><label>Check Update File Link (Google Drive etc.)</label><input type="url" name="setup_video" placeholder="https://..."></div>
-                <div class="input-group"><label>Check Video/Feedback Link (YouTube etc.)</label><input type="url" name="hack_video" placeholder="https://..."></div>
+                <div class="input-group"><label>Check Update File Link</label><input type="url" name="setup_video" placeholder="https://..."></div>
+                <div class="input-group"><label>Check Video/Feedback Link</label><input type="url" name="hack_video" placeholder="https://..."></div>
 
                 <label style="font-weight:900; color:#38bdf8; margin:15px 0 10px 0; display:block;">Durations & Prices</label>
                 <div id="price-container">
                     <div style="display:flex; gap:10px; margin-bottom:10px;">
-                        <input type="text" name="duration[]" placeholder="1 Hours" style="flex:1; padding:15px; border-radius:15px; background:#050810; border:2px solid #334155; color:#fff;">
-                        <input type="number" name="price[]" placeholder="Price" style="flex:1; padding:15px; border-radius:15px; background:#050810; border:2px solid #334155; color:#fff;">
+                        <input type="text" name="duration[]" placeholder="1 Hours" style="flex:1; padding:12px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
+                        <input type="number" name="price[]" placeholder="Price" style="flex:1; padding:12px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
                     </div>
                 </div>
                 <button type="button" onclick="addPrice()" class="action-btn btn-success" style="margin-bottom:20px; background:#f59e0b; color:#000;">+ Add More</button>
                 <button type="submit" class="action-btn btn-primary">Save Product</button>
             </form>
         </div>
-        <h3 style="margin-bottom:20px; color:#38bdf8; font-size:22px;">📦 All Products</h3>
+        <h3 style="margin-bottom:15px; color:#38bdf8; font-size:20px;">📦 All Products</h3>
         {prod_html}
     </div>
     <script>
@@ -550,7 +550,7 @@ def admin_panel():
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
             d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:15px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:15px; border-radius:15px; background:#050810; border:2px solid #334155; color:#fff;">`;
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:12px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:12px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">`;
             c.appendChild(d);
         }}
     </script>
@@ -572,26 +572,26 @@ def admin_users():
         <div class="product-card" style="margin-bottom:15px; padding:15px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                 <div>
-                    <div style="font-weight:900; color:#38bdf8; font-size:18px;">{u.get('name', 'User')}</div>
-                    <div style="font-size:13px; color:#94a3b8;">ID: <code>{u['_id']}</code></div>
+                    <div style="font-weight:900; color:#38bdf8; font-size:16px;">{u.get('name', 'User')}</div>
+                    <div style="font-size:12px; color:#94a3b8;">ID: <code>{u['_id']}</code></div>
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-weight:900; color:#10b981; font-size:18px;">₹{u.get('balance', 0):.2f}</div>
+                    <div style="font-weight:900; color:#10b981; font-size:16px;">₹{u.get('balance', 0):.2f}</div>
                     <div style="font-size:12px; color:#f59e0b;">Reseller: {u.get('discount', 0)}% OFF</div>
                 </div>
             </div>
-            <form action="/admin_users" method="POST" style="display:flex; gap:10px;">
+            <form action="/admin_users" method="POST" style="display:flex; gap:8px;">
                 <input type="hidden" name="uid" value="{u['_id']}">
-                <input type="number" name="amount" placeholder="+/- Balance" style="flex:1; padding:10px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff; font-size:14px;">
-                <input type="number" name="discount" value="{u.get('discount', 0)}" placeholder="Disc%" style="width:80px; padding:10px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff; font-size:14px;">
-                <button type="submit" class="action-btn btn-success" style="padding:10px 20px; font-size:14px; width:auto;">Update</button>
+                <input type="number" name="amount" placeholder="+/- Bal" style="flex:1; padding:10px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff; font-size:13px;">
+                <input type="number" name="discount" value="{u.get('discount', 0)}" placeholder="Disc%" style="width:70px; padding:10px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff; font-size:13px;">
+                <button type="submit" class="action-btn btn-success" style="padding:10px 15px; font-size:13px; width:auto;">Update</button>
             </form>
         </div>
         """
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
-        <div style="font-weight:900; font-size:22px; color:#38bdf8;">👥 Manage Users</div>
+        <div style="font-weight:900; font-size:20px; color:#38bdf8;">👥 Users</div>
         <a href="/admin" class="store-btn">🔙 Back</a>
     </div>
     <div class="container fade-in" style="margin-top:20px;">
@@ -659,8 +659,8 @@ def edit_product(p_id):
     for d, pr in p.get('prices', {}).items():
         price_fields += f"""
         <div style="display:flex; gap:10px; margin-bottom:10px;">
-            <input type="text" name="duration[]" value="{d}" style="flex:1; padding:15px; border-radius:15px; background:#050810; border:2px solid #334155; color:#fff;">
-            <input type="number" name="price[]" value="{pr}" style="flex:1; padding:15px; border-radius:15px; background:#050810; border:2px solid #334155; color:#fff;">
+            <input type="text" name="duration[]" value="{d}" style="flex:1; padding:12px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
+            <input type="number" name="price[]" value="{pr}" style="flex:1; padding:12px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
         </div>
         """
 
@@ -670,12 +670,12 @@ def edit_product(p_id):
     </div>
     <div class="container fade-in" style="margin-top:20px;">
         <div class="product-card" style="border-color:#f59e0b;">
-            <h3 style="margin-bottom:20px; color:#f59e0b; font-size:22px;">✏️ Edit Product</h3>
+            <h3 style="margin-bottom:20px; color:#f59e0b; font-size:20px;">✏️ Edit Product</h3>
             <form method="POST" enctype="multipart/form-data">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" value="{p.get('name', '')}" required></div>
                 <div class="input-group"><label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required></div>
                 
-                <div class="input-group"><label>Banner Image (Leave empty to keep old)</label><input type="file" name="image_file" accept="image/*" style="padding:15px; background:#050810; border:2px solid #334155; border-radius:15px;"></div>
+                <div class="input-group"><label>Banner Image (Leave empty to keep old)</label><input type="file" name="image_file" accept="image/*" style="padding:12px; background:#050810; border:2px solid #334155; border-radius:12px;"></div>
                 
                 <div class="input-group"><label>Features</label><textarea name="features" rows="4">{p.get('features', '')}</textarea></div>
                 <div class="input-group"><label>Update Link</label><input type="url" name="setup_video" value="{p.get('setup_video', '#')}"></div>
@@ -695,7 +695,7 @@ def edit_product(p_id):
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
             d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:15px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:15px; border-radius:15px; background:#050810; border:2px solid #334155; color:#fff;">`;
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:12px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:12px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">`;
             c.appendChild(d);
         }}
     </script>

@@ -72,7 +72,7 @@ def credit_atomic(uid, amount, utr):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ================== TELEGRAM BOT (IN-BOT SHOP) ==================
+# ================== TELEGRAM BOT ==================
 @bot.message_handler(commands=["start"])
 def start(msg):
     uid = msg.from_user.id
@@ -181,38 +181,6 @@ def bot_callbacks(call):
                 credit_balance(uid, price) # Auto Refund
                 kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Shop", callback_data="bot_shop"))
                 bot.edit_message_text(f"❌ <b>API Error (Out of Stock)</b>\n\n₹{price:.2f} has been refunded to your wallet.\n\n<code>{result.get('message', 'Error')}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
-
-# ---------------- ADMIN BOT COMMANDS ----------------
-@bot.message_handler(commands=["broadcast"])
-def admin_broadcast(msg):
-    if str(msg.from_user.id) != str(ADMIN_ID): return
-    text = msg.text.replace("/broadcast", "").strip()
-    if not text: return bot.reply_to(msg, "Usage: /broadcast Your message here")
-    
-    count = 0
-    for u in users_col.find({}):
-        try:
-            bot.send_message(u["_id"], f"📢 <b>ANNOUNCEMENT</b>\n\n{text}", parse_mode="HTML")
-            count += 1
-        except: pass
-    bot.reply_to(msg, f"✅ Broadcast sent to {count} users.")
-
-@bot.message_handler(commands=["stats"])
-def admin_stats(msg):
-    if str(msg.from_user.id) != str(ADMIN_ID): return
-    total_users = users_col.count_documents({})
-    total_orders = orders_col.count_documents({"type": "purchase"})
-    bot.reply_to(msg, f"📊 <b>Bot Stats</b>\n\n👥 Total Users: {total_users}\n🛍️ Total Sales: {total_orders}", parse_mode="HTML")
-
-@bot.message_handler(commands=["addbalance"])
-def admin_addbal(msg):
-    if str(msg.from_user.id) != str(ADMIN_ID): return
-    try:
-        args = msg.text.split()
-        target_uid, amt = args[1], float(args[2])
-        credit_balance(target_uid, amt)
-        bot.reply_to(msg, f"✅ Added ₹{amt} to {target_uid}.")
-    except: bot.reply_to(msg, "Usage: /addbalance <user_id> <amount>")
 
 # ================== FLASK WEB APP ==================
 app = Flask(__name__)
@@ -568,7 +536,7 @@ def web_history():
     </div>
     """)
 
-# ================== AUTO-VERIFY DEPOSIT (FIXED) ==================
+# ================== AUTO-VERIFY DEPOSIT ==================
 @app.route('/deposit', methods=['GET', 'POST'])
 def web_deposit():
     if 'uid' not in session: return redirect(url_for('login'))
@@ -746,35 +714,53 @@ def admin_panel():
     </script>
     """)
 
+# ================== UPGRADED ADMIN USERS ROUTE ==================
 @app.route('/admin_users', methods=['GET', 'POST'])
 def admin_users():
+    msg = ""
     if request.method == 'POST':
         uid = request.form['uid']
         amt = float(request.form.get('amount', 0))
         disc = int(request.form.get('discount', 0))
-        users_col.update_one({"_id": uid}, {"$inc": {"balance": amt}, "$set": {"discount": disc}})
-        return redirect(url_for('admin_users'))
         
-    users = list(users_col.find({}))
+        # Update logic
+        users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amt}, "$set": {"discount": disc}})
+        msg = f"""
+        <div style="background:rgba(16,185,129,0.2); border:2px solid #10b981; border-radius:15px; padding:20px; margin-bottom:20px; text-align:center;">
+            <h3 style="color:#10b981; font-weight:900;">✅ User ({uid}) Updated Successfully!</h3>
+            <p style="color:#fff;">Balance Changed by: ₹{amt} | Discount Set: {disc}%</p>
+        </div>
+        """
+        
+    search_query = request.args.get('q', '')
+    if search_query:
+        users = list(users_col.find({"_id": {"$regex": search_query, "$options": "i"}}).sort("balance", -1))
+    else:
+        users = list(users_col.find({}).sort("balance", -1)) # Highest balance first
+
     users_html = ""
     for u in users:
+        # Get web username if it's a web user
+        web_username = web_users_col.find_one({"uid": u['_id']})
+        display_name = f"@{web_username['username']}" if web_username else f"{u.get('name', 'User')} (Bot)"
+
         users_html += f"""
-        <div class="product-card" style="margin-bottom:20px; padding:20px;">
+        <div class="product-card" style="margin-bottom:15px; padding:20px; border-left: 5px solid {'#f59e0b' if u.get('discount',0) > 0 else '#38bdf8'};">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                 <div>
-                    <div style="font-weight:900; color:#38bdf8; font-size:20px;">{u.get('name', 'User')}</div>
-                    <div style="font-size:14px; color:#94a3b8;">ID: <code>{u['_id']}</code></div>
+                    <div style="font-weight:900; color:#fff; font-size:18px;">👤 {display_name}</div>
+                    <div style="font-size:13px; color:#94a3b8; margin-top:5px;">ID: <code>{u['_id']}</code></div>
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-weight:900; color:#10b981; font-size:20px;">₹{u.get('balance', 0):.2f}</div>
-                    <div style="font-size:14px; color:#f59e0b;">Reseller: {u.get('discount', 0)}% OFF</div>
+                    <div style="font-weight:900; color:#10b981; font-size:22px;">₹{u.get('balance', 0):.2f}</div>
+                    <div style="font-size:12px; color:#f59e0b; font-weight:bold;">Reseller: {u.get('discount', 0)}% OFF</div>
                 </div>
             </div>
-            <form action="/admin_users" method="POST" style="display:flex; gap:10px;">
+            <form action="/admin_users" method="POST" style="display:flex; gap:10px; flex-wrap:wrap;">
                 <input type="hidden" name="uid" value="{u['_id']}">
-                <input type="number" name="amount" placeholder="+/- Bal" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:1px solid #334155; color:#fff; font-size:15px;">
-                <input type="number" name="discount" value="{u.get('discount', 0)}" placeholder="Disc%" style="width:80px; padding:15px; border-radius:12px; background:#050810; border:1px solid #334155; color:#fff; font-size:15px;">
-                <button type="submit" class="action-btn btn-success" style="padding:15px 25px; font-size:15px; width:auto;">Update</button>
+                <input type="number" name="amount" placeholder="+/- Balance" style="flex:1; min-width:100px; padding:12px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff; font-size:14px;">
+                <input type="number" name="discount" value="{u.get('discount', 0)}" placeholder="Disc%" style="width:100px; padding:12px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff; font-size:14px;">
+                <button type="submit" class="action-btn btn-success" style="padding:12px 20px; font-size:14px; width:auto;">Update</button>
             </form>
         </div>
         """
@@ -782,10 +768,24 @@ def admin_users():
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
         <div style="font-weight:900; font-size:24px; color:#38bdf8;">👥 Users</div>
-        <a href="/admin" class="store-btn">🔙 Back</a>
+        <a href="/admin" class="store-btn">🔙 Back to Admin</a>
     </div>
     <div class="container fade-in" style="margin-top:20px;">
-        {users_html}
+        
+        {msg}
+        
+        <!-- Search Bar -->
+        <form method="GET" action="/admin_users" style="display:flex; gap:10px; margin-bottom:25px;">
+            <input type="text" name="q" value="{search_query}" placeholder="Search by User ID..." style="flex:1; padding:15px; border-radius:15px; border:2px solid #334155; background:#050810; color:#fff; font-size:16px;">
+            <button type="submit" class="action-btn btn-primary" style="width:auto; padding:15px 25px;">Search</button>
+        </form>
+
+        <div style="display:flex; justify-content:space-between; margin-bottom:15px; color:#94a3b8; font-weight:bold;">
+            <span>Total Users: {len(users)}</span>
+            <span>Sorted by Balance (High to Low)</span>
+        </div>
+
+        {users_html if users_html else '<h3 style="text-align:center; color:#94a3b8;">No users found.</h3>'}
     </div>
     """)
 

@@ -12,8 +12,8 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
-# AAPKA NAYA BOT TOKEN
-BOT_TOKEN = "8807309763:AAF1-K9pqDHKomEXMbV_0xQI-KdshM6hQl8"
+# AAPKA NAYA BOT TOKEN YAHAN ADD HAI
+BOT_TOKEN = "8764644526:AAET1x8jqFsp4d-XvdiZbVx-aO2cyKY3ISc"
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
 ADMIN_ID  = 7778093775
 ADMIN_WP  = "919306606011" 
@@ -123,7 +123,6 @@ def get_main_menu(uid, name):
     discount = get_discount(uid)
     settings = get_settings()
     
-    # URL validation fix
     support_user = str(settings.get('support_username', 'YourSupport')).replace('@', '')
     update_url = str(settings.get('update_link', 'https://t.me/'))
     if not update_url.startswith("http"): update_url = "https://t.me/"
@@ -169,7 +168,6 @@ def get_main_menu(uid, name):
     kb.add(InlineKeyboardButton("🏆 Top 5 Sellers Monthly", callback_data="top_sellers"))
     kb.add(InlineKeyboardButton("🍎 Language", callback_data="language"))
     
-    # WebApp Button validation fix
     if str(uid) == str(ADMIN_ID) and WEB_URL.startswith("https://"):
         kb.add(InlineKeyboardButton("💻 Admin Panel", web_app=WebAppInfo(url=WEB_URL)))
         
@@ -1002,11 +1000,10 @@ def run_flask():
 def run_bot():
     print("Starting Telegram Bot...")
     try: 
-        bot.delete_webhook(drop_pending_updates=True) # Purane messages clear karega
+        bot.delete_webhook(drop_pending_updates=True) # Clears old updates
     except: 
         pass
-    # skip_pending=True se purana conflict clear hota hai
-    bot.infinity_polling(timeout=30, long_polling_timeout=30, skip_pending=True)
+    bot.infinity_polling(timeout=30, long_polling_timeout=30, skip_pending=True) # Skips 409 conflicts
 
 if __name__ == "__main__":
     threading.Thread(target=run_bot, daemon=True).start()

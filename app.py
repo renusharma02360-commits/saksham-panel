@@ -228,9 +228,26 @@ BASE_CSS = """
     .input-group input, .input-group textarea { width: 100%; padding: 20px; border-radius: 15px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 18px; outline: none; font-weight: 600; transition: 0.3s; }
     .input-group input:focus, .input-group textarea:focus { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.3); }
     
-    .gameplay-banner-container { width: 100%; height: 220px; border-radius: 15px; overflow: hidden; border: 2px solid #00f0ff; box-shadow: 0 0 25px rgba(0, 240, 255, 0.4), inset 0 0 20px rgba(0,0,0,0.8); margin-bottom: 20px; position: relative; }
-    .gameplay-banner { width: 100%; height: 100%; object-fit: cover; object-position: center; transition: transform 0.5s ease; }
-    .gameplay-banner-container:hover .gameplay-banner { transform: scale(1.08); }
+    /* UPDATED: SQUARE BANNER CONTAINER */
+    .gameplay-banner-container { 
+        width: 100%; 
+        aspect-ratio: 1 / 1; /* Makes it perfectly square */
+        border-radius: 15px; 
+        overflow: hidden; 
+        border: 2px solid #00f0ff; 
+        box-shadow: 0 0 25px rgba(0, 240, 255, 0.4), inset 0 0 20px rgba(0,0,0,0.8); 
+        margin-bottom: 20px; 
+        position: relative; 
+        background: #000;
+    }
+    .gameplay-banner { 
+        width: 100%; 
+        height: 100%; 
+        object-fit: contain; /* Shows the FULL image without cropping */
+        object-position: center; 
+        transition: transform 0.5s ease; 
+    }
+    .gameplay-banner-container:hover .gameplay-banner { transform: scale(1.05); }
     
     .product-page-title { text-align: center; font-size: 28px; font-weight: 900; color: white; text-shadow: 0 0 15px rgba(255,255,255,0.4); margin-bottom: 20px; letter-spacing: 1px; }
     .feature-item { background: linear-gradient(90deg, #0a101f, #111827); border: 1px solid #1e293b; border-radius: 12px; padding: 18px; margin-bottom: 12px; display: flex; align-items: center; gap: 15px; font-weight: 700; color: #e2e8f0; font-size: 16px; transition: 0.3s; }
@@ -680,7 +697,7 @@ def admin_panel():
                 <div class="input-group"><label>PID</label><input type="text" name="pid" required></div>
                 
                 <div class="input-group">
-                    <label>Banner Image (Landscape size recommended)</label>
+                    <label>Banner Image (Square size recommended)</label>
                     <input type="file" name="image_file" accept="image/*" style="padding:15px; background:#050810; border:2px solid #334155; border-radius:15px;">
                 </div>
                 
@@ -714,7 +731,7 @@ def admin_panel():
     </script>
     """)
 
-# ================== UPGRADED ADMIN USERS ROUTE ==================
+# ================== ADMIN USERS ROUTE ==================
 @app.route('/admin_users', methods=['GET', 'POST'])
 def admin_users():
     msg = ""
@@ -723,7 +740,6 @@ def admin_users():
         amt = float(request.form.get('amount', 0))
         disc = int(request.form.get('discount', 0))
         
-        # Update logic
         users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amt}, "$set": {"discount": disc}})
         msg = f"""
         <div style="background:rgba(16,185,129,0.2); border:2px solid #10b981; border-radius:15px; padding:20px; margin-bottom:20px; text-align:center;">
@@ -736,11 +752,10 @@ def admin_users():
     if search_query:
         users = list(users_col.find({"_id": {"$regex": search_query, "$options": "i"}}).sort("balance", -1))
     else:
-        users = list(users_col.find({}).sort("balance", -1)) # Highest balance first
+        users = list(users_col.find({}).sort("balance", -1)) 
 
     users_html = ""
     for u in users:
-        # Get web username if it's a web user
         web_username = web_users_col.find_one({"uid": u['_id']})
         display_name = f"@{web_username['username']}" if web_username else f"{u.get('name', 'User')} (Bot)"
 
@@ -774,7 +789,6 @@ def admin_users():
         
         {msg}
         
-        <!-- Search Bar -->
         <form method="GET" action="/admin_users" style="display:flex; gap:10px; margin-bottom:25px;">
             <input type="text" name="q" value="{search_query}" placeholder="Search by User ID..." style="flex:1; padding:15px; border-radius:15px; border:2px solid #334155; background:#050810; color:#fff; font-size:16px;">
             <button type="submit" class="action-btn btn-primary" style="width:auto; padding:15px 25px;">Search</button>

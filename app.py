@@ -93,57 +93,117 @@ BASE_CSS = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
     * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    body { background-color: #050810; color: #fff; padding-bottom: 100px; background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #050810 70%); background-attachment: fixed; min-height: 100vh; animation: bodyFadeIn 0.8s ease-out; }
+    
+    /* 5D Animated Background */
+    body { 
+        background-color: #050810; 
+        color: #fff; 
+        padding-bottom: 100px; 
+        background-image: 
+            radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.1), transparent 30%),
+            radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.1), transparent 30%);
+        background-attachment: fixed;
+        min-height: 100vh; 
+        animation: bodyFadeIn 0.8s ease-out; 
+    }
+    @keyframes bodyFadeIn { from { opacity: 0; } to { opacity: 1; } }
     
     .container { padding: 20px; max-width: 1000px; margin: 0 auto; animation: slideUp 0.5s ease-out; }
     @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     
-    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(15px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); }
-    .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 15px 25px; border-radius: 25px; font-weight: 800; font-size: 16px; color: white; text-decoration: none; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); transition: 0.2s; }
-    .store-btn:active { transform: scale(0.95); }
-    .wallet-box { background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; padding: 12px 20px; border-radius: 25px; font-weight: 900; color: #10b981; font-size: 20px; }
+    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(20px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
+    .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 15px 25px; border-radius: 25px; font-weight: 800; font-size: 16px; color: white; text-decoration: none; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); transition: 0.3s; }
+    .store-btn:active { transform: scale(0.92); }
+    .wallet-box { background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; padding: 12px 20px; border-radius: 25px; font-weight: 900; color: #10b981; font-size: 20px; box-shadow: 0 0 20px rgba(16, 185, 129, 0.2); }
     
     .hero-banner { width: 100%; padding: 40px 20px; background: linear-gradient(145deg, #1e1b4b, #0f172a); border-radius: 25px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 30px; border: 2px solid #6366f1; box-shadow: inset 0 0 30px rgba(99, 102, 241, 0.2), 0 10px 40px rgba(0, 0, 0, 0.6); }
     .logo-text { font-size: 50px; font-weight: 900; background: linear-gradient(to right, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 5px; text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); }
     
     .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
-    .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.08); }
+    .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 10px 25px rgba(0,0,0,0.3); transition: 0.3s; }
+    .stat-card:hover { transform: translateY(-5px); border-color: #38bdf8; box-shadow: 0 10px 30px rgba(56,189,248,0.2); }
     .stat-title { font-size: 15px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; }
     .stat-value { font-size: 32px; font-weight: 900; }
 
     .product-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
-    .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 25px; padding: 30px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5); }
+    .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 25px; padding: 30px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5); transition: 0.3s; }
+    .product-card:hover { transform: translateY(-3px); box-shadow: 0 15px 40px rgba(56,189,248,0.1); border-color: rgba(56,189,248,0.3); }
     .product-title { font-size: 24px; font-weight: 900; color: #fff; margin-bottom: 15px; }
 
-    .action-btn { display: block; width: 100%; padding: 20px; border-radius: 15px; text-align: center; font-weight: 900; font-size: 18px; text-decoration: none; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: 0.2s; }
-    .action-btn:active { transform: scale(0.96); }
+    .action-btn { display: block; width: 100%; padding: 20px; border-radius: 15px; text-align: center; font-weight: 900; font-size: 18px; text-decoration: none; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s; }
+    .action-btn:hover { transform: translateY(-2px); filter: brightness(1.2); }
+    .action-btn:active { transform: scale(0.95); }
     .btn-primary { background: linear-gradient(135deg, #0ea5e9, #3b82f6); color: white; box-shadow: 0 8px 25px rgba(14, 165, 233, 0.4); }
     .btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4); }
     .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4); }
     .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: black; box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4); }
-    .btn-purple { background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white; box-shadow: 0 8px 25px rgba(139, 92, 246, 0.4); }
 
     .input-group { margin-bottom: 20px; }
     .input-group label { display: block; font-size: 16px; color: #cbd5e1; margin-bottom: 10px; font-weight: 700; }
-    .input-group input, .input-group textarea { width: 100%; padding: 20px; border-radius: 15px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 18px; outline: none; font-weight: 600; }
+    .input-group input, .input-group textarea { width: 100%; padding: 20px; border-radius: 15px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 18px; outline: none; font-weight: 600; transition: 0.3s; }
+    .input-group input:focus, .input-group textarea:focus { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.3); }
     
-    /* Screenshot Style Product Page */
-    .gameplay-banner { width: 100%; height: 220px; object-fit: cover; border-radius: 15px; border: 2px solid #00f0ff; box-shadow: 0 0 25px rgba(0, 240, 255, 0.4); margin-bottom: 20px; }
-    .product-page-title { text-align: center; font-size: 28px; font-weight: 900; color: white; text-shadow: 0 0 15px rgba(255,255,255,0.4); margin-bottom: 20px; }
-    .feature-item { background: #0a101f; border: 1px solid #1e293b; border-radius: 12px; padding: 18px; margin-bottom: 12px; display: flex; align-items: center; gap: 15px; font-weight: 700; color: #e2e8f0; font-size: 16px; }
+    /* Premium 5D Product Page */
+    .gameplay-banner-container {
+        width: 100%;
+        height: 220px; /* Fixed height for perfect banner */
+        border-radius: 15px;
+        overflow: hidden;
+        border: 2px solid #00f0ff;
+        box-shadow: 0 0 25px rgba(0, 240, 255, 0.4), inset 0 0 20px rgba(0,0,0,0.8);
+        margin-bottom: 20px;
+        position: relative;
+    }
+    .gameplay-banner {
+        width: 100%;
+        height: 100%;
+        object-fit: cover; /* Crops perfectly without squishing */
+        object-position: center;
+        transition: transform 0.5s ease;
+    }
+    .gameplay-banner-container:hover .gameplay-banner {
+        transform: scale(1.08); /* 5D Zoom effect on hover */
+    }
+    
+    .product-page-title { text-align: center; font-size: 28px; font-weight: 900; color: white; text-shadow: 0 0 15px rgba(255,255,255,0.4); margin-bottom: 20px; letter-spacing: 1px; }
+    
+    .feature-item { background: linear-gradient(90deg, #0a101f, #111827); border: 1px solid #1e293b; border-radius: 12px; padding: 18px; margin-bottom: 12px; display: flex; align-items: center; gap: 15px; font-weight: 700; color: #e2e8f0; font-size: 16px; transition: 0.3s; }
+    .feature-item:hover { transform: translateX(5px); border-color: #10b981; }
     .feature-item::before { content: '✅'; font-size: 20px; filter: drop-shadow(0 0 5px #10b981); }
-    .check-btns { display: flex; gap: 10px; margin-top: 20px; margin-bottom: 30px; }
-    .btn-cyan { flex: 1; background: transparent; border: 2px solid #00f0ff; color: #00f0ff; padding: 15px 10px; border-radius: 12px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 0 15px rgba(0,240,255,0.2); }
-    .btn-red { flex: 1; background: transparent; border: 2px solid #ef4444; color: #ef4444; padding: 15px 10px; border-radius: 12px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 0 15px rgba(239,68,68,0.2); }
+    
+    .check-btns { display: flex; gap: 12px; margin-top: 20px; margin-bottom: 30px; }
+    .btn-cyan { flex: 1; background: transparent; border: 2px solid #00f0ff; color: #00f0ff; padding: 15px 10px; border-radius: 12px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 0 15px rgba(0,240,255,0.2); transition: 0.3s; }
+    .btn-cyan:hover { background: rgba(0,240,255,0.1); box-shadow: 0 0 25px rgba(0,240,255,0.4); transform: translateY(-2px); }
+    .btn-red { flex: 1; background: transparent; border: 2px solid #ef4444; color: #ef4444; padding: 15px 10px; border-radius: 12px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 0 15px rgba(239,68,68,0.2); transition: 0.3s; }
+    .btn-red:hover { background: rgba(239,68,68,0.1); box-shadow: 0 0 25px rgba(239,68,68,0.4); transform: translateY(-2px); }
     
     .purchase-header { background: linear-gradient(90deg, #8b5cf6, #6366f1); color: white; padding: 15px; border-radius: 12px; text-align: center; font-weight: 900; font-size: 20px; text-transform: uppercase; margin-bottom: 20px; letter-spacing: 1px; box-shadow: 0 5px 20px rgba(139, 92, 246, 0.4); }
     
-    .price-row-ui { display: flex; align-items: center; justify-content: space-between; background: #0a101f; border: 1px solid rgba(255,255,255,0.08); border-radius: 15px; padding: 18px; margin-bottom: 15px; }
-    .price-dur { font-weight: 800; font-size: 18px; color: #00f0ff; margin-bottom: 5px; }
+    .price-row-ui { display: flex; align-items: center; justify-content: space-between; background: linear-gradient(145deg, #0a101f, #050810); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 15px; padding: 18px 25px; margin-bottom: 15px; transition: 0.3s; box-shadow: 0 5px 15px rgba(0,0,0,0.4); }
+    .price-row-ui:hover { border-color: #00f0ff; transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,240,255,0.15); }
+    .price-dur { font-weight: 800; font-size: 18px; color: #00f0ff; margin-bottom: 5px; text-shadow: 0 0 10px rgba(0,240,255,0.5); }
     .price-amt { font-weight: 900; font-size: 22px; color: white; }
-    .buy-btn-ui { background: linear-gradient(90deg, #ff00cc, #ff3366); color: white; padding: 15px 25px; border-radius: 8px; font-weight: 900; font-size: 16px; border: none; cursor: pointer; box-shadow: 0 0 20px rgba(255, 0, 204, 0.5); text-transform: uppercase; transition: 0.2s; }
-    .buy-btn-ui:active { transform: scale(0.95); }
-
+    
+    /* 5D Shiny Button */
+    .buy-btn-ui { 
+        background: linear-gradient(45deg, #ff00cc, #ff3366, #ff00cc); 
+        background-size: 200% auto;
+        color: white; 
+        padding: 15px 30px; 
+        border-radius: 10px; 
+        font-weight: 900; 
+        font-size: 18px; 
+        border: none; 
+        cursor: pointer; 
+        box-shadow: 0 5px 15px rgba(255, 0, 204, 0.4), 0 0 20px rgba(255, 0, 204, 0.2); 
+        text-transform: uppercase; 
+        transition: 0.3s; 
+        animation: shine 3s linear infinite;
+    }
+    .buy-btn-ui:hover { transform: translateY(-3px) scale(1.05); box-shadow: 0 8px 25px rgba(255, 0, 204, 0.6), 0 0 30px rgba(255, 0, 204, 0.4); }
+    .buy-btn-ui:active { transform: translateY(1px) scale(0.95); }
+    
+    @keyframes shine { to { background-position: 200% center; } }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
 <script>
@@ -250,8 +310,8 @@ def web_home():
     for p in products:
         prod_html += f"""
         <div class="product-card fade-in" style="display: flex; justify-content: space-between; align-items: center;">
-            <div class="product-title" style="margin-bottom: 0; font-size: 20px;">📦 {p.get('name', 'Unknown')}</div>
-            <a href="/product/{str(p['_id'])}" class="action-btn btn-primary" style="width: auto; padding: 15px 25px; font-size: 16px;">View</a>
+            <div class="product-title" style="margin-bottom: 0; font-size: 22px;">📦 {p.get('name', 'Unknown')}</div>
+            <a href="/product/{str(p['_id'])}" class="action-btn btn-primary" style="width: auto; padding: 15px 30px; font-size: 16px;">View</a>
         </div>
         """
 
@@ -311,9 +371,14 @@ def web_product(p_id):
         </div>
         """
 
+    # NEW: Fixed Banner Container
     banner_html = ""
     if p.get("image") and os.path.exists(p["image"]):
-        banner_html = f'<img src="/{p["image"]}" class="gameplay-banner">'
+        banner_html = f"""
+        <div class="gameplay-banner-container">
+            <img src="/{p["image"]}" class="gameplay-banner">
+        </div>
+        """
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
@@ -345,14 +410,14 @@ def buy_web():
     original_price = float(product.get("prices", {}).get(duration, 0))
     price = original_price - (original_price * discount / 100) if discount > 0 else original_price
     
-    # 1. CHECK BALANCE FIRST
+    # Check Balance
     if bal < price:
         return render_template_string(BASE_CSS + f"""
         <div class="container fade-in" style="margin-top:50px;">
             <div class="product-card" style="text-align:center; border-color:#ef4444;">
-                <h2 style="color:#ef4444; font-size:28px;">❌ Low Balance!</h2>
-                <p style="color:#cbd5e1; margin-top:15px; font-size:18px;">You need ₹{price:.2f} to buy this key.</p>
-                <p style="color:#38bdf8; margin-top:5px; font-size:16px;">Your Balance: ₹{bal:.2f}</p>
+                <h2 style="color:#ef4444; font-size:32px;">❌ Low Balance!</h2>
+                <p style="color:#cbd5e1; margin-top:15px; font-size:20px;">You need ₹{price:.2f} to buy this key.</p>
+                <p style="color:#38bdf8; margin-top:5px; font-size:18px;">Your Balance: ₹{bal:.2f}</p>
                 <br>
                 <a href="/deposit" class="action-btn btn-success">Add Balance Now</a>
                 <a href="/" class="action-btn btn-primary" style="margin-top:15px;">Back to Store</a>
@@ -360,7 +425,7 @@ def buy_web():
         </div>
         """)
     
-    # 2. DEDUCT AND CALL API
+    # Deduct and API
     if deduct_balance(uid, price):
         try:
             data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(product.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
@@ -374,11 +439,11 @@ def buy_web():
             return render_template_string(BASE_CSS + f"""
             <div class="container fade-in" style="margin-top:50px;">
                 <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#10b981; font-size:32px;">✅ Purchase Successful!</h2>
-                    <p style="color:#cbd5e1; margin-top:10px;">Click below to copy your key</p>
-                    <div style="background:#050810; padding:20px; border-radius:15px; border:2px solid #38bdf8; font-family:monospace; font-size:22px; margin:20px 0; font-weight:900; color:#38bdf8; word-break:break-all;">{key}</div>
+                    <h2 style="color:#10b981; font-size:36px;">✅ Purchase Successful!</h2>
+                    <p style="color:#cbd5e1; margin-top:10px; font-size:18px;">Click below to copy your key</p>
+                    <div style="background:#050810; padding:25px; border-radius:15px; border:2px solid #38bdf8; font-family:monospace; font-size:24px; margin:25px 0; font-weight:900; color:#38bdf8; word-break:break-all; box-shadow: inset 0 0 20px rgba(56,189,248,0.2);">{key}</div>
                     
-                    <button onclick="copyKey('{key}')" class="action-btn btn-success">📋 Copy Key</button>
+                    <button onclick="copyKey('{key}')" class="action-btn btn-success" style="box-shadow: 0 0 20px rgba(16,185,129,0.5);">📋 Copy Key</button>
                     <a href="/" class="action-btn btn-primary" style="margin-top:15px;">Back to Store</a>
                 </div>
             </div>
@@ -388,15 +453,14 @@ def buy_web():
             return render_template_string(BASE_CSS + f"""
             <div class="container fade-in" style="margin-top:50px;">
                 <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#ef4444; font-size:28px;">❌ Out of Stock</h2>
-                    <p style="color:#10b981; margin-top:20px; font-weight:900; font-size:18px;">₹{price:.2f} Refunded to Wallet.</p>
+                    <h2 style="color:#ef4444; font-size:32px;">❌ Out of Stock</h2>
+                    <p style="color:#10b981; margin-top:20px; font-weight:900; font-size:20px;">₹{price:.2f} Refunded to Wallet.</p>
                     <br><a href="/" class="action-btn btn-warning">Back to Store</a>
                 </div>
             </div>
             """)
     return redirect(url_for('web_home'))
 
-# HISTORY PAGE
 @app.route('/history')
 def web_history():
     if 'uid' not in session: return redirect(url_for('login'))
@@ -406,21 +470,21 @@ def web_history():
     history_html = ""
     for o in orders:
         history_html += f"""
-        <div class="product-card" style="margin-bottom:20px;">
-            <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
+        <div class="product-card" style="margin-bottom:20px; transition: 0.3s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+            <div style="display:flex; justify-content:space-between; font-size:15px; color:#94a3b8; margin-bottom:15px;">
                 <span>{o.get('time', '')}</span>
-                <span style="color:#ef4444; font-weight:800;">-₹{o.get('price', 0)}</span>
+                <span style="color:#ef4444; font-weight:900; font-size:18px;">-₹{o.get('price', 0)}</span>
             </div>
-            <div style="font-weight:900; font-size:18px; color:#38bdf8; margin-bottom:10px;">📦 {o.get('product', 'Unknown')}</div>
-            <button onclick="copyKey('{o.get('key', '')}')" class="action-btn btn-primary" style="padding:12px; font-size:14px;">📋 Copy Key</button>
+            <div style="font-weight:900; font-size:22px; color:#38bdf8; margin-bottom:15px;">📦 {o.get('product', 'Unknown')}</div>
+            <button onclick="copyKey('{o.get('key', '')}')" class="action-btn btn-primary" style="padding:15px; font-size:16px;">📋 Copy Key</button>
         </div>
         """
     
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
     <div class="container fade-in" style="margin-top:20px;">
-        <h2 style="text-align:center; color:#8b5cf6; font-weight:900; margin-bottom:25px; font-size:28px;">📜 My History</h2>
-        {history_html if history_html else '<p style="text-align:center; color:#94a3b8; font-size:18px;">No purchases yet.</p>'}
+        <h2 style="text-align:center; color:#8b5cf6; font-weight:900; margin-bottom:30px; font-size:32px; text-shadow: 0 0 15px rgba(139, 92, 246, 0.5);">📜 My History</h2>
+        {history_html if history_html else '<p style="text-align:center; color:#94a3b8; font-size:20px;">No purchases yet.</p>'}
     </div>
     """)
 
@@ -437,27 +501,27 @@ def web_deposit():
             QR_HTML = BASE_CSS + f"""
             <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
             <div class="container fade-in" style="margin-top:30px; text-align:center;">
-                <div class="product-card" style="padding: 30px 20px;">
-                    <h2 style="color:#10b981; font-size:32px; font-weight:900; margin-bottom:10px;">Pay ₹{amount}</h2>
-                    <p style="color:#94a3b8; font-size:16px; margin-bottom:20px;">Scan the QR Code below to pay</p>
+                <div class="product-card" style="padding: 40px 20px;">
+                    <h2 style="color:#10b981; font-size:36px; font-weight:900; margin-bottom:10px;">Pay ₹{amount}</h2>
+                    <p style="color:#94a3b8; font-size:16px; margin-bottom:25px;">Scan the QR Code below to pay</p>
                     
                     <div id="qr-section">
-                        <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(56, 189, 248, 0.4);">
-                            <img src="{order.qr_url}" style="width:100%; max-width:250px; display:block;">
+                        <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(56, 189, 248, 0.6);">
+                            <img src="{order.qr_url}" style="width:100%; max-width:250px; display:block; border-radius:10px;">
                         </div>
                         
-                        <div id="loading-section" style="margin-top:25px;">
-                            <div style="display:inline-block; width:40px; height:40px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #38bdf8; border-radius:50%; animation: spin 1s linear infinite;"></div>
-                            <h3 style="color:#38bdf8; margin-top:15px; font-weight:700; font-size:18px;">Waiting for Payment...</h3>
+                        <div id="loading-section" style="margin-top:30px;">
+                            <div style="display:inline-block; width:45px; height:45px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #38bdf8; border-radius:50%; animation: spin 1s linear infinite;"></div>
+                            <h3 style="color:#38bdf8; margin-top:15px; font-weight:800; font-size:20px;">Waiting for Payment...</h3>
                             <p style="color:#94a3b8; font-size:14px;">Auto-verifying. Do not close this page.</p>
                         </div>
                     </div>
 
-                    <div id="success-section" style="display:none; margin-top:25px;">
-                        <div style="font-size:60px; margin-bottom:15px;">✅</div>
-                        <h2 style="color:#10b981; font-size:28px; font-weight:900;">Payment Successful!</h2>
-                        <p style="color:#cbd5e1; font-size:18px; margin-top:10px;">New Balance: <b id="new-balance" style="color:#38bdf8;">₹0.00</b></p>
-                        <p style="color:#94a3b8; font-size:14px; margin-top:10px;">Redirecting to store...</p>
+                    <div id="success-section" style="display:none; margin-top:30px;">
+                        <div style="font-size:70px; margin-bottom:20px;">✅</div>
+                        <h2 style="color:#10b981; font-size:32px; font-weight:900;">Payment Successful!</h2>
+                        <p style="color:#cbd5e1; font-size:20px; margin-top:15px;">New Balance: <b id="new-balance" style="color:#38bdf8;">₹0.00</b></p>
+                        <p style="color:#94a3b8; font-size:14px; margin-top:15px;">Redirecting to store...</p>
                     </div>
                 </div>
             </div>
@@ -492,7 +556,7 @@ def web_deposit():
     <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
     <div class="container fade-in" style="margin-top:20px;">
         <div class="product-card">
-            <h2 style="font-size:28px; margin-bottom:25px; color:#38bdf8; text-align:center; font-weight:900;">Add Balance</h2>
+            <h2 style="font-size:32px; margin-bottom:30px; color:#38bdf8; text-align:center; font-weight:900;">Add Balance</h2>
             <form method="POST" action="/deposit">
                 <div class="input-group"><label>Enter Amount (₹)</label><input type="number" name="amount" min="10" required placeholder="100"></div>
                 <button type="submit" class="action-btn btn-success">Generate QR</button>
@@ -527,7 +591,7 @@ def admin_panel():
         prod_html += f"""
         <div class="product-card" style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; padding:20px;">
             <div>
-                <div style="font-size:20px; font-weight:900; color:#38bdf8;">{p.get('name', '')}</div>
+                <div style="font-size:22px; font-weight:900; color:#38bdf8;">{p.get('name', '')}</div>
                 <div style="font-size:14px; color:#94a3b8;">PID: {p.get('pid', '')}</div>
             </div>
             <div style="display:flex; gap:10px;">
@@ -541,7 +605,7 @@ def admin_panel():
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
-        <div style="font-weight:900; font-size:22px; color:#38bdf8;">⚙️ Controller</div>
+        <div style="font-weight:900; font-size:24px; color:#38bdf8;">⚙️ Controller</div>
         <div style="display:flex; gap:10px;">
             <a href="/admin_users" class="store-btn" style="background:#f59e0b; color:#000;">👥 Users</a>
             <a href="/" class="store-btn" style="background:#ef4444;">Exit</a>
@@ -549,19 +613,22 @@ def admin_panel():
     </div>
     <div class="container fade-in" style="margin-top:20px;">
         <div class="product-card" style="margin-bottom:30px; border-color:#0ea5e9;">
-            <h3 style="margin-bottom:25px; color:#38bdf8; font-size:24px;">➕ Add New Product</h3>
+            <h3 style="margin-bottom:25px; color:#38bdf8; font-size:26px;">➕ Add New Product</h3>
             <form method="POST" action="/add_product" enctype="multipart/form-data">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" required></div>
                 <div class="input-group"><label>PID</label><input type="text" name="pid" required></div>
                 
-                <div class="input-group"><label>Banner Image (Square/Width size)</label><input type="file" name="image_file" accept="image/*" style="padding:15px; background:#050810; border:2px solid #334155; border-radius:15px;"></div>
+                <div class="input-group">
+                    <label>Banner Image (Landscape size recommended)</label>
+                    <input type="file" name="image_file" accept="image/*" style="padding:15px; background:#050810; border:2px solid #334155; border-radius:15px;">
+                </div>
                 
                 <div class="input-group"><label>Features (One per line)</label><textarea name="features" rows="4" placeholder="AIMBOT ADD&#10;AUTO REVIVE"></textarea></div>
 
                 <div class="input-group"><label>Check Update File Link</label><input type="url" name="setup_video" placeholder="https://..."></div>
                 <div class="input-group"><label>Check Video/Feedback Link</label><input type="url" name="hack_video" placeholder="https://..."></div>
 
-                <label style="font-weight:900; color:#38bdf8; margin:20px 0 10px 0; display:block; font-size:18px;">Durations & Prices</label>
+                <label style="font-weight:900; color:#38bdf8; margin:20px 0 10px 0; display:block; font-size:20px;">Durations & Prices</label>
                 <div id="price-container">
                     <div style="display:flex; gap:10px; margin-bottom:10px;">
                         <input type="text" name="duration[]" placeholder="1 Hours" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
@@ -602,11 +669,11 @@ def admin_users():
         <div class="product-card" style="margin-bottom:20px; padding:20px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                 <div>
-                    <div style="font-weight:900; color:#38bdf8; font-size:18px;">{u.get('name', 'User')}</div>
+                    <div style="font-weight:900; color:#38bdf8; font-size:20px;">{u.get('name', 'User')}</div>
                     <div style="font-size:14px; color:#94a3b8;">ID: <code>{u['_id']}</code></div>
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-weight:900; color:#10b981; font-size:18px;">₹{u.get('balance', 0):.2f}</div>
+                    <div style="font-weight:900; color:#10b981; font-size:20px;">₹{u.get('balance', 0):.2f}</div>
                     <div style="font-size:14px; color:#f59e0b;">Reseller: {u.get('discount', 0)}% OFF</div>
                 </div>
             </div>
@@ -621,7 +688,7 @@ def admin_users():
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
-        <div style="font-weight:900; font-size:22px; color:#38bdf8;">👥 Users</div>
+        <div style="font-weight:900; font-size:24px; color:#38bdf8;">👥 Users</div>
         <a href="/admin" class="store-btn">🔙 Back</a>
     </div>
     <div class="container fade-in" style="margin-top:20px;">
@@ -700,7 +767,7 @@ def edit_product(p_id):
     </div>
     <div class="container fade-in" style="margin-top:20px;">
         <div class="product-card" style="border-color:#f59e0b;">
-            <h3 style="margin-bottom:20px; color:#f59e0b; font-size:24px;">✏️ Edit Product</h3>
+            <h3 style="margin-bottom:20px; color:#f59e0b; font-size:26px;">✏️ Edit Product</h3>
             <form method="POST" enctype="multipart/form-data">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" value="{p.get('name', '')}" required></div>
                 <div class="input-group"><label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required></div>

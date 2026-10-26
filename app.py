@@ -61,6 +61,14 @@ def credit_balance(uid, amount):
     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
     return get_balance(uid)
 
+def credit_atomic(uid, amount, utr):
+    if orders_col.find_one({"utr": utr, "type": "deposit"}):
+        return True, get_balance(uid)
+    
+    orders_col.insert_one({"utr": utr, "uid": str(uid), "amount": amount, "type": "deposit", "time": time.strftime("%d-%m-%Y %I:%M %p")})
+    users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
+    return True, get_balance(uid)
+
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
@@ -206,7 +214,7 @@ def admin_addbal(msg):
         bot.reply_to(msg, f"✅ Added ₹{amt} to {target_uid}.")
     except: bot.reply_to(msg, "Usage: /addbalance <user_id> <amount>")
 
-# ================== FLASK WEB APP (EXACT SAME AS BEFORE) ==================
+# ================== FLASK WEB APP ==================
 app = Flask(__name__)
 app.secret_key = "sk_panel_secret"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -294,9 +302,7 @@ BASE_CSS = """
 </script>
 """
 
-# (Web Auth Routes, User Routes, Product Routes, Buy Routes, History, Deposit, Admin Panel Routes are identical to the previous response. To keep it concise, I am not repeating the entire web HTML/CSS block, just ensuring the bot logic is perfect. Wait, I need to provide the FULL code.)
-
-# ... [Copying the exact Flask Web part from the previous response to ensure 100% working] ...
+# ================== USER AUTH ROUTES ==================
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -373,6 +379,7 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+# ================== USER ROUTES ==================
 @app.route('/')
 def web_home():
     if 'uid' not in session: return redirect(url_for('login'))
@@ -561,6 +568,7 @@ def web_history():
     </div>
     """)
 
+# ================== AUTO-VERIFY DEPOSIT (FIXED) ==================
 @app.route('/deposit', methods=['GET', 'POST'])
 def web_deposit():
     if 'uid' not in session: return redirect(url_for('login'))
@@ -586,6 +594,9 @@ def web_deposit():
                             <div style="display:inline-block; width:45px; height:45px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #38bdf8; border-radius:50%; animation: spin 1s linear infinite;"></div>
                             <h3 style="color:#38bdf8; margin-top:15px; font-weight:800; font-size:20px;">Waiting for Payment...</h3>
                             <p style="color:#94a3b8; font-size:14px;">Auto-verifying. Do not close this page.</p>
+                            
+                            <button onclick="checkPaymentStatus()" class="action-btn btn-warning" style="margin-top:20px; padding:15px; font-size:16px; border-radius:10px;">🔄 Check Status Manually</button>
+                            <p style="color:#ef4444; font-size:14px; margin-top:10px; font-weight:bold;" id="error-msg"></p>
                         </div>
                     </div>
 
@@ -599,7 +610,7 @@ def web_deposit():
             </div>
             <script>
                 let checkCount = 0;
-                const maxChecks = 100; 
+                const maxChecks = 40; // 40 * 3s = 2 mins
                 
                 function checkPaymentStatus() {{
                     fetch('/check_payment/{order.order_id}/{amount}')
@@ -612,10 +623,19 @@ def web_deposit():
                             setTimeout(() => {{ window.location.href = '/'; }}, 3000);
                         }} else if (data.status === 'expired') {{
                             document.getElementById('loading-section').innerHTML = '<h3 style="color:#ef4444;">QR Expired! Please try again.</h3>';
+                            clearInterval(pollInterval);
+                        }} else if (data.status === 'error') {{
+                            document.getElementById('error-msg').innerText = 'API Error: ' + data.message;
                         }}
+                    }}).catch(err => {{
+                        document.getElementById('error-msg').innerText = 'Network Error. Please check manually.';
                     }});
+                    
                     checkCount++;
-                    if(checkCount >= maxChecks) {{ clearInterval(pollInterval); }}
+                    if(checkCount >= maxChecks) {{ 
+                        clearInterval(pollInterval); 
+                        document.getElementById('loading-section').innerHTML = '<h3 style="color:#ef4444;">Time Out! Please click Check Status Manually.</h3>';
+                    }}
                 }}
                 const pollInterval = setInterval(checkPaymentStatus, 3000);
             </script>
@@ -652,8 +672,10 @@ def check_payment(order_id, amount):
         else:
             return jsonify({"status": "pending"})
     except Exception as e:
+        print(f"Gateway Error: {e}") 
         return jsonify({"status": "error", "message": str(e)})
 
+# ================== ADMIN PANEL ==================
 @app.route('/admin', methods=['GET'])
 def admin_panel():
     products = list(products_col.find({}))

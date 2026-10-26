@@ -35,6 +35,11 @@ products_col = db.products
 orders_col = db.orders
 settings_col = db.settings
 
+# Create Admin Web User automatically if not exists
+if not web_users_col.find_one({"username": "admin"}):
+    web_users_col.insert_one({"uid": str(ADMIN_ID), "username": "admin", "password": "admin123"})
+    users_col.insert_one({"_id": str(ADMIN_ID), "balance": 0.0, "name": "Admin", "discount": 0})
+
 bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
 
@@ -81,55 +86,59 @@ app = Flask(__name__)
 app.secret_key = "sk_panel_secret"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# -------- HD CSS (Bada aur Clean) --------
 BASE_CSS = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
     * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     body { background-color: #050810; color: #fff; padding-bottom: 100px; background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #050810 70%); background-attachment: fixed; min-height: 100vh; animation: bodyFadeIn 0.8s ease-out; }
     @keyframes bodyFadeIn { from { opacity: 0; } to { opacity: 1; } }
-    .container { padding: 20px; max-width: 900px; margin: 0 auto; animation: slideUp 0.5s ease-out; }
+    
+    /* Bada Container */
+    .container { padding: 25px; max-width: 950px; margin: 0 auto; animation: slideUp 0.5s ease-out; }
     @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     
-    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 15px 25px; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(15px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); }
-    .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 12px 25px; border-radius: 25px; font-weight: 800; font-size: 16px; color: white; text-decoration: none; transition: 0.3s; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); }
-    .store-btn:active { transform: scale(0.95); }
-    .wallet-box { background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; padding: 10px 20px; border-radius: 25px; font-weight: 900; color: #10b981; font-size: 18px; }
+    /* Top Navbar */
+    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(15px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 15px 30px; border-radius: 25px; font-weight: 800; font-size: 18px; color: white; text-decoration: none; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); }
+    .wallet-box { background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; padding: 12px 25px; border-radius: 25px; font-weight: 900; color: #10b981; font-size: 20px; }
     
-    .hero-banner { width: 100%; padding: 40px 20px; background: linear-gradient(145deg, #1e1b4b, #0f172a); border-radius: 25px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 30px; border: 2px solid #6366f1; box-shadow: inset 0 0 30px rgba(99, 102, 241, 0.2), 0 10px 40px rgba(0, 0, 0, 0.6); }
-    .logo-text { font-size: 45px; font-weight: 900; background: linear-gradient(to right, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); }
-    .logo-sub { font-size: 16px; color: #94a3b8; font-weight: 600; letter-spacing: 5px; text-transform: uppercase; }
-
+    /* Hero Banner */
+    .hero-banner { width: 100%; padding: 50px 20px; background: linear-gradient(145deg, #1e1b4b, #0f172a); border-radius: 25px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 35px; border: 2px solid #6366f1; box-shadow: inset 0 0 30px rgba(99, 102, 241, 0.2), 0 10px 40px rgba(0, 0, 0, 0.6); }
+    .logo-text { font-size: 50px; font-weight: 900; background: linear-gradient(to right, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); }
+    
+    /* Stats Grid */
     .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
-    .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.08); transition: 0.3s; }
-    .stat-title { font-size: 14px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; }
-    .stat-value { font-size: 30px; font-weight: 900; }
+    .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 30px; border: 1px solid rgba(255,255,255,0.08); }
+    .stat-title { font-size: 16px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; }
+    .stat-value { font-size: 36px; font-weight: 900; }
 
+    /* Products */
     .product-grid { display: grid; grid-template-columns: 1fr; gap: 25px; }
-    .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 25px; padding: 30px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5); transition: 0.3s; }
-    .product-title { font-size: 26px; font-weight: 900; color: #fff; margin-bottom: 20px; }
-    .price-row { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; }
-    .price-tag { background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 12px 20px; border-radius: 12px; font-size: 18px; font-weight: 800; border: 1px solid rgba(56,189,248,0.4); }
+    .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 25px; padding: 35px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5); }
+    .product-title { font-size: 30px; font-weight: 900; color: #fff; margin-bottom: 20px; }
+    .price-row { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 30px; }
+    .price-tag { background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 15px 25px; border-radius: 12px; font-size: 20px; font-weight: 800; border: 1px solid rgba(56,189,248,0.4); }
 
-    .action-btn { display: block; width: 100%; padding: 20px; border-radius: 15px; text-align: center; font-weight: 900; font-size: 18px; text-decoration: none; border: none; cursor: pointer; transition: 0.3s; text-transform: uppercase; letter-spacing: 1px; }
-    .action-btn:active { transform: scale(0.96); }
+    /* Buttons & Inputs (Bade) */
+    .action-btn { display: block; width: 100%; padding: 25px; border-radius: 20px; text-align: center; font-weight: 900; font-size: 22px; text-decoration: none; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
     .btn-primary { background: linear-gradient(135deg, #0ea5e9, #3b82f6); color: white; box-shadow: 0 8px 25px rgba(14, 165, 233, 0.4); }
     .btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4); }
     .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4); }
     .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: black; box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4); }
 
-    .input-group { margin-bottom: 20px; }
-    .input-group label { display: block; font-size: 16px; color: #cbd5e1; margin-bottom: 10px; font-weight: 700; }
-    .input-group input, .input-group textarea, .input-group select { width: 100%; padding: 18px; border-radius: 15px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 18px; outline: none; font-weight: 600; transition: 0.3s; }
-    .input-group input:focus, .input-group textarea:focus { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56, 189, 248, 0.3); }
+    .input-group { margin-bottom: 25px; }
+    .input-group label { display: block; font-size: 20px; color: #cbd5e1; margin-bottom: 12px; font-weight: 700; }
+    .input-group input, .input-group textarea { width: 100%; padding: 25px; border-radius: 20px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 20px; outline: none; font-weight: 600; }
+    .input-group input:focus { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56, 189, 248, 0.3); }
     
-    /* Video Player Styles */
+    /* Video Player */
     .gameplay-container { margin-bottom: 20px; border-radius: 15px; overflow: hidden; border: 2px solid #0ea5e9; box-shadow: 0 5px 20px rgba(14, 165, 233, 0.3); }
     .gameplay-container video { width: 100%; display: block; background: #000; }
-    .video-title { font-weight: 800; color: #38bdf8; margin-bottom: 10px; font-size: 16px; }
 </style>
 """
 
-# ================== AUTH ROUTES (No Telegram ID) ==================
+# ================== AUTH ROUTES ==================
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -144,7 +153,7 @@ def login():
             return render_template_string(BASE_CSS + """
             <div class="container" style="margin-top: 50px;">
                 <div class="product-card text-center">
-                    <h2 style="color:#ef4444; margin-bottom:20px;">❌ Invalid Login</h2>
+                    <h2 style="color:#ef4444; margin-bottom:20px; font-size:30px;">❌ Invalid Login</h2>
                     <a href="/login" class="action-btn btn-primary">Try Again</a>
                 </div>
             </div>
@@ -152,17 +161,17 @@ def login():
     
     if 'uid' in session: return redirect(url_for('web_home'))
     return render_template_string(BASE_CSS + """
-    <div class="container fade-in" style="margin-top: 50px;">
-        <div class="hero-banner"><div class="logo-text">SK PANEL</div><div class="logo-sub">Premium Store</div></div>
+    <div class="container fade-in" style="margin-top: 60px;">
+        <div class="hero-banner"><div class="logo-text">SK PANEL</div></div>
         <div class="product-card">
-            <h2 style="font-size: 24px; margin-bottom: 25px; text-align: center; color: #38bdf8; font-weight: 900;">Login</h2>
+            <h2 style="font-size: 32px; margin-bottom: 30px; text-align: center; color: #38bdf8; font-weight: 900;">Login</h2>
             <form method="POST" action="/login">
                 <div class="input-group"><label>Username</label><input type="text" name="username" required></div>
                 <div class="input-group"><label>Password</label><input type="password" name="password" required></div>
                 <button type="submit" class="action-btn btn-success">Login</button>
             </form>
-            <div style="text-align: center; margin-top: 20px;">
-                <a href="/register" style="color: #38bdf8; text-decoration: none; font-weight: 700;">Don't have an account? Register</a>
+            <div style="text-align: center; margin-top: 25px;">
+                <a href="/register" style="color: #38bdf8; text-decoration: none; font-weight: 700; font-size:18px;">Don't have an account? Register</a>
             </div>
         </div>
     </div>
@@ -175,11 +184,9 @@ def register():
         pw = request.form['password'].strip()
         
         if web_users_col.find_one({"username": user}):
-            return render_template_string(BASE_CSS + "<h2 style='text-align:center; color:red; margin-top:50px;'>Username already exists! <a href='/register'>Try again</a></h2>")
+            return render_template_string(BASE_CSS + "<h2 style='text-align:center; color:red; margin-top:50px; font-size:30px;'>Username already exists! <a href='/register'>Try again</a></h2>")
         
-        # Auto generate a unique ID for web users since we are not asking for Telegram ID
         uid = "web_" + str(uuid.uuid4())[:8]
-        
         get_user_info(uid) 
         web_users_col.insert_one({"uid": uid, "username": user, "password": pw})
         session['uid'] = uid
@@ -187,17 +194,17 @@ def register():
         return redirect(url_for('web_home'))
         
     return render_template_string(BASE_CSS + """
-    <div class="container fade-in" style="margin-top: 50px;">
-        <div class="hero-banner"><div class="logo-text">SK PANEL</div><div class="logo-sub">Premium Store</div></div>
+    <div class="container fade-in" style="margin-top: 60px;">
+        <div class="hero-banner"><div class="logo-text">SK PANEL</div></div>
         <div class="product-card">
-            <h2 style="font-size: 24px; margin-bottom: 25px; text-align: center; color: #38bdf8; font-weight: 900;">Create Account</h2>
+            <h2 style="font-size: 32px; margin-bottom: 30px; text-align: center; color: #38bdf8; font-weight: 900;">Register</h2>
             <form method="POST" action="/register">
                 <div class="input-group"><label>Username</label><input type="text" name="username" required></div>
                 <div class="input-group"><label>Password</label><input type="password" name="password" required></div>
                 <button type="submit" class="action-btn btn-primary">Register</button>
             </form>
-            <div style="text-align: center; margin-top: 20px;">
-                <a href="/login" style="color: #38bdf8; text-decoration: none; font-weight: 700;">Already have an account? Login</a>
+            <div style="text-align: center; margin-top: 25px;">
+                <a href="/login" style="color: #38bdf8; text-decoration: none; font-weight: 700; font-size:18px;">Already have an account? Login</a>
             </div>
         </div>
     </div>
@@ -224,14 +231,9 @@ def web_home():
         prices = p.get('prices', {})
         price_tags = "".join([f"<span class='price-tag'>{d} - ₹{pr}</span>" for d, pr in prices.items()])
         
-        # GAMEPLAY VIDEO ON MAIN PAGE
         gameplay_html = ""
         if p.get("gameplay_video"):
-            gameplay_html = f"""
-            <div class="gameplay-container">
-                <video src="/{p['gameplay_video']}" controls autoplay muted loop></video>
-            </div>
-            """
+            gameplay_html = f'<div class="gameplay-container"><video src="/{p["gameplay_video"]}" controls autoplay muted loop></video></div>'
             
         prod_html += f"""
         <div class="product-card fade-in">
@@ -245,19 +247,18 @@ def web_home():
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
         <a href="/" class="store-btn">📦 Store</a>
-        <div style="display:flex; align-items:center; gap:15px;">
+        <div style="display:flex; align-items:center; gap:20px;">
             <div class="wallet-box">₹{bal:.2f}</div>
-            <a href="/logout" class="store-btn" style="background:#ef4444; padding:10px 15px;">Logout</a>
+            <a href="/logout" class="store-btn" style="background:#ef4444;">Logout</a>
         </div>
     </div>
     <div class="container">
-        <div class="hero-banner"><div class="logo-text">SK PANEL</div><div class="logo-sub">Premium Store</div></div>
+        <div class="hero-banner"><div class="logo-text">SK PANEL</div></div>
         <div class="stats-grid">
-            <div class="stat-card"><div class="stat-title">💳 Wallet Balance</div><div class="stat-value text-green">₹{bal:.2f}</div></div>
-            <div class="stat-card"><div class="stat-title">🔑 Total Keys</div><div class="stat-value text-blue">{len(list(orders_col.find({'uid': str(uid)})))}</div></div>
+            <div class="stat-card"><div class="stat-title">💳 Wallet</div><div class="stat-value text-green">₹{bal:.2f}</div></div>
+            <div class="stat-card"><div class="stat-title">🔑 Keys</div><div class="stat-value text-blue">{len(list(orders_col.find({'uid': str(uid)})))}</div></div>
         </div>
-        <a href="/deposit" class="action-btn btn-warning" style="margin-bottom:30px;">⚡ Add Balance (Top Up)</a>
-        <div style="font-size: 22px; font-weight: 900; margin-bottom: 20px;">🔥 Browse Products</div>
+        <a href="/deposit" class="action-btn btn-warning" style="margin-bottom:40px;">⚡ Add Balance</a>
         <div class="product-grid">{prod_html}</div>
     </div>
     """)
@@ -276,7 +277,7 @@ def web_product(p_id):
     for d, pr in p.get('prices', {}).items():
         final_price = float(pr) - (float(pr) * discount / 100) if discount > 0 else float(pr)
         price_tags += f"""
-        <form action="/buy_web" method="POST" style="margin-bottom:15px;">
+        <form action="/buy_web" method="POST" style="margin-bottom:20px;">
             <input type="hidden" name="p_id" value="{p_id}">
             <input type="hidden" name="duration" value="{d}">
             <button type="submit" class="action-btn btn-primary" style="display:flex; justify-content:space-between;">
@@ -286,22 +287,18 @@ def web_product(p_id):
         """
 
     video_html = ""
-    # Optional: Add gameplay video here too
-    if p.get("gameplay_video"): video_html += f'<div class="gameplay-container"><div class="video-title">🎮 Gameplay Preview:</div><video src="/{p["gameplay_video"]}" controls></video></div>'
-    if p.get("setup_video"): video_html += f'<div class="gameplay-container" style="border-color:#38bdf8;"><div class="video-title">📺 Setup Video:</div><video src="/{p["setup_video"]}" controls></video></div>'
-    if p.get("hack_video"): video_html += f'<div class="gameplay-container" style="border-color:#ef4444;"><div class="video-title">🛠️ Hack Video:</div><video src="/{p["hack_video"]}" controls></video></div>'
-    
-    features_html = f"<div class='features-box'><div class='features-title'>✨ Hack Features</div><div class='features-list'>{p['features']}</div></div>" if p.get("features") else ""
+    if p.get("gameplay_video"): video_html += f'<div class="gameplay-container"><video src="/{p["gameplay_video"]}" controls></video></div>'
+    if p.get("setup_video"): video_html += f'<div class="gameplay-container" style="border-color:#38bdf8;"><video src="/{p["setup_video"]}" controls></video></div>'
+    if p.get("hack_video"): video_html += f'<div class="gameplay-container" style="border-color:#ef4444;"><video src="/{p["hack_video"]}" controls></video></div>'
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
-    <div class="container fade-in" style="margin-top:20px;">
+    <div class="container fade-in" style="margin-top:30px;">
         <div class="product-card">
-            <div class="product-title" style="font-size:28px; color:#38bdf8;">📦 {p.get('name', 'Unknown')}</div>
-            <p style="color:#cbd5e1; font-size:16px; margin-bottom:25px;">{p.get('description', '')}</p>
-            {features_html}
+            <div class="product-title" style="font-size:36px; color:#38bdf8;">📦 {p.get('name', 'Unknown')}</div>
+            <p style="color:#cbd5e1; font-size:18px; margin-bottom:30px;">{p.get('description', '')}</p>
             {video_html}
-            <div style="font-size:20px; font-weight:900; margin:30px 0 20px 0;">Select Duration:</div>
+            <div style="font-size:24px; font-weight:900; margin:40px 0 25px 0;">Select Duration:</div>
             {price_tags}
         </div>
     </div>
@@ -332,22 +329,22 @@ def buy_web():
             key = result.get("keys", ["Key not found"])[0]
             log_order(uid, product.get('name', 'Unknown'), key, price)
             return render_template_string(BASE_CSS + f"""
-            <div class="container fade-in" style="margin-top:50px;">
+            <div class="container fade-in" style="margin-top:60px;">
                 <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#10b981; font-size:28px;">✅ Purchase Successful!</h2>
-                    <div style="background:#050810; padding:25px; border-radius:15px; border:2px solid #38bdf8; font-family:monospace; font-size:22px; margin:25px 0; font-weight:900; color:#38bdf8;">{key}</div>
-                    <a href="/" class="action-btn btn-primary">Back to Store</a>
+                    <h2 style="color:#10b981; font-size:36px;">✅ Successful!</h2>
+                    <div style="background:#050810; padding:30px; border-radius:20px; border:2px solid #38bdf8; font-family:monospace; font-size:28px; margin:30px 0; font-weight:900; color:#38bdf8;">{key}</div>
+                    <a href="/" class="action-btn btn-primary">Back</a>
                 </div>
             </div>
             """)
         else:
             credit_balance(uid, price)
             return render_template_string(BASE_CSS + f"""
-            <div class="container fade-in" style="margin-top:50px;">
+            <div class="container fade-in" style="margin-top:60px;">
                 <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#ef4444; font-size:28px;">❌ Out of Stock</h2>
-                    <p style="color:#10b981; margin-top:20px; font-weight:900;">₹{price:.2f} Refunded to Wallet.</p>
-                    <br><a href="/" class="action-btn btn-warning">Back to Store</a>
+                    <h2 style="color:#ef4444; font-size:36px;">❌ Out of Stock</h2>
+                    <p style="color:#10b981; margin-top:25px; font-weight:900; font-size:22px;">₹{price:.2f} Refunded to Wallet.</p>
+                    <br><a href="/" class="action-btn btn-warning">Back</a>
                 </div>
             </div>
             """)
@@ -363,10 +360,10 @@ def web_deposit():
             order = fg.create_order(amount=amount, customer_name=session['uid'])
             return render_template_string(BASE_CSS + f"""
             <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
-            <div class="container fade-in" style="margin-top:30px; text-align:center;">
+            <div class="container fade-in" style="margin-top:40px; text-align:center;">
                 <div class="product-card">
-                    <h2 style="color:#10b981; font-size:26px;">Pay ₹{amount}</h2>
-                    <img src="{order.qr_url}" style="width:100%; max-width:280px; border-radius:15px; border:2px solid #38bdf8; margin:20px 0;">
+                    <h2 style="color:#10b981; font-size:32px;">Pay ₹{amount}</h2>
+                    <img src="{order.qr_url}" style="width:100%; max-width:350px; border-radius:20px; border:2px solid #38bdf8; margin:30px 0;">
                     <a href="/" class="action-btn btn-primary">I have paid</a>
                 </div>
             </div>
@@ -374,37 +371,60 @@ def web_deposit():
         except Exception as e: return f"Error: {e}"
 
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a><div class="wallet-box">₹{get_balance(session['uid']):.2f}</div></div>
-    <div class="container fade-in" style="margin-top:20px;">
+    <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
+    <div class="container fade-in" style="margin-top:30px;">
         <div class="product-card">
-            <h2 style="font-size:24px; margin-bottom:20px; color:#38bdf8;">Add Balance</h2>
+            <h2 style="font-size:32px; margin-bottom:30px; color:#38bdf8; text-align:center;">Add Balance</h2>
             <form method="POST" action="/deposit">
-                <div class="input-group"><label>Enter Amount (₹)</label><input type="number" name="amount" min="10" required placeholder="e.g. 100"></div>
-                <button type="submit" class="action-btn btn-success">Generate QR Code</button>
+                <div class="input-group"><label>Enter Amount (₹)</label><input type="number" name="amount" min="10" required placeholder="100"></div>
+                <button type="submit" class="action-btn btn-success">Generate QR</button>
             </form>
         </div>
     </div>
     """)
 
-# ================== ADMIN PANEL (FULL CONTROLLER & EDIT) ==================
-@app.route('/admin', methods=['GET'])
+# ================== ADMIN PANEL (Dedicated Login & Edit Feature) ==================
+@app.route('/admin', methods=['GET', 'POST'])
 def admin_panel():
+    # If not logged in as Admin, show clean login page without 'Access Denied'
     if 'uid' not in session or str(session['uid']) != str(ADMIN_ID):
-        return "<h1 style='text-align:center; color:red; margin-top:50px;'>Access Denied. Login with Admin Username & Pass first.</h1>"
+        if request.method == 'POST':
+            user = request.form['username']
+            pw = request.form['password']
+            if user == "admin" and pw == "admin123":
+                session['uid'] = str(ADMIN_ID)
+                session['username'] = 'admin'
+                return redirect(url_for('admin_panel'))
+            else:
+                return "<h2 style='text-align:center; color:red; margin-top:50px; font-size:30px;'>❌ Invalid Admin Credentials</h2>"
+                
+        return render_template_string(BASE_CSS + """
+        <div class="container fade-in" style="margin-top: 60px;">
+            <div class="hero-banner"><div class="logo-text">CONTROLLER</div></div>
+            <div class="product-card">
+                <h2 style="font-size: 32px; margin-bottom: 30px; text-align: center; color: #38bdf8; font-weight: 900;">Admin Login</h2>
+                <form method="POST" action="/admin">
+                    <div class="input-group"><label>Username</label><input type="text" name="username" required></div>
+                    <div class="input-group"><label>Password</label><input type="password" name="password" required></div>
+                    <button type="submit" class="action-btn btn-primary">Login to Panel</button>
+                </form>
+            </div>
+        </div>
+        """)
     
     products = list(products_col.find({}))
     prod_html = ""
     for p in products:
         prod_html += f"""
-        <div class="product-card" style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
+        <div class="product-card" style="margin-bottom:25px; display:flex; justify-content:space-between; align-items:center; padding:25px;">
             <div>
-                <div style="font-size:22px; font-weight:900; color:#38bdf8;">{p.get('name', '')}</div>
-                <div style="font-size:14px; color:#94a3b8;">PID: {p.get('pid', '')}</div>
+                <div style="font-size:24px; font-weight:900; color:#38bdf8;">{p.get('name', '')}</div>
+                <div style="font-size:16px; color:#94a3b8;">PID: {p.get('pid', '')}</div>
             </div>
-            <div style="display:flex; gap:10px;">
-                <a href="/edit_product/{p['_id']}" class="action-btn btn-warning" style="padding:10px 20px; font-size:14px; width:auto;">✏️ Edit</a>
+            <div style="display:flex; gap:15px;">
+                <a href="/edit_product/{p['_id']}" class="action-btn btn-warning" style="padding:15px 25px; font-size:16px; width:auto;">✏️ Edit</a>
                 <form action="/delete_product/{p['_id']}" method="POST">
-                    <button type="submit" class="action-btn btn-danger" style="padding:10px 20px; font-size:14px; width:auto;">🗑️ Delete</button>
+                    <button type="submit" class="action-btn btn-danger" style="padding:15px 25px; font-size:16px; width:auto;">🗑️ Del</button>
                 </form>
             </div>
         </div>
@@ -412,44 +432,40 @@ def admin_panel():
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
-        <div style="font-weight:900; font-size:22px; color:#38bdf8;">⚙️ Admin Panel</div>
+        <div style="font-weight:900; font-size:26px; color:#38bdf8;">⚙️ Controller</div>
         <a href="/" class="store-btn" style="background:#ef4444;">Exit</a>
     </div>
-    <div class="container fade-in" style="margin-top:20px;">
+    <div class="container fade-in" style="margin-top:30px;">
         <div class="product-card" style="margin-bottom:40px; border-color:#0ea5e9;">
-            <h3 style="margin-bottom:20px; color:#38bdf8; font-size:24px;">➕ Add New Product</h3>
+            <h3 style="margin-bottom:30px; color:#38bdf8; font-size:28px;">➕ Add New Product</h3>
             <form method="POST" action="/add_product" enctype="multipart/form-data">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" required></div>
                 <div class="input-group"><label>PID</label><input type="text" name="pid" required></div>
-                <div class="input-group"><label>Hack Features (Comma separated)</label><textarea name="features" rows="3"></textarea></div>
                 
-                <!-- NEW: Gameplay Video -->
-                <div class="input-group"><label>🎮 Gameplay Video (Show above product)</label><input type="file" name="gameplay_video_file" accept="video/*" style="padding:15px; background:#050810; border:1px solid #334155;"></div>
-                
-                <div class="input-group"><label>Setup Video (Gallery)</label><input type="file" name="setup_video_file" accept="video/*" style="padding:15px; background:#050810; border:1px solid #334155;"></div>
-                <div class="input-group"><label>Hack Video (Gallery)</label><input type="file" name="hack_video_file" accept="video/*" style="padding:15px; background:#050810; border:1px solid #334155;"></div>
+                <div class="input-group"><label>🎮 Gameplay Video</label><input type="file" name="gameplay_video_file" accept="video/*" style="padding:25px; background:#050810; border:2px solid #334155; border-radius:20px;"></div>
+                <div class="input-group"><label>Setup Video</label><input type="file" name="setup_video_file" accept="video/*" style="padding:25px; background:#050810; border:2px solid #334155; border-radius:20px;"></div>
+                <div class="input-group"><label>Hack Video</label><input type="file" name="hack_video_file" accept="video/*" style="padding:25px; background:#050810; border:2px solid #334155; border-radius:20px;"></div>
 
-                <label style="font-weight:800; color:#38bdf8; margin:15px 0 10px 0; display:block;">Durations & Prices</label>
+                <label style="font-weight:900; color:#38bdf8; margin:25px 0 15px 0; display:block; font-size:20px;">Durations & Prices</label>
                 <div id="price-container">
-                    <div style="display:flex; gap:10px; margin-bottom:10px;">
-                        <input type="text" name="duration[]" placeholder="e.g. 1 Day" style="flex:1; padding:15px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff;">
-                        <input type="number" name="price[]" placeholder="₹ Price" style="flex:1; padding:15px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff;">
+                    <div style="display:flex; gap:15px; margin-bottom:15px;">
+                        <input type="text" name="duration[]" placeholder="1 Day" style="flex:1; padding:25px; border-radius:20px; background:#050810; border:2px solid #334155; color:#fff; font-size:20px;">
+                        <input type="number" name="price[]" placeholder="Price" style="flex:1; padding:25px; border-radius:20px; background:#050810; border:2px solid #334155; color:#fff; font-size:20px;">
                     </div>
                 </div>
-                <button type="button" onclick="addPrice()" class="action-btn btn-success" style="margin-bottom:20px; background:#f59e0b; color:#000;">+ Add More Duration</button>
+                <button type="button" onclick="addPrice()" class="action-btn btn-success" style="margin-bottom:30px; background:#f59e0b; color:#000;">+ Add More</button>
                 <button type="submit" class="action-btn btn-primary">Save Product</button>
             </form>
         </div>
-
-        <h3 style="margin-bottom:20px; color:#38bdf8; font-size:24px;">📦 All Products</h3>
+        <h3 style="margin-bottom:25px; color:#38bdf8; font-size:28px;">📦 All Products</h3>
         {prod_html}
     </div>
     <script>
         function addPrice() {{
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
-            d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:15px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff;">`;
+            d.style.display = 'flex'; d.style.gap = '15px'; d.style.marginBottom = '15px';
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:25px; border-radius:20px; background:#050810; border:2px solid #334155; color:#fff; font-size:20px;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:25px; border-radius:20px; background:#050810; border:2px solid #334155; color:#fff; font-size:20px;">`;
             c.appendChild(d);
         }}
     </script>
@@ -545,9 +561,9 @@ def edit_product(p_id):
     price_fields = ""
     for d, pr in p.get('prices', {}).items():
         price_fields += f"""
-        <div style="display:flex; gap:10px; margin-bottom:10px;">
-            <input type="text" name="duration[]" value="{d}" style="flex:1; padding:15px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff;">
-            <input type="number" name="price[]" value="{pr}" style="flex:1; padding:15px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff;">
+        <div style="display:flex; gap:15px; margin-bottom:15px;">
+            <input type="text" name="duration[]" value="{d}" style="flex:1; padding:25px; border-radius:20px; background:#050810; border:2px solid #334155; color:#fff; font-size:20px;">
+            <input type="number" name="price[]" value="{pr}" style="flex:1; padding:25px; border-radius:20px; background:#050810; border:2px solid #334155; color:#fff; font-size:20px;">
         </div>
         """
 
@@ -555,32 +571,31 @@ def edit_product(p_id):
     <div class="top-nav">
         <a href="/admin" class="store-btn">🔙 Back to Admin</a>
     </div>
-    <div class="container fade-in" style="margin-top:20px;">
+    <div class="container fade-in" style="margin-top:30px;">
         <div class="product-card" style="border-color:#f59e0b;">
-            <h3 style="margin-bottom:20px; color:#f59e0b; font-size:24px;">✏️ Edit Product: {p.get('name')}</h3>
+            <h3 style="margin-bottom:30px; color:#f59e0b; font-size:28px;">✏️ Edit Product</h3>
             <form method="POST" enctype="multipart/form-data">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" value="{p.get('name', '')}" required></div>
                 <div class="input-group"><label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required></div>
-                <div class="input-group"><label>Hack Features</label><textarea name="features" rows="3">{p.get('features', '')}</textarea></div>
                 
                 <div class="input-group">
                     <label>🎮 Gameplay Video (Leave empty to keep old)</label>
-                    <input type="file" name="gameplay_video_file" accept="video/*" style="padding:15px; background:#050810; border:1px solid #334155;">
+                    <input type="file" name="gameplay_video_file" accept="video/*" style="padding:25px; background:#050810; border:2px solid #334155; border-radius:20px;">
                 </div>
                 <div class="input-group">
                     <label>Setup Video (Leave empty to keep old)</label>
-                    <input type="file" name="setup_video_file" accept="video/*" style="padding:15px; background:#050810; border:1px solid #334155;">
+                    <input type="file" name="setup_video_file" accept="video/*" style="padding:25px; background:#050810; border:2px solid #334155; border-radius:20px;">
                 </div>
                 <div class="input-group">
                     <label>Hack Video (Leave empty to keep old)</label>
-                    <input type="file" name="hack_video_file" accept="video/*" style="padding:15px; background:#050810; border:1px solid #334155;">
+                    <input type="file" name="hack_video_file" accept="video/*" style="padding:25px; background:#050810; border:2px solid #334155; border-radius:20px;">
                 </div>
 
-                <label style="font-weight:800; color:#38bdf8; margin:15px 0 10px 0; display:block;">Durations & Prices</label>
+                <label style="font-weight:900; color:#38bdf8; margin:25px 0 15px 0; display:block; font-size:20px;">Durations & Prices</label>
                 <div id="price-container">
                     {price_fields}
                 </div>
-                <button type="button" onclick="addPrice()" class="action-btn btn-success" style="margin-bottom:20px; background:#f59e0b; color:#000;">+ Add More Duration</button>
+                <button type="button" onclick="addPrice()" class="action-btn btn-success" style="margin-bottom:30px; background:#f59e0b; color:#000;">+ Add More</button>
                 <button type="submit" class="action-btn btn-warning">Update Product</button>
             </form>
         </div>
@@ -589,8 +604,8 @@ def edit_product(p_id):
         function addPrice() {{
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
-            d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:15px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff;">`;
+            d.style.display = 'flex'; d.style.gap = '15px'; d.style.marginBottom = '15px';
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:25px; border-radius:20px; background:#050810; border:2px solid #334155; color:#fff; font-size:20px;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:25px; border-radius:20px; background:#050810; border:2px solid #334155; color:#fff; font-size:20px;">`;
             c.appendChild(d);
         }}
     </script>

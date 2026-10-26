@@ -113,9 +113,7 @@ BASE_CSS = """
 
     .product-grid { display: grid; grid-template-columns: 1fr; gap: 15px; }
     .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 20px; padding: 20px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5); }
-    .product-title { font-size: 20px; font-weight: 900; color: #fff; margin-bottom: 10px; }
-    .price-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
-    .price-tag { background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 800; border: 1px solid rgba(56,189,248,0.4); }
+    .product-title { font-size: 20px; font-weight: 900; color: #fff; margin-bottom: 15px; }
 
     .action-btn { display: block; width: 100%; padding: 15px; border-radius: 12px; text-align: center; font-weight: 900; font-size: 16px; text-decoration: none; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
     .btn-primary { background: linear-gradient(135deg, #0ea5e9, #3b82f6); color: white; box-shadow: 0 8px 25px rgba(14, 165, 233, 0.4); }
@@ -236,14 +234,11 @@ def web_home():
     products = list(products_col.find({}))
     prod_html = ""
     for p in products:
-        prices = p.get('prices', {})
-        price_tags = "".join([f"<span class='price-tag'>{d} - ₹{pr}</span>" for d, pr in prices.items()])
-            
+        # YAHAN SE PRICE TAGS HATA DIYE HAIN
         prod_html += f"""
-        <div class="product-card fade-in">
-            <div class="product-title">📦 {p.get('name', 'Unknown')}</div>
-            <div class="price-row">{price_tags}</div>
-            <a href="/product/{str(p['_id'])}" class="action-btn btn-primary">View & Buy</a>
+        <div class="product-card fade-in" style="display: flex; justify-content: space-between; align-items: center; padding: 15px 20px;">
+            <div class="product-title" style="margin-bottom: 0; font-size: 18px;">📦 {p.get('name', 'Unknown')}</div>
+            <a href="/product/{str(p['_id'])}" class="action-btn btn-primary" style="width: auto; padding: 12px 20px; font-size: 14px;">View</a>
         </div>
         """
 
@@ -488,7 +483,7 @@ def check_payment(order_id, amount):
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
-# ================== ADMIN PANEL (NO LOGIN REQUIRED) ==================
+# ================== ADMIN PANEL ==================
 @app.route('/admin', methods=['GET'])
 def admin_panel():
     products = list(products_col.find({}))

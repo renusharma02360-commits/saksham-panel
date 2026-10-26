@@ -4,6 +4,7 @@ import threading
 import requests
 import urllib.parse
 import telebot
+import uuid
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from famgateway import FamGateway
 from flask import Flask, request, render_template_string, redirect, url_for, session
@@ -29,7 +30,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 client = MongoClient(MONGO_URI)
 db = client.saksham_panel
 users_col = db.users
-web_users_col = db.web_users # New collection for Web Login
+web_users_col = db.web_users 
 products_col = db.products
 orders_col = db.orders
 settings_col = db.settings
@@ -38,14 +39,6 @@ bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
 
 # ---------------- DB HELPERS ----------------
-def get_settings():
-    s = settings_col.find_one({"_id": "global"})
-    if not s:
-        default_s = {"_id": "global", "store_name": "SK PANEL SHOP", "support_username": "YourSupport"}
-        settings_col.insert_one(default_s)
-        return default_s
-    return s
-
 def get_user_info(uid):
     u = users_col.find_one({"_id": str(uid)})
     if not u:
@@ -83,61 +76,40 @@ def start(msg):
         kb.add(InlineKeyboardButton("⚙️ Admin Panel", web_app=WebAppInfo(url=f"{WEB_URL}/admin")))
     bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
 
-# ================== FLASK WEB APP (PREMIUM ANIMATED UI) ==================
+# ================== FLASK WEB APP ==================
 app = Flask(__name__)
 app.secret_key = "sk_panel_secret"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# -------- PREMIUM HD CSS WITH ANIMATIONS --------
 BASE_CSS = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
-    
     * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    
-    body { 
-        background-color: #050810; 
-        color: #fff; 
-        padding-bottom: 100px; 
-        background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #050810 70%);
-        background-attachment: fixed;
-        min-height: 100vh;
-        animation: bodyFadeIn 0.8s ease-out;
-    }
-
+    body { background-color: #050810; color: #fff; padding-bottom: 100px; background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #050810 70%); background-attachment: fixed; min-height: 100vh; animation: bodyFadeIn 0.8s ease-out; }
     @keyframes bodyFadeIn { from { opacity: 0; } to { opacity: 1; } }
-    
-    /* Bada Container */
     .container { padding: 20px; max-width: 900px; margin: 0 auto; animation: slideUp 0.5s ease-out; }
     @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     
-    /* HD Top Navbar */
     .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 15px 25px; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(15px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); }
     .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 12px 25px; border-radius: 25px; font-weight: 800; font-size: 16px; color: white; text-decoration: none; transition: 0.3s; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); }
     .store-btn:active { transform: scale(0.95); }
     .wallet-box { background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; padding: 10px 20px; border-radius: 25px; font-weight: 900; color: #10b981; font-size: 18px; }
     
-    /* Premium Hero Banner */
     .hero-banner { width: 100%; padding: 40px 20px; background: linear-gradient(145deg, #1e1b4b, #0f172a); border-radius: 25px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 30px; border: 2px solid #6366f1; box-shadow: inset 0 0 30px rgba(99, 102, 241, 0.2), 0 10px 40px rgba(0, 0, 0, 0.6); }
     .logo-text { font-size: 45px; font-weight: 900; background: linear-gradient(to right, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); }
     .logo-sub { font-size: 16px; color: #94a3b8; font-weight: 600; letter-spacing: 5px; text-transform: uppercase; }
 
-    /* Stats Grid */
     .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
     .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.08); transition: 0.3s; }
-    .stat-card:hover { transform: translateY(-5px); border-color: #38bdf8; }
     .stat-title { font-size: 14px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; }
     .stat-value { font-size: 30px; font-weight: 900; }
 
-    /* Products */
     .product-grid { display: grid; grid-template-columns: 1fr; gap: 25px; }
     .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 25px; padding: 30px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5); transition: 0.3s; }
-    .product-card:hover { border-color: #0ea5e9; box-shadow: 0 15px 40px rgba(14, 165, 233, 0.2); }
     .product-title { font-size: 26px; font-weight: 900; color: #fff; margin-bottom: 20px; }
     .price-row { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; }
     .price-tag { background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 12px 20px; border-radius: 12px; font-size: 18px; font-weight: 800; border: 1px solid rgba(56,189,248,0.4); }
 
-    /* Buttons */
     .action-btn { display: block; width: 100%; padding: 20px; border-radius: 15px; text-align: center; font-weight: 900; font-size: 18px; text-decoration: none; border: none; cursor: pointer; transition: 0.3s; text-transform: uppercase; letter-spacing: 1px; }
     .action-btn:active { transform: scale(0.96); }
     .btn-primary { background: linear-gradient(135deg, #0ea5e9, #3b82f6); color: white; box-shadow: 0 8px 25px rgba(14, 165, 233, 0.4); }
@@ -145,19 +117,19 @@ BASE_CSS = """
     .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4); }
     .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: black; box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4); }
 
-    /* Forms */
     .input-group { margin-bottom: 20px; }
     .input-group label { display: block; font-size: 16px; color: #cbd5e1; margin-bottom: 10px; font-weight: 700; }
     .input-group input, .input-group textarea, .input-group select { width: 100%; padding: 18px; border-radius: 15px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 18px; outline: none; font-weight: 600; transition: 0.3s; }
     .input-group input:focus, .input-group textarea:focus { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56, 189, 248, 0.3); }
-
-    /* Animations */
-    .fade-in { animation: fadeIn 0.5s ease-in-out; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    
+    /* Video Player Styles */
+    .gameplay-container { margin-bottom: 20px; border-radius: 15px; overflow: hidden; border: 2px solid #0ea5e9; box-shadow: 0 5px 20px rgba(14, 165, 233, 0.3); }
+    .gameplay-container video { width: 100%; display: block; background: #000; }
+    .video-title { font-weight: 800; color: #38bdf8; margin-bottom: 10px; font-size: 16px; }
 </style>
 """
 
-# ================== AUTH ROUTES ==================
+# ================== AUTH ROUTES (No Telegram ID) ==================
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -165,7 +137,7 @@ def login():
         pw = request.form['password']
         existing_user = web_users_col.find_one({"username": user, "password": pw})
         if existing_user:
-            session['uid'] = existing_user['telegram_id']
+            session['uid'] = existing_user['uid']
             session['username'] = user
             return redirect(url_for('web_home'))
         else:
@@ -199,15 +171,17 @@ def login():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        uid = request.form['telegram_id'].strip()
         user = request.form['username'].strip()
         pw = request.form['password'].strip()
         
         if web_users_col.find_one({"username": user}):
             return render_template_string(BASE_CSS + "<h2 style='text-align:center; color:red; margin-top:50px;'>Username already exists! <a href='/register'>Try again</a></h2>")
         
-        get_user_info(uid) # Create in main DB if not exists
-        web_users_col.insert_one({"telegram_id": uid, "username": user, "password": pw})
+        # Auto generate a unique ID for web users since we are not asking for Telegram ID
+        uid = "web_" + str(uuid.uuid4())[:8]
+        
+        get_user_info(uid) 
+        web_users_col.insert_one({"uid": uid, "username": user, "password": pw})
         session['uid'] = uid
         session['username'] = user
         return redirect(url_for('web_home'))
@@ -218,9 +192,8 @@ def register():
         <div class="product-card">
             <h2 style="font-size: 24px; margin-bottom: 25px; text-align: center; color: #38bdf8; font-weight: 900;">Create Account</h2>
             <form method="POST" action="/register">
-                <div class="input-group"><label>Telegram ID</label><input type="text" name="telegram_id" required></div>
-                <div class="input-group"><label>Set Username</label><input type="text" name="username" required></div>
-                <div class="input-group"><label>Set Password</label><input type="password" name="password" required></div>
+                <div class="input-group"><label>Username</label><input type="text" name="username" required></div>
+                <div class="input-group"><label>Password</label><input type="password" name="password" required></div>
                 <button type="submit" class="action-btn btn-primary">Register</button>
             </form>
             <div style="text-align: center; margin-top: 20px;">
@@ -250,9 +223,20 @@ def web_home():
     for p in products:
         prices = p.get('prices', {})
         price_tags = "".join([f"<span class='price-tag'>{d} - ₹{pr}</span>" for d, pr in prices.items()])
+        
+        # GAMEPLAY VIDEO ON MAIN PAGE
+        gameplay_html = ""
+        if p.get("gameplay_video"):
+            gameplay_html = f"""
+            <div class="gameplay-container">
+                <video src="/{p['gameplay_video']}" controls autoplay muted loop></video>
+            </div>
+            """
+            
         prod_html += f"""
         <div class="product-card fade-in">
             <div class="product-title">📦 {p.get('name', 'Unknown')}</div>
+            {gameplay_html}
             <div class="price-row">{price_tags}</div>
             <a href="/product/{str(p['_id'])}" class="action-btn btn-primary">View & Buy</a>
         </div>
@@ -302,8 +286,11 @@ def web_product(p_id):
         """
 
     video_html = ""
-    if p.get("setup_video"): video_html += f'<div class="video-container"><div style="font-weight:800; color:#38bdf8; margin-bottom:10px;">📺 Setup Video:</div><video src="/{p["setup_video"]}" controls></video></div>'
-    if p.get("hack_video"): video_html += f'<div class="video-container"><div style="font-weight:800; color:#ef4444; margin-bottom:10px;">🛠️ Hack Video:</div><video src="/{p["hack_video"]}" controls></video></div>'
+    # Optional: Add gameplay video here too
+    if p.get("gameplay_video"): video_html += f'<div class="gameplay-container"><div class="video-title">🎮 Gameplay Preview:</div><video src="/{p["gameplay_video"]}" controls></video></div>'
+    if p.get("setup_video"): video_html += f'<div class="gameplay-container" style="border-color:#38bdf8;"><div class="video-title">📺 Setup Video:</div><video src="/{p["setup_video"]}" controls></video></div>'
+    if p.get("hack_video"): video_html += f'<div class="gameplay-container" style="border-color:#ef4444;"><div class="video-title">🛠️ Hack Video:</div><video src="/{p["hack_video"]}" controls></video></div>'
+    
     features_html = f"<div class='features-box'><div class='features-title'>✨ Hack Features</div><div class='features-list'>{p['features']}</div></div>" if p.get("features") else ""
 
     return render_template_string(BASE_CSS + f"""
@@ -403,7 +390,7 @@ def web_deposit():
 @app.route('/admin', methods=['GET'])
 def admin_panel():
     if 'uid' not in session or str(session['uid']) != str(ADMIN_ID):
-        return "<h1 style='text-align:center; color:red; margin-top:50px;'>Access Denied. Login with Admin ID first.</h1>"
+        return "<h1 style='text-align:center; color:red; margin-top:50px;'>Access Denied. Login with Admin Username & Pass first.</h1>"
     
     products = list(products_col.find({}))
     prod_html = ""
@@ -435,6 +422,9 @@ def admin_panel():
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" required></div>
                 <div class="input-group"><label>PID</label><input type="text" name="pid" required></div>
                 <div class="input-group"><label>Hack Features (Comma separated)</label><textarea name="features" rows="3"></textarea></div>
+                
+                <!-- NEW: Gameplay Video -->
+                <div class="input-group"><label>🎮 Gameplay Video (Show above product)</label><input type="file" name="gameplay_video_file" accept="video/*" style="padding:15px; background:#050810; border:1px solid #334155;"></div>
                 
                 <div class="input-group"><label>Setup Video (Gallery)</label><input type="file" name="setup_video_file" accept="video/*" style="padding:15px; background:#050810; border:1px solid #334155;"></div>
                 <div class="input-group"><label>Hack Video (Gallery)</label><input type="file" name="hack_video_file" accept="video/*" style="padding:15px; background:#050810; border:1px solid #334155;"></div>
@@ -469,9 +459,17 @@ def admin_panel():
 def add_product():
     if 'uid' not in session or str(session['uid']) != str(ADMIN_ID): return "Access Denied", 403
     try:
+        gameplay_video_path = None
         setup_video_path = None
         hack_video_path = None
         
+        if 'gameplay_video_file' in request.files:
+            f = request.files['gameplay_video_file']
+            if f.filename:
+                fname = secure_filename(f.filename)
+                f.save(os.path.join(UPLOAD_FOLDER, fname))
+                gameplay_video_path = f"static/uploads/{fname}"
+
         if 'setup_video_file' in request.files:
             f = request.files['setup_video_file']
             if f.filename:
@@ -492,6 +490,7 @@ def add_product():
         
         products_col.insert_one({
             "name": request.form['name'], "pid": request.form['pid'], "features": request.form.get('features', ''),
+            "gameplay_video": gameplay_video_path,
             "setup_video": setup_video_path, "hack_video": hack_video_path, "prices": price_dict
         })
         return redirect(url_for('admin_panel'))
@@ -506,9 +505,17 @@ def edit_product(p_id):
 
     if request.method == 'POST':
         try:
+            gameplay_video_path = p.get('gameplay_video')
             setup_video_path = p.get('setup_video')
             hack_video_path = p.get('hack_video')
             
+            if 'gameplay_video_file' in request.files:
+                f = request.files['gameplay_video_file']
+                if f.filename:
+                    fname = secure_filename(f.filename)
+                    f.save(os.path.join(UPLOAD_FOLDER, fname))
+                    gameplay_video_path = f"static/uploads/{fname}"
+
             if 'setup_video_file' in request.files:
                 f = request.files['setup_video_file']
                 if f.filename:
@@ -529,12 +536,12 @@ def edit_product(p_id):
             
             products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {
                 "name": request.form['name'], "pid": request.form['pid'], "features": request.form.get('features', ''),
+                "gameplay_video": gameplay_video_path,
                 "setup_video": setup_video_path, "hack_video": hack_video_path, "prices": price_dict
             }})
             return redirect(url_for('admin_panel'))
         except Exception as e: return f"Error: {e}"
 
-    # Render Edit Form
     price_fields = ""
     for d, pr in p.get('prices', {}).items():
         price_fields += f"""
@@ -556,6 +563,10 @@ def edit_product(p_id):
                 <div class="input-group"><label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required></div>
                 <div class="input-group"><label>Hack Features</label><textarea name="features" rows="3">{p.get('features', '')}</textarea></div>
                 
+                <div class="input-group">
+                    <label>🎮 Gameplay Video (Leave empty to keep old)</label>
+                    <input type="file" name="gameplay_video_file" accept="video/*" style="padding:15px; background:#050810; border:1px solid #334155;">
+                </div>
                 <div class="input-group">
                     <label>Setup Video (Leave empty to keep old)</label>
                     <input type="file" name="setup_video_file" accept="video/*" style="padding:15px; background:#050810; border:1px solid #334155;">

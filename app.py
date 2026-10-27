@@ -20,7 +20,9 @@ ADMIN_ID  = 7778093775
 MONGO_URI = os.environ.get("MONGO_URI") 
 UPLOAD_FOLDER = "static/uploads"
 WEB_URL = "https://saksham-panel-kpsl.onrender.com" 
-SUPPORT_LINK = "https://t.me/YourSupportUsername" # Yahan apna support link daalein
+
+ADMIN_WP = "918849507563" 
+SUPPORT_LINK = "https://wa.me/918849507563" 
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
@@ -188,13 +190,11 @@ BASE_CSS = """
     .stat-title { font-size: 15px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; }
     .stat-value { font-size: 32px; font-weight: 900; }
 
-    /* Search Bar */
     .search-box { display: flex; background: #0f172a; border: 2px solid #334155; border-radius: 15px; padding: 10px; margin-bottom: 30px; transition: 0.3s; }
     .search-box:focus-within { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.3); }
     .search-box input { flex: 1; background: transparent; border: none; color: #fff; font-size: 16px; padding: 10px; outline: none; }
     .search-box button { background: #38bdf8; color: #000; border: none; padding: 10px 20px; border-radius: 10px; font-weight: 800; cursor: pointer; }
 
-    /* Premium Reseller Banner */
     .reseller-banner { background: linear-gradient(135deg, #f59e0b, #d97706, #fbbf24); background-size: 200% 200%; animation: gradientShift 3s ease infinite; border-radius: 20px; padding: 25px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(245, 158, 11, 0.4); border: 2px solid #fbbf24; position: relative; overflow: hidden; }
     @keyframes gradientShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
     .reseller-text { color: #000; position: relative; z-index: 1; }
@@ -255,6 +255,8 @@ BASE_CSS = """
 
     #toast { visibility: hidden; min-width: 250px; background-color: #10b981; color: #fff; text-align: center; border-radius: 12px; padding: 16px; position: fixed; z-index: 10000; left: 50%; bottom: 30px; transform: translateX(-50%); font-size: 16px; font-weight: bold; box-shadow: 0 5px 20px rgba(16,185,129,0.5); opacity: 0; transition: opacity 0.3s, bottom 0.3s; }
     #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
+    
+    .success-alert { background: rgba(16, 185, 129, 0.2); border: 2px solid #10b981; color: #10b981; padding: 20px; border-radius: 15px; margin-bottom: 25px; text-align: center; font-weight: 800; font-size: 18px; box-shadow: 0 0 20px rgba(16,185,129,0.2); }
 </style>
 <div id="toast">✅ Key Copied!</div>
 <script>
@@ -277,25 +279,19 @@ def login():
         
         if existing_user:
             stored_password = existing_user['password']
-            
-            # Check if it's a hashed password (new system)
             if stored_password.startswith(('pbkdf2:', 'scrypt:', 'argon2:')):
                 if check_password_hash(stored_password, pw):
                     session['uid'] = existing_user['uid']
                     session['username'] = user
                     return redirect(url_for('web_home'))
-            # Check if it's a legacy plain-text password (old system)
             else:
                 if stored_password == pw:
-                    # Password matched, upgrade it to a hash for security
                     new_hashed = generate_password_hash(pw)
                     web_users_col.update_one({"_id": existing_user["_id"]}, {"$set": {"password": new_hashed}})
-                    
                     session['uid'] = existing_user['uid']
                     session['username'] = user
                     return redirect(url_for('web_home'))
             
-        # If no match or wrong password
         return render_template_string(BASE_CSS + """
         <div class="container" style="margin-top: 50px;">
             <div class="product-card text-center">
@@ -337,7 +333,6 @@ def register():
         
         uid = "web_" + str(uuid.uuid4())[:8]
         get_user_info(uid) 
-        # Password hashed for security
         web_users_col.insert_one({"uid": uid, "username": user, "password": generate_password_hash(pw)})
         session['uid'] = uid
         session['username'] = user
@@ -411,7 +406,6 @@ def web_home():
         <div style="display:flex; gap:10px;">
             <a href="/" class="store-btn">📦 Store</a>
             <a href="/history" class="store-btn" style="background:#8b5cf6;">📜 History</a>
-            <a href="{SUPPORT_LINK}" target="_blank" class="store-btn" style="background:#f59e0b; color:black;">🛟 Support</a>
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
             <div class="wallet-box">₹{bal:.2f}</div>
@@ -442,6 +436,7 @@ def web_home():
     <a href="{SUPPORT_LINK}" target="_blank" class="floating-support">🎧</a>
     """)
 
+# ================== RESELLER & PRODUCT ROUTES ==================
 @app.route('/buy_reseller', methods=['GET', 'POST'])
 def buy_reseller():
     if 'uid' not in session: return redirect(url_for('login'))
@@ -474,7 +469,6 @@ def buy_reseller():
                             <h3 style="color:#fbbf24; margin-top:15px; font-weight:800; font-size:20px;">Waiting for Payment...</h3>
                             
                             <button onclick="checkResellerPayment()" class="action-btn btn-warning" style="margin-top:20px; padding:15px; font-size:16px; border-radius:10px; background:#fbbf24; color:#000;">🔄 Check Status Manually</button>
-                            <p style="color:#ef4444; font-size:14px; margin-top:10px; font-weight:bold;" id="error-msg"></p>
                         </div>
                     </div>
 
@@ -482,14 +476,10 @@ def buy_reseller():
                         <div style="font-size:70px; margin-bottom:20px;">✅</div>
                         <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">VIP ACTIVATED!</h2>
                         <p style="color:#fff; font-size:18px; margin-top:15px;">You are now a Reseller. You will get 40% OFF.</p>
-                        <p style="color:#94a3b8; font-size:14px; margin-top:15px;">Redirecting to store...</p>
                     </div>
                 </div>
             </div>
             <script>
-                let checkCount = 0;
-                const maxChecks = 40; 
-                
                 function checkResellerPayment() {{
                     fetch('/check_reseller_payment/{order.order_id}')
                     .then(response => response.json())
@@ -499,12 +489,10 @@ def buy_reseller():
                             document.getElementById('success-section').style.display = 'block';
                             setTimeout(() => {{ window.location.href = '/'; }}, 3000);
                         }} else if (data.status === 'expired') {{
-                            document.getElementById('loading-section').innerHTML = '<h3 style="color:#ef4444;">QR Expired! Please try again.</h3>';
-                            clearInterval(pollInterval);
+                            alert('QR Expired! Please try again.');
+                            window.location.reload();
                         }}
                     }});
-                    checkCount++;
-                    if(checkCount >= maxChecks) {{ clearInterval(pollInterval); }}
                 }}
                 const pollInterval = setInterval(checkResellerPayment, 3000);
             </script>
@@ -857,6 +845,13 @@ def admin_panel():
         </div>
         """
 
+    # Success Message handling
+    success_msg = ""
+    if request.args.get('success') == 'product_added':
+        success_msg = '<div class="success-alert">✅ New Product Added Successfully!</div>'
+    elif request.args.get('success') == 'product_edited':
+        success_msg = '<div class="success-alert">✅ Product Updated Successfully!</div>'
+
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
         <div style="font-weight:900; font-size:24px; color:#38bdf8;">⚙️ Controller</div>
@@ -867,6 +862,8 @@ def admin_panel():
         </div>
     </div>
     <div class="container fade-in" style="margin-top:20px;">
+        
+        {success_msg}
         
         <div class="stats-grid" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
             <div class="stat-card"><div class="stat-title">👥 Users</div><div class="stat-value text-blue" style="font-size:24px;">{total_users}</div></div>
@@ -1026,16 +1023,17 @@ def admin_users():
 def admin_user_detail(uid):
     msg = ""
     if request.method == 'POST':
-        amt = float(request.form.get('amount', 0))
-        disc = int(request.form.get('discount', 0))
-        
-        users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amt}, "$set": {"discount": disc}})
-        msg = f"""
-        <div style="background:rgba(16,185,129,0.2); border:2px solid #10b981; border-radius:15px; padding:20px; margin-bottom:20px; text-align:center;">
-            <h3 style="color:#10b981; font-weight:900;">✅ User Updated Successfully!</h3>
-            <p style="color:#fff;">Balance Changed by: ₹{amt} | Discount Set: {disc}%</p>
-        </div>
-        """
+        try:
+            amt = float(request.form.get('amount', 0))
+            disc = int(request.form.get('discount', 0))
+            
+            users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amt}, "$set": {"discount": disc}})
+            return redirect(url_for('admin_user_detail', uid=uid) + "?success=1")
+        except Exception as e:
+            msg = f'<div class="alert-danger" style="color:red; margin-bottom:20px;">Error: {e}</div>'
+
+    if request.args.get('success') == '1':
+        msg = '<div class="success-alert">✅ User Details Updated Successfully!</div>'
 
     u = get_user_info(uid)
     web_username = web_users_col.find_one({"uid": uid})
@@ -1083,4 +1081,146 @@ def admin_user_detail(uid):
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
                     <h2 style="font-size:26px; font-weight:900; color:#fff;">{display_name}</h2>
-    
+                    <p style="font-size:14px; color:#94a3b8; margin-top:5px;">ID: <code>{uid}</code></p>
+                </div>
+                <div style="text-align:right;">
+                    <h2 style="color:#10b981; font-size:30px; font-weight:900;">₹{u.get('balance', 0):.2f}</h2>
+                    <p style="font-size:13px; color:#f59e0b; font-weight:bold;">Reseller: {u.get('discount', 0)}% OFF</p>
+                </div>
+            </div>
+            
+            <form action="/admin_user_detail/{uid}" method="POST" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:20px; padding-top:20px; border-top:1px solid #334155;">
+                <input type="number" name="amount" placeholder="+/- Balance (e.g. 100 or -50)" style="flex:1; min-width:150px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
+                <input type="number" name="discount" value="{u.get('discount', 0)}" placeholder="Disc%" style="width:120px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
+                <button type="submit" class="action-btn btn-success" style="padding:15px 25px; font-size:16px; width:auto;">Update User</button>
+            </form>
+        </div>
+
+        <h3 style="color:#38bdf8; font-size:22px; margin-bottom:15px;">📜 Transaction History ({len(orders)})</h3>
+        {history_html if history_html else '<p style="color:#94a3b8; text-align:center;">No transactions for this user yet.</p>'}
+        
+    </div>
+    """)
+
+@app.route('/add_product', methods=['POST'])
+def add_product():
+    try:
+        img_path = None
+        if 'image_file' in request.files:
+            f = request.files['image_file']
+            if f.filename:
+                fname = secure_filename(f.filename)
+                f.save(os.path.join(UPLOAD_FOLDER, fname))
+                img_path = f"static/uploads/{fname}"
+        
+        durs = request.form.getlist('duration[]')
+        prices = request.form.getlist('price[]')
+        price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
+        
+        products_col.insert_one({
+            "name": request.form['name'], "pid": request.form['pid'], 
+            "features": request.form.get('features', ''),
+            "image": img_path,
+            "setup_video": request.form.get('setup_video', '#'), 
+            "hack_video": request.form.get('hack_video', '#'), 
+            "prices": price_dict, "status": "active"
+        })
+        return redirect(url_for('admin_panel') + "?success=product_added")
+    except Exception as e: 
+        return f"<h3 style='color:red; text-align:center;'>Error: {e}</h3>"
+
+@app.route('/edit_product/<p_id>', methods=['GET', 'POST'])
+def edit_product(p_id):
+    p = products_col.find_one({"_id": ObjectId(p_id)})
+    if not p: return "Product not found"
+
+    if request.method == 'POST':
+        try:
+            img_path = p.get('image')
+            if 'image_file' in request.files:
+                f = request.files['image_file']
+                if f.filename:
+                    fname = secure_filename(f.filename)
+                    f.save(os.path.join(UPLOAD_FOLDER, fname))
+                    img_path = f"static/uploads/{fname}"
+            
+            durs = request.form.getlist('duration[]')
+            prices = request.form.getlist('price[]')
+            price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
+            
+            products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {
+                "name": request.form['name'], "pid": request.form['pid'], 
+                "features": request.form.get('features', ''),
+                "image": img_path,
+                "setup_video": request.form.get('setup_video', '#'), 
+                "hack_video": request.form.get('hack_video', '#'), 
+                "prices": price_dict
+            }})
+            return redirect(url_for('admin_panel') + "?success=product_edited")
+        except Exception as e: 
+            return f"<h3 style='color:red; text-align:center;'>Error: {e}</h3>"
+
+    price_fields = ""
+    for d, pr in p.get('prices', {}).items():
+        price_fields += f"""
+        <div style="display:flex; gap:10px; margin-bottom:10px;">
+            <input type="text" name="duration[]" value="{d}" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
+            <input type="number" name="price[]" value="{pr}" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
+        </div>
+        """
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <a href="/admin" class="store-btn">🔙 Back</a>
+    </div>
+    <div class="container fade-in" style="margin-top:20px;">
+        <div class="product-card" style="border-color:#f59e0b;">
+            <h3 style="margin-bottom:20px; color:#f59e0b; font-size:26px;">✏️ Edit Product</h3>
+            <form method="POST" enctype="multipart/form-data">
+                <div class="input-group"><label>Product Name</label><input type="text" name="name" value="{p.get('name', '')}" required></div>
+                <div class="input-group"><label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required></div>
+                
+                <div class="input-group"><label>Banner Image (Leave empty to keep old)</label><input type="file" name="image_file" accept="image/*" style="padding:15px; background:#050810; border:2px solid #334155; border-radius:12px;"></div>
+                
+                <div class="input-group"><label>Features</label><textarea name="features" rows="4">{p.get('features', '')}</textarea></div>
+                <div class="input-group"><label>Update Link</label><input type="url" name="setup_video" value="{p.get('setup_video', '#')}"></div>
+                <div class="input-group"><label>Video/Feedback Link</label><input type="url" name="hack_video" value="{p.get('hack_video', '#')}"></div>
+
+                <label style="font-weight:900; color:#38bdf8; margin:15px 0 10px 0; display:block;">Durations & Prices</label>
+                <div id="price-container">
+                    {price_fields}
+                </div>
+                <button type="button" onclick="addPrice()" class="action-btn btn-success" style="margin-bottom:20px; background:#f59e0b; color:#000;">+ Add More</button>
+                <button type="submit" class="action-btn btn-warning">Update Product</button>
+            </form>
+        </div>
+    </div>
+    <script>
+        function addPrice() {{
+            const c = document.getElementById('price-container');
+            const d = document.createElement('div');
+            d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">`;
+            c.appendChild(d);
+        }}
+    </script>
+    """)
+
+@app.route('/delete_product/<p_id>', methods=['POST'])
+def delete_product(p_id):
+    products_col.delete_one({"_id": ObjectId(p_id)})
+    return redirect(url_for('admin_panel'))
+
+# ================== RUNNING ==================
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
+
+def run_bot():
+    try: bot.delete_webhook(drop_pending_updates=True) 
+    except: pass
+    bot.infinity_polling(timeout=30, long_polling_timeout=30, skip_pending=True)
+
+if __name__ == "__main__":
+    threading.Thread(target=run_bot, daemon=True).start()
+    run_flask()

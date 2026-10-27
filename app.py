@@ -231,7 +231,7 @@ BASE_CSS = """
     /* UPDATED: SQUARE BANNER CONTAINER */
     .gameplay-banner-container { 
         width: 100%; 
-        aspect-ratio: 1 / 1; /* Makes it perfectly square */
+        aspect-ratio: 1 / 1; 
         border-radius: 15px; 
         overflow: hidden; 
         border: 2px solid #00f0ff; 
@@ -243,7 +243,7 @@ BASE_CSS = """
     .gameplay-banner { 
         width: 100%; 
         height: 100%; 
-        object-fit: contain; /* Shows the FULL image without cropping */
+        object-fit: contain; 
         object-position: center; 
         transition: transform 0.5s ease; 
     }
@@ -526,30 +526,45 @@ def buy_web():
             """)
     return redirect(url_for('web_home'))
 
+# ================== USER HISTORY ==================
 @app.route('/history')
 def web_history():
     if 'uid' not in session: return redirect(url_for('login'))
     uid = session['uid']
-    orders = list(orders_col.find({"uid": str(uid), "type": "purchase"}).sort("_id", -1))
+    orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
     
     history_html = ""
     for o in orders:
-        history_html += f"""
-        <div class="product-card" style="margin-bottom:20px; transition: 0.3s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
-            <div style="display:flex; justify-content:space-between; font-size:15px; color:#94a3b8; margin-bottom:15px;">
-                <span>{o.get('time', '')}</span>
-                <span style="color:#ef4444; font-weight:900; font-size:18px;">-₹{o.get('price', 0)}</span>
+        o_type = o.get("type")
+        
+        if o_type == "purchase":
+            history_html += f"""
+            <div class="product-card" style="margin-bottom:20px; border-left: 5px solid #ef4444;">
+                <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
+                    <span>{o.get('time', '')}</span>
+                    <span style="color:#ef4444; font-weight:900; font-size:18px;">-₹{o.get('price', 0)}</span>
+                </div>
+                <div style="font-weight:900; font-size:20px; color:#38bdf8; margin-bottom:15px;">📦 {o.get('product', 'Unknown')}</div>
+                <button onclick="copyKey('{o.get('key', '')}')" class="action-btn btn-primary" style="padding:12px; font-size:14px;">📋 Copy Key</button>
             </div>
-            <div style="font-weight:900; font-size:22px; color:#38bdf8; margin-bottom:15px;">📦 {o.get('product', 'Unknown')}</div>
-            <button onclick="copyKey('{o.get('key', '')}')" class="action-btn btn-primary" style="padding:15px; font-size:16px;">📋 Copy Key</button>
-        </div>
-        """
+            """
+        elif o_type == "deposit":
+            history_html += f"""
+            <div class="product-card" style="margin-bottom:20px; border-left: 5px solid #10b981;">
+                <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
+                    <span>{o.get('time', '')}</span>
+                    <span style="color:#10b981; font-weight:900; font-size:18px;">+₹{o.get('amount', 0)}</span>
+                </div>
+                <div style="font-weight:900; font-size:18px; color:#e2e8f0;">💰 Wallet Top-Up</div>
+                <div style="font-size:12px; color:#64748b; margin-top:5px;">UTR: {o.get('utr', 'N/A')}</div>
+            </div>
+            """
     
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
     <div class="container fade-in" style="margin-top:20px;">
-        <h2 style="text-align:center; color:#8b5cf6; font-weight:900; margin-bottom:30px; font-size:32px; text-shadow: 0 0 15px rgba(139, 92, 246, 0.5);">📜 My History</h2>
-        {history_html if history_html else '<p style="text-align:center; color:#94a3b8; font-size:20px;">No purchases yet.</p>'}
+        <h2 style="text-align:center; color:#8b5cf6; font-weight:900; margin-bottom:30px; font-size:32px; text-shadow: 0 0 15px rgba(139, 92, 246, 0.5);">📜 My Transaction History</h2>
+        {history_html if history_html else '<p style="text-align:center; color:#94a3b8; font-size:20px;">No transactions yet.</p>'}
     </div>
     """)
 
@@ -685,6 +700,7 @@ def admin_panel():
     <div class="top-nav">
         <div style="font-weight:900; font-size:24px; color:#38bdf8;">⚙️ Controller</div>
         <div style="display:flex; gap:10px;">
+            <a href="/admin_history" class="store-btn" style="background:#8b5cf6; color:#fff;">📜 All History</a>
             <a href="/admin_users" class="store-btn" style="background:#f59e0b; color:#000;">👥 Users</a>
             <a href="/" class="store-btn" style="background:#ef4444;">Exit</a>
         </div>
@@ -731,23 +747,53 @@ def admin_panel():
     </script>
     """)
 
-# ================== ADMIN USERS ROUTE ==================
-@app.route('/admin_users', methods=['GET', 'POST'])
+# ================== ADMIN ALL HISTORY ==================
+@app.route('/admin_history')
+def admin_history():
+    orders = list(orders_col.find({}).sort("_id", -1))
+    history_html = ""
+    for o in orders:
+        web_u = web_users_col.find_one({"uid": o['uid']})
+        uname = f"@{web_u['username']}" if web_u else o['uid']
+        
+        if o.get('type') == 'purchase':
+            history_html += f"""
+            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid #ef4444; padding:20px;">
+                <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
+                    <span>👤 {uname}</span>
+                    <span>{o.get('time', '')}</span>
+                </div>
+                <div style="font-weight:900; font-size:18px; color:#fff; margin-bottom:5px;">📦 {o.get('product', 'Unknown')}</div>
+                <div style="color:#38bdf8; font-weight:900; font-size:16px;">🔑 {o.get('key', 'N/A')}</div>
+                <div style="color:#ef4444; font-weight:900; margin-top:5px;">Amount Deducted: ₹{o.get('price', 0)}</div>
+            </div>
+            """
+        elif o.get('type') == 'deposit':
+            history_html += f"""
+            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid #10b981; padding:20px;">
+                <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
+                    <span>👤 {uname}</span>
+                    <span>{o.get('time', '')}</span>
+                </div>
+                <div style="font-weight:900; font-size:18px; color:#e2e8f0; margin-bottom:5px;">💰 Added Balance</div>
+                <div style="color:#10b981; font-weight:900; font-size:18px;">+₹{o.get('amount', 0)}</div>
+                <div style="font-size:12px; color:#64748b; margin-top:5px;">UTR: {o.get('utr', 'N/A')}</div>
+            </div>
+            """
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:900; font-size:24px; color:#38bdf8;">📜 All Transactions</div>
+        <a href="/admin" class="store-btn">🔙 Back to Admin</a>
+    </div>
+    <div class="container fade-in" style="margin-top:20px;">
+        {history_html if history_html else '<h3 style="text-align:center; color:#94a3b8;">No transactions found.</h3>'}
+    </div>
+    """)
+
+# ================== ADMIN USERS LIST ==================
+@app.route('/admin_users', methods=['GET'])
 def admin_users():
-    msg = ""
-    if request.method == 'POST':
-        uid = request.form['uid']
-        amt = float(request.form.get('amount', 0))
-        disc = int(request.form.get('discount', 0))
-        
-        users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amt}, "$set": {"discount": disc}})
-        msg = f"""
-        <div style="background:rgba(16,185,129,0.2); border:2px solid #10b981; border-radius:15px; padding:20px; margin-bottom:20px; text-align:center;">
-            <h3 style="color:#10b981; font-weight:900;">✅ User ({uid}) Updated Successfully!</h3>
-            <p style="color:#fff;">Balance Changed by: ₹{amt} | Discount Set: {disc}%</p>
-        </div>
-        """
-        
     search_query = request.args.get('q', '')
     if search_query:
         users = list(users_col.find({"_id": {"$regex": search_query, "$options": "i"}}).sort("balance", -1))
@@ -761,33 +807,27 @@ def admin_users():
 
         users_html += f"""
         <div class="product-card" style="margin-bottom:15px; padding:20px; border-left: 5px solid {'#f59e0b' if u.get('discount',0) > 0 else '#38bdf8'};">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
-                    <div style="font-weight:900; color:#fff; font-size:18px;">👤 {display_name}</div>
-                    <div style="font-size:13px; color:#94a3b8; margin-top:5px;">ID: <code>{u['_id']}</code></div>
+                    <div style="font-weight:900; color:#fff; font-size:20px;">👤 {display_name}</div>
+                    <div style="font-size:14px; color:#94a3b8; margin-top:5px;">ID: <code>{u['_id']}</code></div>
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-weight:900; color:#10b981; font-size:22px;">₹{u.get('balance', 0):.2f}</div>
+                    <div style="font-weight:900; color:#10b981; font-size:24px;">₹{u.get('balance', 0):.2f}</div>
                     <div style="font-size:12px; color:#f59e0b; font-weight:bold;">Reseller: {u.get('discount', 0)}% OFF</div>
                 </div>
             </div>
-            <form action="/admin_users" method="POST" style="display:flex; gap:10px; flex-wrap:wrap;">
-                <input type="hidden" name="uid" value="{u['_id']}">
-                <input type="number" name="amount" placeholder="+/- Balance" style="flex:1; min-width:100px; padding:12px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff; font-size:14px;">
-                <input type="number" name="discount" value="{u.get('discount', 0)}" placeholder="Disc%" style="width:100px; padding:12px; border-radius:10px; background:#050810; border:1px solid #334155; color:#fff; font-size:14px;">
-                <button type="submit" class="action-btn btn-success" style="padding:12px 20px; font-size:14px; width:auto;">Update</button>
-            </form>
+            <!-- New View Details Button -->
+            <a href="/admin_user_detail/{u['_id']}" class="action-btn btn-primary" style="margin-top:15px; padding:12px; font-size:14px;">👁️ View Full Details & History</a>
         </div>
         """
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
-        <div style="font-weight:900; font-size:24px; color:#38bdf8;">👥 Users</div>
+        <div style="font-weight:900; font-size:24px; color:#38bdf8;">👥 Users List</div>
         <a href="/admin" class="store-btn">🔙 Back to Admin</a>
     </div>
     <div class="container fade-in" style="margin-top:20px;">
-        
-        {msg}
         
         <form method="GET" action="/admin_users" style="display:flex; gap:10px; margin-bottom:25px;">
             <input type="text" name="q" value="{search_query}" placeholder="Search by User ID..." style="flex:1; padding:15px; border-radius:15px; border:2px solid #334155; background:#050810; color:#fff; font-size:16px;">
@@ -800,6 +840,92 @@ def admin_users():
         </div>
 
         {users_html if users_html else '<h3 style="text-align:center; color:#94a3b8;">No users found.</h3>'}
+    </div>
+    """)
+
+# ================== ADMIN USER DETAIL & HISTORY (NEW) ==================
+@app.route('/admin_user_detail/<uid>', methods=['GET', 'POST'])
+def admin_user_detail(uid):
+    msg = ""
+    if request.method == 'POST':
+        amt = float(request.form.get('amount', 0))
+        disc = int(request.form.get('discount', 0))
+        
+        users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amt}, "$set": {"discount": disc}})
+        msg = f"""
+        <div style="background:rgba(16,185,129,0.2); border:2px solid #10b981; border-radius:15px; padding:20px; margin-bottom:20px; text-align:center;">
+            <h3 style="color:#10b981; font-weight:900;">✅ User Updated Successfully!</h3>
+            <p style="color:#fff;">Balance Changed by: ₹{amt} | Discount Set: {disc}%</p>
+        </div>
+        """
+
+    u = get_user_info(uid)
+    web_username = web_users_col.find_one({"uid": uid})
+    display_name = f"@{web_username['username']}" if web_username else u.get('name', 'User')
+    
+    # Fetch User's Transactions
+    orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
+    
+    history_html = ""
+    for o in orders:
+        o_type = o.get("type")
+        if o_type == "purchase":
+            history_html += f"""
+            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid #ef4444; padding:15px;">
+                <div style="display:flex; justify-content:space-between; font-size:13px; color:#94a3b8; margin-bottom:5px;">
+                    <span>{o.get('time', '')}</span>
+                    <span style="color:#ef4444; font-weight:900;">-₹{o.get('price', 0)}</span>
+                </div>
+                <div style="font-weight:900; font-size:16px; color:#fff;">📦 {o.get('product', 'Unknown')}</div>
+                <div style="color:#38bdf8; font-weight:900; font-size:14px; margin-top:5px;">🔑 {o.get('key', 'N/A')}</div>
+            </div>
+            """
+        elif o_type == "deposit":
+            history_html += f"""
+            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid #10b981; padding:15px;">
+                <div style="display:flex; justify-content:space-between; font-size:13px; color:#94a3b8; margin-bottom:5px;">
+                    <span>{o.get('time', '')}</span>
+                    <span style="color:#10b981; font-weight:900;">+₹{o.get('amount', 0)}</span>
+                </div>
+                <div style="font-weight:900; font-size:16px; color:#e2e8f0;">💰 Added Balance</div>
+                <div style="font-size:12px; color:#64748b; margin-top:5px;">UTR: {o.get('utr', 'N/A')}</div>
+            </div>
+            """
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:900; font-size:24px; color:#38bdf8;">👤 User Details</div>
+        <a href="/admin_users" class="store-btn">🔙 Back to Users</a>
+    </div>
+    <div class="container fade-in" style="margin-top:20px;">
+        
+        {msg}
+
+        <!-- User Info Card -->
+        <div class="product-card" style="border-color:#38bdf8; margin-bottom:30px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <h2 style="font-size:26px; font-weight:900; color:#fff;">{display_name}</h2>
+                    <p style="font-size:14px; color:#94a3b8; margin-top:5px;">ID: <code>{uid}</code></p>
+                </div>
+                <div style="text-align:right;">
+                    <h2 style="color:#10b981; font-size:30px; font-weight:900;">₹{u.get('balance', 0):.2f}</h2>
+                    <p style="font-size:13px; color:#f59e0b; font-weight:bold;">Reseller: {u.get('discount', 0)}% OFF</p>
+                </div>
+            </div>
+            
+            <!-- Update Balance Form -->
+            <form action="/admin_user_detail/{uid}" method="POST" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:20px; padding-top:20px; border-top:1px solid #334155;">
+                <input type="number" name="amount" placeholder="+/- Balance (e.g. 100 or -50)" style="flex:1; min-width:150px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
+                <input type="number" name="discount" value="{u.get('discount', 0)}" placeholder="Disc%" style="width:120px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
+                <button type="submit" class="action-btn btn-success" style="padding:15px 25px; font-size:16px; width:auto;">Update User</button>
+            </form>
+        </div>
+
+        <!-- Transaction History -->
+        <h3 style="color:#38bdf8; font-size:22px; margin-bottom:15px;">📜 Transaction History ({len(orders)})</h3>
+        {history_html if history_html else '<p style="color:#94a3b8; text-align:center;">No transactions for this user yet.</p>'}
+        
     </div>
     """)
 

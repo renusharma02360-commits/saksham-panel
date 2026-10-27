@@ -20,7 +20,8 @@ ADMIN_ID  = 7778093775
 MONGO_URI = os.environ.get("MONGO_URI") 
 UPLOAD_FOLDER = "static/uploads"
 WEB_URL = "https://saksham-panel-kpsl.onrender.com" 
-ADMIN_WP = "919306606011" # Aapka WhatsApp Number (Country code ke sath)
+SUPPORT_LINK = "https://wa.me/919306606011" # Aapka WhatsApp Support
+ADMIN_WP = "919306606011" # Jahan Paid Push ka message aayega
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
@@ -289,13 +290,16 @@ def login():
         
         if existing_user:
             stored_password = existing_user['password']
+            # Check if new encrypted password
             if stored_password.startswith(('pbkdf2:', 'scrypt:', 'argon2:')):
                 if check_password_hash(stored_password, pw):
                     session['uid'] = existing_user['uid']
                     session['username'] = user
                     return redirect(url_for('web_home'))
+            # Check if old plain-text password
             else:
                 if stored_password == pw:
+                    # Upgrade to hash automatically
                     new_hashed = generate_password_hash(pw)
                     web_users_col.update_one({"_id": existing_user["_id"]}, {"$set": {"password": new_hashed}})
                     session['uid'] = existing_user['uid']
@@ -580,7 +584,6 @@ def star_form():
         game_name = request.form['game_name']
         game_uid = request.form['game_uid']
         
-        # WhatsApp message formatting
         message = f"Hello Admin, I have paid ₹{amount} for Paid Push (Stars).\n\n🎮 Game Name: {game_name}\n🆔 Game UID: {game_uid}\n\nPlease push the stars to my ID."
         wa_link = f"https://wa.me/{ADMIN_WP}?text={urllib.parse.quote(message)}"
         

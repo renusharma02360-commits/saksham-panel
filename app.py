@@ -78,7 +78,7 @@ def start(msg):
     uid = msg.from_user.id
     get_user_info(uid)
     text = (
-        f"👋 <b>Welcome to SK PANEL, {msg.from_user.first_name}!</b>\n\n"
+        f"👋 <b>Welcome to SAKSHAM PANEL STORE, {msg.from_user.first_name}!</b>\n\n"
         f"💳 <b>Your Balance:</b> ₹{get_balance(uid):.2f}\n\n"
         f"👇 <i>Select an option from the menu below:</i>"
     )
@@ -125,7 +125,7 @@ def bot_callbacks(call):
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
         
     elif call.data == "bot_main":
-        text = f"👋 <b>Welcome to SK PANEL!</b>\n\n💳 <b>Your Balance:</b> ₹{get_balance(uid):.2f}\n\n👇 <i>Select an option:</i>"
+        text = f"👋 <b>Welcome to SAKSHAM PANEL STORE!</b>\n\n💳 <b>Your Balance:</b> ₹{get_balance(uid):.2f}\n\n👇 <i>Select an option:</i>"
         kb = InlineKeyboardMarkup(row_width=2)
         kb.add(InlineKeyboardButton("🛒 Shop Now", callback_data="bot_shop"))
         kb.add(InlineKeyboardButton("👤 My Profile", callback_data="bot_profile"), InlineKeyboardButton("💻 Web App", web_app=WebAppInfo(url=WEB_URL)))
@@ -196,14 +196,14 @@ BASE_CSS = """
     .container { padding: 20px; max-width: 1000px; margin: 0 auto; animation: slideUp 0.5s ease-out; }
     @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     
-    /* Animated Navbar */
     .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(20px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
     .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 15px 25px; border-radius: 25px; font-weight: 800; font-size: 16px; color: white; text-decoration: none; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); transition: 0.3s; }
     .store-btn:active { transform: scale(0.92); }
     .wallet-box { background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; padding: 12px 20px; border-radius: 25px; font-weight: 900; color: #10b981; font-size: 20px; box-shadow: 0 0 20px rgba(16, 185, 129, 0.2); }
     
-    .hero-banner { width: 100%; padding: 40px 20px; background: linear-gradient(145deg, #1e1b4b, #0f172a); border-radius: 25px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 30px; border: 2px solid #6366f1; box-shadow: inset 0 0 30px rgba(99, 102, 241, 0.2), 0 10px 40px rgba(0, 0, 0, 0.6); }
-    .logo-text { font-size: 50px; font-weight: 900; background: linear-gradient(to right, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 5px; text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); }
+    .hero-banner { width: 100%; padding: 40px 20px; background: linear-gradient(145deg, #1e1b4b, #0f172a); border-radius: 25px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 30px; border: 2px solid #6366f1; box-shadow: inset 0 0 30px rgba(99, 102, 241, 0.2), 0 10px 40px rgba(0, 0, 0, 0.6); position: relative; overflow: hidden; }
+    .logo-text { font-size: 38px; font-weight: 900; background: linear-gradient(to right, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 5px; text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); text-transform: uppercase; letter-spacing: 1px; }
+    .tagline { font-size: 13px; color: #38bdf8; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-top: 5px; text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
     
     .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
     .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 10px 25px rgba(0,0,0,0.3); transition: 0.3s; }
@@ -248,7 +248,7 @@ BASE_CSS = """
     .input-group input, .input-group textarea { width: 100%; padding: 20px; border-radius: 15px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 18px; outline: none; font-weight: 600; transition: 0.3s; }
     .input-group input:focus, .input-group textarea:focus { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.3); }
     
-    /* UPDATED: SQUARE BANNER CONTAINER */
+    /* SQUARE BANNER CONTAINER */
     .gameplay-banner-container { 
         width: 100%; 
         aspect-ratio: 1 / 1; 
@@ -275,10 +275,10 @@ BASE_CSS = """
     .feature-item::before { content: '✅'; font-size: 20px; filter: drop-shadow(0 0 5px #10b981); }
     
     .check-btns { display: flex; gap: 12px; margin-top: 20px; margin-bottom: 30px; }
-    .btn-cyan { flex: 1; background: transparent; border: 2px solid #00f0ff; color: #00f0ff; padding: 15px 10px; border-radius: 12px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 0 15px rgba(0,240,255,0.2); transition: 0.3s; }
-    .btn-cyan:hover { background: rgba(0,240,255,0.1); box-shadow: 0 0 25px rgba(0,240,255,0.4); transform: translateY(-2px); }
-    .btn-red { flex: 1; background: transparent; border: 2px solid #ef4444; color: #ef4444; padding: 15px 10px; border-radius: 12px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 0 15px rgba(239,68,68,0.2); transition: 0.3s; }
-    .btn-red:hover { background: rgba(239,68,68,0.1); box-shadow: 0 0 25px rgba(239,68,68,0.4); transform: translateY(-2px); }
+    .btn-cyan { flex: 1; background: linear-gradient(135deg, #0ea5e9, #2563eb); border: none; color: white; padding: 15px 10px; border-radius: 12px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 5px 15px rgba(14,165,233,0.4); transition: 0.3s; }
+    .btn-cyan:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(14,165,233,0.6); }
+    .btn-red { flex: 1; background: linear-gradient(135deg, #ef4444, #b91c1c); border: none; color: white; padding: 15px 10px; border-radius: 12px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 5px 15px rgba(239,68,68,0.4); transition: 0.3s; }
+    .btn-red:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(239,68,68,0.6); }
     
     .purchase-header { background: linear-gradient(90deg, #8b5cf6, #6366f1); color: white; padding: 15px; border-radius: 12px; text-align: center; font-weight: 900; font-size: 20px; text-transform: uppercase; margin-bottom: 20px; letter-spacing: 1px; box-shadow: 0 5px 20px rgba(139, 92, 246, 0.4); }
     
@@ -296,7 +296,7 @@ BASE_CSS = """
 </style>
 <script>
     function speakTutorial() {
-        let msg = new SpeechSynthesisUtterance("Welcome to S K Panel. First, add balance. Then select your product. Click on the Buy button. Your key will be generated instantly!");
+        let msg = new SpeechSynthesisUtterance("Welcome to Saksham Panel Store. First, add balance. Then select your product. Click on the Buy button. Your key will be generated instantly!");
         msg.rate = 0.9; msg.pitch = 1;
         window.speechSynthesis.speak(msg);
     }
@@ -331,7 +331,10 @@ def login():
     if 'uid' in session: return redirect(url_for('web_home'))
     return render_template_string(BASE_CSS + """
     <div class="container fade-in" style="margin-top: 50px;">
-        <div class="hero-banner"><div class="logo-text">SK PANEL</div></div>
+        <div class="hero-banner">
+            <div class="logo-text">SAKSHAM PANEL</div>
+            <div class="tagline">100% Trusted • Instant Delivery</div>
+        </div>
         <div class="product-card">
             <h2 style="font-size: 28px; margin-bottom: 25px; text-align: center; color: #38bdf8; font-weight: 900;">User Login</h2>
             <form method="POST" action="/login">
@@ -364,7 +367,10 @@ def register():
         
     return render_template_string(BASE_CSS + """
     <div class="container fade-in" style="margin-top: 50px;">
-        <div class="hero-banner"><div class="logo-text">SK PANEL</div></div>
+        <div class="hero-banner">
+            <div class="logo-text">SAKSHAM PANEL</div>
+            <div class="tagline">100% Trusted • Instant Delivery</div>
+        </div>
         <div class="product-card">
             <h2 style="font-size: 28px; margin-bottom: 25px; text-align: center; color: #38bdf8; font-weight: 900;">Register</h2>
             <form method="POST" action="/register">
@@ -430,7 +436,10 @@ def web_home():
         </div>
     </div>
     <div class="container">
-        <div class="hero-banner"><div class="logo-text">SK PANEL</div></div>
+        <div class="hero-banner">
+            <div class="logo-text">SAKSHAM PANEL STORE</div>
+            <div class="tagline">100% Trusted • Instant Delivery • 24/7 Support</div>
+        </div>
         
         {reseller_html}
 
@@ -443,7 +452,7 @@ def web_home():
     </div>
     """)
 
-# ================== BUY RESELLER ROUTE ==================
+# ================== BUY RESELLER (DIRECT UPI) ==================
 @app.route('/buy_reseller', methods=['GET', 'POST'])
 def buy_reseller():
     if 'uid' not in session: return redirect(url_for('login'))
@@ -456,31 +465,75 @@ def buy_reseller():
         return "You are already a reseller!"
 
     if request.method == 'POST':
-        if deduct_balance(uid, reseller_price):
-            users_col.update_one({"_id": str(uid)}, {"$set": {"discount": reseller_discount}})
-            orders_col.insert_one({"uid": str(uid), "product": "Reseller VIP Package", "key": "VIP-ACTIVATED", "price": reseller_price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
-            return render_template_string(BASE_CSS + """
-            <div class="container fade-in" style="margin-top:100px;">
-                <div class="product-card" style="text-align:center; border-color:#fbbf24;">
-                    <h2 style="color:#fbbf24; font-size:40px;">👑 VIP ACTIVATED!</h2>
-                    <p style="color:#fff; font-size:20px; margin:20px 0;">You are now a Reseller. You will get 40% OFF on all products.</p>
-                    <a href="/" class="action-btn btn-warning" style="margin-top:20px;">Go to Store</a>
+        # Generate QR Code via Gateway for Reseller Payment
+        try:
+            order = fg.create_order(amount=reseller_price, customer_name=f"Reseller_{session['uid']}")
+            
+            QR_HTML = BASE_CSS + f"""
+            <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
+            <div class="container fade-in" style="margin-top:30px; text-align:center;">
+                <div class="product-card" style="padding: 40px 20px; border-color:#fbbf24; box-shadow: 0 0 30px rgba(251,191,36,0.2);">
+                    <h1 style="font-size:60px; margin-bottom:10px;">👑</h1>
+                    <h2 style="color:#fbbf24; font-size:32px; font-weight:900; margin-bottom:10px;">Buy Reseller VIP</h2>
+                    <p style="color:#fff; font-size:18px; margin-bottom:25px;">Pay ₹150 to unlock 40% OFF</p>
+                    
+                    <div id="qr-section">
+                        <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(251, 191, 36, 0.6);">
+                            <img src="{order.qr_url}" style="width:100%; max-width:250px; display:block; border-radius:10px;">
+                        </div>
+                        
+                        <div id="loading-section" style="margin-top:30px;">
+                            <div style="display:inline-block; width:45px; height:45px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #fbbf24; border-radius:50%; animation: spin 1s linear infinite;"></div>
+                            <h3 style="color:#fbbf24; margin-top:15px; font-weight:800; font-size:20px;">Waiting for Payment...</h3>
+                            <p style="color:#94a3b8; font-size:14px;">Auto-verifying. Do not close this page.</p>
+                            
+                            <button onclick="checkResellerPayment()" class="action-btn btn-warning" style="margin-top:20px; padding:15px; font-size:16px; border-radius:10px; background:#fbbf24; color:#000;">🔄 Check Status Manually</button>
+                            <p style="color:#ef4444; font-size:14px; margin-top:10px; font-weight:bold;" id="error-msg"></p>
+                        </div>
+                    </div>
+
+                    <div id="success-section" style="display:none; margin-top:30px;">
+                        <div style="font-size:70px; margin-bottom:20px;">✅</div>
+                        <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">VIP ACTIVATED!</h2>
+                        <p style="color:#fff; font-size:18px; margin-top:15px;">You are now a Reseller. You will get 40% OFF.</p>
+                        <p style="color:#94a3b8; font-size:14px; margin-top:15px;">Redirecting to store...</p>
+                    </div>
                 </div>
             </div>
-            """)
-        else:
-            return render_template_string(BASE_CSS + f"""
-            <div class="container fade-in" style="margin-top:50px;">
-                <div class="product-card" style="text-align:center; border-color:#ef4444;">
-                    <h2 style="color:#ef4444; font-size:32px;">❌ Low Balance</h2>
-                    <p style="color:#cbd5e1; margin-top:15px; font-size:20px;">You need ₹{reseller_price} to buy Reseller VIP.</p>
-                    <p style="color:#38bdf8; margin-top:5px; font-size:18px;">Your Balance: ₹{u.get('balance', 0):.2f}</p>
-                    <br>
-                    <a href="/deposit" class="action-btn btn-success">Add Balance Now</a>
-                    <a href="/" class="action-btn btn-primary" style="margin-top:15px;">Back to Store</a>
-                </div>
-            </div>
-            """)
+            <script>
+                let checkCount = 0;
+                const maxChecks = 40; 
+                
+                function checkResellerPayment() {{
+                    fetch('/check_reseller_payment/{order.order_id}')
+                    .then(response => response.json())
+                    .then(data => {{
+                        if (data.status === 'success') {{
+                            document.getElementById('qr-section').style.display = 'none';
+                            document.getElementById('success-section').style.display = 'block';
+                            setTimeout(() => {{ window.location.href = '/'; }}, 3000);
+                        }} else if (data.status === 'expired') {{
+                            document.getElementById('loading-section').innerHTML = '<h3 style="color:#ef4444;">QR Expired! Please try again.</h3>';
+                            clearInterval(pollInterval);
+                        }} else if (data.status === 'error') {{
+                            document.getElementById('error-msg').innerText = 'API Error: ' + data.message;
+                        }}
+                    }}).catch(err => {{
+                        document.getElementById('error-msg').innerText = 'Network Error. Please check manually.';
+                    }});
+                    
+                    checkCount++;
+                    if(checkCount >= maxChecks) {{ 
+                        clearInterval(pollInterval); 
+                        document.getElementById('loading-section').innerHTML = '<h3 style="color:#ef4444;">Time Out! Please click Check Status Manually.</h3>';
+                    }}
+                }}
+                const pollInterval = setInterval(checkResellerPayment, 3000);
+            </script>
+            """
+            return render_template_string(QR_HTML)
+        except Exception as e: 
+            return f"<h2 style='color:red; text-align:center; margin-top:50px;'>API Error: {e}</h2>"
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a><div class="wallet-box">₹{u.get('balance', 0):.2f}</div></div>
@@ -495,12 +548,41 @@ def buy_reseller():
             </div>
 
             <form method="POST">
-                <button type="submit" class="action-btn btn-warning" style="background:linear-gradient(135deg, #f59e0b, #fbbf24); color:#000; font-size:20px;">Pay ₹150 from Wallet</button>
+                <button type="submit" class="action-btn btn-warning" style="background:linear-gradient(135deg, #f59e0b, #fbbf24); color:#000; font-size:20px;">Generate QR to Pay ₹150</button>
             </form>
-            <p style="margin-top:15px; font-size:14px; color:#64748b;">Your Balance: ₹{u.get('balance', 0):.2f}</p>
         </div>
     </div>
     """)
+
+# ================== CHECK RESELLER PAYMENT (NEW) ==================
+@app.route('/check_reseller_payment/<order_id>')
+def check_reseller_payment(order_id):
+    if 'uid' not in session: return jsonify({"status": "unauthorized"})
+    
+    try:
+        status = fg.get_status(order_id)
+        if status.is_paid:
+            uid = session['uid']
+            # Make user a reseller
+            users_col.update_one({"_id": str(uid)}, {"$set": {"discount": 40}})
+            
+            # Log the order but DO NOT add to wallet balance
+            utr = status.utr if hasattr(status, 'utr') else "RESELLER_PAYMENT"
+            if not orders_col.find_one({"utr": utr, "type": "purchase"}):
+                orders_col.insert_one({
+                    "utr": utr, "uid": str(uid), "product": "Reseller VIP Package", 
+                    "key": "VIP-ACTIVATED", "price": 150, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")
+                })
+            
+            return jsonify({"status": "success"})
+        elif status.is_expired:
+            return jsonify({"status": "expired"})
+        else:
+            return jsonify({"status": "pending"})
+    except Exception as e:
+        print(f"Gateway Error: {e}") 
+        return jsonify({"status": "error", "message": str(e)})
+
 
 @app.route('/product/<p_id>')
 def web_product(p_id):
@@ -636,13 +718,14 @@ def web_history():
         o_type = o.get("type")
         
         if o_type == "purchase":
+            color = "#fbbf24" if "Reseller" in o.get('product', '') else "#ef4444"
             history_html += f"""
-            <div class="product-card" style="margin-bottom:20px; border-left: 5px solid #ef4444;">
+            <div class="product-card" style="margin-bottom:20px; border-left: 5px solid {color};">
                 <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
                     <span>{o.get('time', '')}</span>
-                    <span style="color:#ef4444; font-weight:900; font-size:18px;">-₹{o.get('price', 0)}</span>
+                    <span style="color:{color}; font-weight:900; font-size:18px;">-₹{o.get('price', 0)}</span>
                 </div>
-                <div style="font-weight:900; font-size:20px; color:#38bdf8; margin-bottom:15px;">📦 {o.get('product', 'Unknown')}</div>
+                <div style="font-weight:900; font-size:20px; color:#fff; margin-bottom:15px;">📦 {o.get('product', 'Unknown')}</div>
                 <button onclick="copyKey('{o.get('key', '')}')" class="action-btn btn-primary" style="padding:12px; font-size:14px;">📋 Copy Key</button>
             </div>
             """
@@ -708,7 +791,7 @@ def web_deposit():
             </div>
             <script>
                 let checkCount = 0;
-                const maxChecks = 40; // 40 * 3s = 2 mins
+                const maxChecks = 40; 
                 
                 function checkPaymentStatus() {{
                     fetch('/check_payment/{order.order_id}/{amount}')
@@ -855,15 +938,16 @@ def admin_history():
         uname = f"@{web_u['username']}" if web_u else o['uid']
         
         if o.get('type') == 'purchase':
+            color = "#fbbf24" if "Reseller" in o.get('product', '') else "#ef4444"
             history_html += f"""
-            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid #ef4444; padding:20px;">
+            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid {color}; padding:20px;">
                 <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
                     <span>👤 {uname}</span>
                     <span>{o.get('time', '')}</span>
                 </div>
                 <div style="font-weight:900; font-size:18px; color:#fff; margin-bottom:5px;">📦 {o.get('product', 'Unknown')}</div>
                 <div style="color:#38bdf8; font-weight:900; font-size:16px;">🔑 {o.get('key', 'N/A')}</div>
-                <div style="color:#ef4444; font-weight:900; margin-top:5px;">Amount Deducted: ₹{o.get('price', 0)}</div>
+                <div style="color:{color}; font-weight:900; margin-top:5px;">Amount Deducted: ₹{o.get('price', 0)}</div>
             </div>
             """
         elif o.get('type') == 'deposit':
@@ -966,11 +1050,12 @@ def admin_user_detail(uid):
     for o in orders:
         o_type = o.get("type")
         if o_type == "purchase":
+            color = "#fbbf24" if "Reseller" in o.get('product', '') else "#ef4444"
             history_html += f"""
-            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid #ef4444; padding:15px;">
+            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid {color}; padding:15px;">
                 <div style="display:flex; justify-content:space-between; font-size:13px; color:#94a3b8; margin-bottom:5px;">
                     <span>{o.get('time', '')}</span>
-                    <span style="color:#ef4444; font-weight:900;">-₹{o.get('price', 0)}</span>
+                    <span style="color:{color}; font-weight:900;">-₹{o.get('price', 0)}</span>
                 </div>
                 <div style="font-weight:900; font-size:16px; color:#fff;">📦 {o.get('product', 'Unknown')}</div>
                 <div style="color:#38bdf8; font-weight:900; font-size:14px; margin-top:5px;">🔑 {o.get('key', 'N/A')}</div>

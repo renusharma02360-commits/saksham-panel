@@ -196,6 +196,7 @@ BASE_CSS = """
     .container { padding: 20px; max-width: 1000px; margin: 0 auto; animation: slideUp 0.5s ease-out; }
     @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     
+    /* Animated Navbar */
     .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(20px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
     .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 15px 25px; border-radius: 25px; font-weight: 800; font-size: 16px; color: white; text-decoration: none; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); transition: 0.3s; }
     .store-btn:active { transform: scale(0.92); }
@@ -209,6 +210,25 @@ BASE_CSS = """
     .stat-card:hover { transform: translateY(-5px); border-color: #38bdf8; box-shadow: 0 10px 30px rgba(56,189,248,0.2); }
     .stat-title { font-size: 15px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; }
     .stat-value { font-size: 32px; font-weight: 900; }
+
+    /* Premium Reseller Banner */
+    .reseller-banner { 
+        background: linear-gradient(135deg, #f59e0b, #d97706, #fbbf24); 
+        background-size: 200% 200%; 
+        animation: gradientShift 3s ease infinite;
+        border-radius: 20px; padding: 25px; margin-bottom: 30px; 
+        display: flex; justify-content: space-between; align-items: center; 
+        box-shadow: 0 10px 30px rgba(245, 158, 11, 0.4); 
+        border: 2px solid #fbbf24; position: relative; overflow: hidden;
+    }
+    @keyframes gradientShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+    .reseller-banner::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 60%); animation: rotateGlow 5s linear infinite; }
+    @keyframes rotateGlow { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .reseller-text { color: #000; position: relative; z-index: 1; }
+    .reseller-text h2 { font-size: 22px; font-weight: 900; margin-bottom: 5px; }
+    .reseller-text p { font-size: 14px; font-weight: 700; }
+    .reseller-btn { background: #000; color: #fbbf24; padding: 12px 25px; border-radius: 15px; font-weight: 900; font-size: 16px; text-decoration: none; position: relative; z-index: 1; box-shadow: 0 5px 15px rgba(0,0,0,0.5); transition: 0.3s; border: 2px solid #fbbf24; }
+    .reseller-btn:hover { background: #fbbf24; color: #000; transform: scale(1.05); }
 
     .product-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
     .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 25px; padding: 30px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5); transition: 0.3s; }
@@ -372,6 +392,7 @@ def web_home():
     uid = session['uid']
     u = get_user_info(uid)
     bal = u.get('balance', 0.0)
+    disc = u.get('discount', 0)
     
     products = list(products_col.find({}))
     prod_html = ""
@@ -380,6 +401,19 @@ def web_home():
         <div class="product-card fade-in" style="display: flex; justify-content: space-between; align-items: center;">
             <div class="product-title" style="margin-bottom: 0; font-size: 22px;">📦 {p.get('name', 'Unknown')}</div>
             <a href="/product/{str(p['_id'])}" class="action-btn btn-primary" style="width: auto; padding: 15px 30px; font-size: 16px;">View</a>
+        </div>
+        """
+
+    # Show Reseller Banner if user is not a reseller
+    reseller_html = ""
+    if disc == 0:
+        reseller_html = f"""
+        <div class="reseller-banner fade-in">
+            <div class="reseller-text">
+                <h2>👑 Upgrade to Reseller</h2>
+                <p>Get Flat 40% OFF on all products!</p>
+            </div>
+            <a href="/buy_reseller" class="reseller-btn">Buy Now @ ₹150</a>
         </div>
         """
 
@@ -397,12 +431,74 @@ def web_home():
     </div>
     <div class="container">
         <div class="hero-banner"><div class="logo-text">SK PANEL</div></div>
+        
+        {reseller_html}
+
         <div class="stats-grid">
             <div class="stat-card"><div class="stat-title">💳 Wallet Balance</div><div class="stat-value text-green">₹{bal:.2f}</div></div>
             <div class="stat-card"><div class="stat-title">🔑 Purchased Keys</div><div class="stat-value text-blue">{len(list(orders_col.find({'uid': str(uid), 'type': 'purchase'})))}</div></div>
         </div>
         <a href="/deposit" class="action-btn btn-warning" style="margin-bottom:30px;">⚡ Add Balance</a>
         <div class="product-grid">{prod_html}</div>
+    </div>
+    """)
+
+# ================== BUY RESELLER ROUTE ==================
+@app.route('/buy_reseller', methods=['GET', 'POST'])
+def buy_reseller():
+    if 'uid' not in session: return redirect(url_for('login'))
+    uid = session['uid']
+    u = get_user_info(uid)
+    reseller_price = 150
+    reseller_discount = 40
+    
+    if u.get('discount', 0) > 0:
+        return "You are already a reseller!"
+
+    if request.method == 'POST':
+        if deduct_balance(uid, reseller_price):
+            users_col.update_one({"_id": str(uid)}, {"$set": {"discount": reseller_discount}})
+            orders_col.insert_one({"uid": str(uid), "product": "Reseller VIP Package", "key": "VIP-ACTIVATED", "price": reseller_price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
+            return render_template_string(BASE_CSS + """
+            <div class="container fade-in" style="margin-top:100px;">
+                <div class="product-card" style="text-align:center; border-color:#fbbf24;">
+                    <h2 style="color:#fbbf24; font-size:40px;">👑 VIP ACTIVATED!</h2>
+                    <p style="color:#fff; font-size:20px; margin:20px 0;">You are now a Reseller. You will get 40% OFF on all products.</p>
+                    <a href="/" class="action-btn btn-warning" style="margin-top:20px;">Go to Store</a>
+                </div>
+            </div>
+            """)
+        else:
+            return render_template_string(BASE_CSS + f"""
+            <div class="container fade-in" style="margin-top:50px;">
+                <div class="product-card" style="text-align:center; border-color:#ef4444;">
+                    <h2 style="color:#ef4444; font-size:32px;">❌ Low Balance</h2>
+                    <p style="color:#cbd5e1; margin-top:15px; font-size:20px;">You need ₹{reseller_price} to buy Reseller VIP.</p>
+                    <p style="color:#38bdf8; margin-top:5px; font-size:18px;">Your Balance: ₹{u.get('balance', 0):.2f}</p>
+                    <br>
+                    <a href="/deposit" class="action-btn btn-success">Add Balance Now</a>
+                    <a href="/" class="action-btn btn-primary" style="margin-top:15px;">Back to Store</a>
+                </div>
+            </div>
+            """)
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a><div class="wallet-box">₹{u.get('balance', 0):.2f}</div></div>
+    <div class="container fade-in" style="margin-top:50px;">
+        <div class="product-card" style="text-align:center; border-color:#fbbf24; box-shadow: 0 0 40px rgba(251,191,36,0.2);">
+            <h1 style="font-size:50px; margin-bottom:10px;">👑</h1>
+            <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">Reseller VIP Package</h2>
+            <p style="color:#94a3b8; font-size:18px; margin:20px 0;">Unlock 40% Discount on all products instantly.</p>
+            
+            <div style="background:rgba(251,191,36,0.1); border:2px solid #fbbf24; padding:20px; border-radius:15px; margin-bottom:30px;">
+                <h3 style="color:#fff; font-size:24px;">Price: <span style="color:#fbbf24;">₹150</span></h3>
+            </div>
+
+            <form method="POST">
+                <button type="submit" class="action-btn btn-warning" style="background:linear-gradient(135deg, #f59e0b, #fbbf24); color:#000; font-size:20px;">Pay ₹150 from Wallet</button>
+            </form>
+            <p style="margin-top:15px; font-size:14px; color:#64748b;">Your Balance: ₹{u.get('balance', 0):.2f}</p>
+        </div>
     </div>
     """)
 
@@ -425,11 +521,13 @@ def web_product(p_id):
     price_rows = ""
     for d, pr in p.get('prices', {}).items():
         final_price = float(pr) - (float(pr) * discount / 100) if discount > 0 else float(pr)
+        orig_price_html = f"<span style='text-decoration:line-through; color:#ef4444; font-size:14px; margin-left:10px;'>₹{pr}</span>" if discount > 0 else ""
+        
         price_rows += f"""
         <div class="price-row-ui">
             <div>
                 <div class="price-dur">{d}</div>
-                <div class="price-amt">₹{final_price:.2f}</div>
+                <div class="price-amt">₹{final_price:.2f} {orig_price_html}</div>
             </div>
             <form action="/buy_web" method="POST" style="margin: 0;">
                 <input type="hidden" name="p_id" value="{p_id}">
@@ -817,7 +915,6 @@ def admin_users():
                     <div style="font-size:12px; color:#f59e0b; font-weight:bold;">Reseller: {u.get('discount', 0)}% OFF</div>
                 </div>
             </div>
-            <!-- New View Details Button -->
             <a href="/admin_user_detail/{u['_id']}" class="action-btn btn-primary" style="margin-top:15px; padding:12px; font-size:14px;">👁️ View Full Details & History</a>
         </div>
         """
@@ -843,7 +940,7 @@ def admin_users():
     </div>
     """)
 
-# ================== ADMIN USER DETAIL & HISTORY (NEW) ==================
+# ================== ADMIN USER DETAIL & HISTORY ==================
 @app.route('/admin_user_detail/<uid>', methods=['GET', 'POST'])
 def admin_user_detail(uid):
     msg = ""
@@ -863,7 +960,6 @@ def admin_user_detail(uid):
     web_username = web_users_col.find_one({"uid": uid})
     display_name = f"@{web_username['username']}" if web_username else u.get('name', 'User')
     
-    # Fetch User's Transactions
     orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
     
     history_html = ""
@@ -901,7 +997,6 @@ def admin_user_detail(uid):
         
         {msg}
 
-        <!-- User Info Card -->
         <div class="product-card" style="border-color:#38bdf8; margin-bottom:30px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
@@ -914,7 +1009,6 @@ def admin_user_detail(uid):
                 </div>
             </div>
             
-            <!-- Update Balance Form -->
             <form action="/admin_user_detail/{uid}" method="POST" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:20px; padding-top:20px; border-top:1px solid #334155;">
                 <input type="number" name="amount" placeholder="+/- Balance (e.g. 100 or -50)" style="flex:1; min-width:150px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
                 <input type="number" name="discount" value="{u.get('discount', 0)}" placeholder="Disc%" style="width:120px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
@@ -922,7 +1016,6 @@ def admin_user_detail(uid):
             </form>
         </div>
 
-        <!-- Transaction History -->
         <h3 style="color:#38bdf8; font-size:22px; margin-bottom:15px;">📜 Transaction History ({len(orders)})</h3>
         {history_html if history_html else '<p style="color:#94a3b8; text-align:center;">No transactions for this user yet.</p>'}
         

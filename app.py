@@ -20,7 +20,7 @@ ADMIN_ID  = 7778093775
 MONGO_URI = os.environ.get("MONGO_URI") 
 UPLOAD_FOLDER = "static/uploads"
 WEB_URL = "https://saksham-panel-kpsl.onrender.com" 
-SUPPORT_LINK = "https://wa.me/919306606011" # Yahan apna WhatsApp support link daalein
+ADMIN_WP = "919306606011" # Aapka WhatsApp Number (Country code ke sath)
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
@@ -502,21 +502,18 @@ def paid_push():
 
                     <div id="success-section" style="display:none; margin-top:30px;">
                         <div style="font-size:70px; margin-bottom:20px;">⭐</div>
-                        <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">STAR ACTIVATED!</h2>
-                        <p style="color:#fff; font-size:18px; margin-top:15px;">You are now a Premium Star Member.</p>
-                        <p style="color:#94a3b8; font-size:14px; margin-top:15px;">Redirecting to store...</p>
+                        <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">PAYMENT SUCCESSFUL!</h2>
+                        <p style="color:#fff; font-size:18px; margin-top:15px;">Please provide your details to complete the order.</p>
                     </div>
                 </div>
             </div>
             <script>
                 function checkStarPayment() {{
-                    fetch('/check_star_payment/{order.order_id}')
+                    fetch('/check_star_payment/{order.order_id}/{star_price}')
                     .then(response => response.json())
                     .then(data => {{
                         if (data.status === 'success') {{
-                            document.getElementById('qr-section').style.display = 'none';
-                            document.getElementById('success-section').style.display = 'block';
-                            setTimeout(() => {{ window.location.href = '/'; }}, 3000);
+                            window.location.href = '/star_form?amount={star_price}';
                         }} else if (data.status === 'expired') {{
                             alert('QR Expired! Please try again.');
                             window.location.reload();
@@ -555,8 +552,8 @@ def paid_push():
     </div>
     """)
 
-@app.route('/check_star_payment/<order_id>')
-def check_star_payment(order_id):
+@app.route('/check_star_payment/<order_id>/<float:amount>')
+def check_star_payment(order_id, amount):
     if 'uid' not in session: return jsonify({"status": "unauthorized"})
     try:
         status = fg.get_status(order_id)
@@ -565,8 +562,7 @@ def check_star_payment(order_id):
             users_col.update_one({"_id": str(uid)}, {"$set": {"is_star": True}})
             utr = status.utr if hasattr(status, 'utr') else "STAR_PAYMENT"
             if not orders_col.find_one({"utr": utr, "type": "purchase"}):
-                settings = get_settings()
-                orders_col.insert_one({"utr": utr, "uid": str(uid), "product": "Paid Push (1 Star)", "key": "STAR-ACTIVATED", "price": settings.get('star_price', 100), "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
+                orders_col.insert_one({"utr": utr, "uid": str(uid), "product": f"Paid Push ({amount} Star)", "key": "STAR-ACTIVATED", "price": amount, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
             return jsonify({"status": "success"})
         elif status.is_expired:
             return jsonify({"status": "expired"})
@@ -574,6 +570,44 @@ def check_star_payment(order_id):
             return jsonify({"status": "pending"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/star_form', methods=['GET', 'POST'])
+def star_form():
+    if 'uid' not in session: return redirect(url_for('login'))
+    amount = request.args.get('amount', 100)
+    
+    if request.method == 'POST':
+        game_name = request.form['game_name']
+        game_uid = request.form['game_uid']
+        
+        # WhatsApp message formatting
+        message = f"Hello Admin, I have paid ₹{amount} for Paid Push (Stars).\n\n🎮 Game Name: {game_name}\n🆔 Game UID: {game_uid}\n\nPlease push the stars to my ID."
+        wa_link = f"https://wa.me/{ADMIN_WP}?text={urllib.parse.quote(message)}"
+        
+        return redirect(wa_link)
+        
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
+    <div class="container fade-in" style="margin-top:50px;">
+        <div class="product-card" style="text-align:center; border-color:#fbbf24; box-shadow: 0 0 40px rgba(251,191,36,0.2);">
+            <h1 style="font-size:60px; margin-bottom:10px;">⭐</h1>
+            <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">Payment Received!</h2>
+            <p style="color:#fff; font-size:18px; margin:15px 0;">Please enter your Free Fire details.</p>
+            
+            <form method="POST">
+                <div class="input-group" style="text-align:left;">
+                    <label>Free Fire Name</label>
+                    <input type="text" name="game_name" placeholder="Enter your FF Name" required>
+                </div>
+                <div class="input-group" style="text-align:left;">
+                    <label>Free Fire UID</label>
+                    <input type="text" name="game_uid" placeholder="Enter your FF UID" required>
+                </div>
+                <button type="submit" class="action-btn btn-success" style="background:linear-gradient(135deg, #10b981, #059669); font-size:20px;">Submit Details</button>
+            </form>
+        </div>
+    </div>
+    """)
 
 # ================== RESELLER & PRODUCT ROUTES ==================
 @app.route('/buy_reseller', methods=['GET', 'POST'])

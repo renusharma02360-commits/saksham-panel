@@ -20,7 +20,7 @@ ADMIN_ID  = 7778093775
 MONGO_URI = os.environ.get("MONGO_URI") 
 UPLOAD_FOLDER = "static/uploads"
 WEB_URL = "https://saksham-panel-kpsl.onrender.com" 
-SUPPORT_LINK = "https://t.me/YourSupportUsername" # Yahan apna support link daalein
+SUPPORT_LINK = "https://wa.me/919306606011" # Yahan apna WhatsApp support link daalein
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
@@ -41,10 +41,21 @@ bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
 
 # ---------------- DB HELPERS ----------------
+def get_settings():
+    s = settings_col.find_one({"_id": "global"})
+    if not s:
+        default_s = {"_id": "global", "star_price": 100, "star_enabled": True}
+        settings_col.insert_one(default_s)
+        return default_s
+    return s
+
+def save_settings(updates):
+    settings_col.update_one({"_id": "global"}, {"$set": updates}, upsert=True)
+
 def get_user_info(uid):
     u = users_col.find_one({"_id": str(uid)})
     if not u:
-        default_u = {"_id": str(uid), "balance": 0.0, "name": "User", "discount": 0}
+        default_u = {"_id": str(uid), "balance": 0.0, "name": "User", "discount": 0, "is_star": False}
         users_col.insert_one(default_u)
         return default_u
     return u
@@ -81,6 +92,7 @@ def start(msg):
     text = f"👋 <b>Welcome to SAKSHAM PANEL STORE, {msg.from_user.first_name}!</b>\n\n💳 <b>Your Balance:</b> ₹{get_balance(uid):.2f}\n\n👇 <i>Select an option below:</i>"
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("🛒 Shop Now", callback_data="bot_shop"))
+    kb.add(InlineKeyboardButton("⭐ Paid Push (Star)", web_app=WebAppInfo(url=f"{WEB_URL}/paid_push")))
     kb.add(InlineKeyboardButton("👤 My Profile", callback_data="bot_profile"), InlineKeyboardButton("💻 Web App", web_app=WebAppInfo(url=WEB_URL)))
     kb.add(InlineKeyboardButton("💸 Add Balance", web_app=WebAppInfo(url=f"{WEB_URL}/deposit")))
     if str(uid) == str(ADMIN_ID):
@@ -105,7 +117,8 @@ def bot_callbacks(call):
     elif call.data == "bot_profile":
         uid = str(uid)
         u = get_user_info(uid)
-        text = f"👤 <b>MY PROFILE</b>\n\n🆔 ID: <code>{uid}</code>\n💵 Balance: <b>₹{u.get('balance', 0):.2f}</b>\n🏷️ Reseller: {u.get('discount', 0)}% OFF"
+        star_badge = "⭐ <b>VERIFIED STAR</b>\n" if u.get('is_star') else ""
+        text = f"👤 <b>MY PROFILE</b>\n\n{star_badge}🆔 ID: <code>{uid}</code>\n💵 Balance: <b>₹{u.get('balance', 0):.2f}</b>\n🏷️ Reseller: {u.get('discount', 0)}% OFF"
         kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
         
@@ -113,6 +126,7 @@ def bot_callbacks(call):
         text = f"👋 <b>Welcome to SAKSHAM PANEL STORE!</b>\n\n💳 <b>Your Balance:</b> ₹{get_balance(uid):.2f}"
         kb = InlineKeyboardMarkup(row_width=2)
         kb.add(InlineKeyboardButton("🛒 Shop Now", callback_data="bot_shop"))
+        kb.add(InlineKeyboardButton("⭐ Paid Push (Star)", web_app=WebAppInfo(url=f"{WEB_URL}/paid_push")))
         kb.add(InlineKeyboardButton("👤 My Profile", callback_data="bot_profile"), InlineKeyboardButton("💻 Web App", web_app=WebAppInfo(url=WEB_URL)))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
 
@@ -188,13 +202,11 @@ BASE_CSS = """
     .stat-title { font-size: 15px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; }
     .stat-value { font-size: 32px; font-weight: 900; }
 
-    /* Search Bar */
     .search-box { display: flex; background: #0f172a; border: 2px solid #334155; border-radius: 15px; padding: 10px; margin-bottom: 30px; transition: 0.3s; }
     .search-box:focus-within { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.3); }
     .search-box input { flex: 1; background: transparent; border: none; color: #fff; font-size: 16px; padding: 10px; outline: none; }
     .search-box button { background: #38bdf8; color: #000; border: none; padding: 10px 20px; border-radius: 10px; font-weight: 800; cursor: pointer; }
 
-    /* Premium Reseller Banner */
     .reseller-banner { background: linear-gradient(135deg, #f59e0b, #d97706, #fbbf24); background-size: 200% 200%; animation: gradientShift 3s ease infinite; border-radius: 20px; padding: 25px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(245, 158, 11, 0.4); border: 2px solid #fbbf24; position: relative; overflow: hidden; }
     @keyframes gradientShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
     .reseller-text { color: #000; position: relative; z-index: 1; }
@@ -277,25 +289,19 @@ def login():
         
         if existing_user:
             stored_password = existing_user['password']
-            
-            # Check if it's a hashed password (new system)
             if stored_password.startswith(('pbkdf2:', 'scrypt:', 'argon2:')):
                 if check_password_hash(stored_password, pw):
                     session['uid'] = existing_user['uid']
                     session['username'] = user
                     return redirect(url_for('web_home'))
-            # Check if it's a legacy plain-text password (old system)
             else:
                 if stored_password == pw:
-                    # Password matched, upgrade it to a hash for security
                     new_hashed = generate_password_hash(pw)
                     web_users_col.update_one({"_id": existing_user["_id"]}, {"$set": {"password": new_hashed}})
-                    
                     session['uid'] = existing_user['uid']
                     session['username'] = user
                     return redirect(url_for('web_home'))
             
-        # If no match or wrong password
         return render_template_string(BASE_CSS + """
         <div class="container" style="margin-top: 50px;">
             <div class="product-card text-center">
@@ -337,7 +343,6 @@ def register():
         
         uid = "web_" + str(uuid.uuid4())[:8]
         get_user_info(uid) 
-        # Password hashed for security
         web_users_col.insert_one({"uid": uid, "username": user, "password": generate_password_hash(pw)})
         session['uid'] = uid
         session['username'] = user
@@ -377,6 +382,7 @@ def web_home():
     u = get_user_info(uid)
     bal = u.get('balance', 0.0)
     disc = u.get('discount', 0)
+    is_star = u.get('is_star', False)
     
     search_q = request.args.get('q', '')
     if search_q:
@@ -406,15 +412,17 @@ def web_home():
         </div>
         """
 
+    star_badge = "⭐ " if is_star else ""
+
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
         <div style="display:flex; gap:10px;">
             <a href="/" class="store-btn">📦 Store</a>
+            <a href="/paid_push" class="store-btn" style="background:#f59e0b; color:black;">⭐ Paid Push</a>
             <a href="/history" class="store-btn" style="background:#8b5cf6;">📜 History</a>
-            <a href="{SUPPORT_LINK}" target="_blank" class="store-btn" style="background:#f59e0b; color:black;">🛟 Support</a>
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
-            <div class="wallet-box">₹{bal:.2f}</div>
+            <div class="wallet-box">{star_badge}₹{bal:.2f}</div>
             <a href="/logout" class="store-btn" style="background:#ef4444; padding:12px 20px;">Logout</a>
         </div>
     </div>
@@ -442,6 +450,132 @@ def web_home():
     <a href="{SUPPORT_LINK}" target="_blank" class="floating-support">🎧</a>
     """)
 
+# ================== PAID PUSH / STAR SYSTEM ==================
+@app.route('/paid_push', methods=['GET', 'POST'])
+def paid_push():
+    if 'uid' not in session: return redirect(url_for('login'))
+    uid = session['uid']
+    u = get_user_info(uid)
+    settings = get_settings()
+    star_price = settings.get('star_price', 100)
+    is_enabled = settings.get('star_enabled', True)
+    
+    if not is_enabled:
+        return render_template_string(BASE_CSS + "<h2 style='text-align:center; color:#ef4444; margin-top:50px;'>Paid Push service is currently disabled.</h2>")
+        
+    if u.get('is_star'):
+        return render_template_string(BASE_CSS + f"""
+        <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
+        <div class="container fade-in" style="margin-top:50px; text-align:center;">
+            <div class="product-card" style="border-color:#fbbf24;">
+                <h1 style="font-size:60px;">⭐</h1>
+                <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">You are already Star Verified!</h2>
+                <p style="color:#fff; font-size:18px; margin-top:15px;">Enjoy your premium benefits.</p>
+                <a href="/" class="action-btn btn-warning" style="margin-top:20px;">Back to Store</a>
+            </div>
+        </div>
+        """)
+
+    if request.method == 'POST':
+        try:
+            order = fg.create_order(amount=star_price, customer_name=f"StarPush_{uid}")
+            
+            QR_HTML = BASE_CSS + f"""
+            <div class="top-nav"><a href="/paid_push" class="store-btn">🔙 Back</a></div>
+            <div class="container fade-in" style="margin-top:30px; text-align:center;">
+                <div class="product-card" style="padding: 40px 20px; border-color:#fbbf24; box-shadow: 0 0 30px rgba(251,191,36,0.2);">
+                    <h1 style="font-size:50px; margin-bottom:10px;">⭐</h1>
+                    <h2 style="color:#fbbf24; font-size:32px; font-weight:900; margin-bottom:10px;">Premium Paid Push</h2>
+                    <p style="color:#fff; font-size:18px; margin-bottom:25px;">Pay ₹{star_price} to activate Star VIP</p>
+                    
+                    <div id="qr-section">
+                        <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(251, 191, 36, 0.6);">
+                            <img src="{order.qr_url}" style="width:100%; max-width:250px; display:block; border-radius:10px;">
+                        </div>
+                        
+                        <div id="loading-section" style="margin-top:30px;">
+                            <div style="display:inline-block; width:45px; height:45px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #fbbf24; border-radius:50%; animation: spin 1s linear infinite;"></div>
+                            <h3 style="color:#fbbf24; margin-top:15px; font-weight:800; font-size:20px;">Waiting for Payment...</h3>
+                            <button onclick="checkStarPayment()" class="action-btn btn-warning" style="margin-top:20px; padding:15px; font-size:16px; border-radius:10px; background:#fbbf24; color:#000;">🔄 Check Status Manually</button>
+                        </div>
+                    </div>
+
+                    <div id="success-section" style="display:none; margin-top:30px;">
+                        <div style="font-size:70px; margin-bottom:20px;">⭐</div>
+                        <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">STAR ACTIVATED!</h2>
+                        <p style="color:#fff; font-size:18px; margin-top:15px;">You are now a Premium Star Member.</p>
+                        <p style="color:#94a3b8; font-size:14px; margin-top:15px;">Redirecting to store...</p>
+                    </div>
+                </div>
+            </div>
+            <script>
+                function checkStarPayment() {{
+                    fetch('/check_star_payment/{order.order_id}')
+                    .then(response => response.json())
+                    .then(data => {{
+                        if (data.status === 'success') {{
+                            document.getElementById('qr-section').style.display = 'none';
+                            document.getElementById('success-section').style.display = 'block';
+                            setTimeout(() => {{ window.location.href = '/'; }}, 3000);
+                        }} else if (data.status === 'expired') {{
+                            alert('QR Expired! Please try again.');
+                            window.location.reload();
+                        }}
+                    }});
+                }}
+                const pollInterval = setInterval(checkStarPayment, 3000);
+            </script>
+            """
+            return render_template_string(QR_HTML)
+        except Exception as e: 
+            return f"<h2 style='color:red; text-align:center; margin-top:50px;'>API Error: {e}</h2>"
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
+    <div class="container fade-in" style="margin-top:50px;">
+        <div class="product-card" style="text-align:center; border-color:#fbbf24; box-shadow: 0 0 40px rgba(251,191,36,0.2);">
+            <h1 style="font-size:60px; margin-bottom:10px;">⭐</h1>
+            <h2 style="color:#fbbf24; font-size:36px; font-weight:900;">Premium Paid Push</h2>
+            <h3 style="color:#fff; font-size:24px; margin-top:5px;">FREE FIRE (FF)</h3>
+            
+            <div style="background:rgba(251,191,36,0.1); border:2px solid #fbbf24; padding:20px; border-radius:15px; margin:25px 0; text-align:left;">
+                <p style="color:#fff; font-size:18px; margin-bottom:10px;">✅ Instant Device Push</p>
+                <p style="color:#fff; font-size:18px; margin-bottom:10px;">✅ VIP Verified Star Badge</p>
+                <p style="color:#fff; font-size:18px;">✅ Priority Updates & 24/7 Support</p>
+            </div>
+
+            <div style="background:#000; border:2px solid #fbbf24; padding:20px; border-radius:15px; margin-bottom:30px;">
+                <h3 style="color:#fff; font-size:24px;">Price: <span style="color:#fbbf24;">₹{star_price} (1 Star)</span></h3>
+            </div>
+
+            <form method="POST">
+                <button type="submit" class="action-btn btn-warning" style="background:linear-gradient(135deg, #f59e0b, #fbbf24); color:#000; font-size:20px;">Buy 1 Star via UPI</button>
+            </form>
+        </div>
+    </div>
+    """)
+
+@app.route('/check_star_payment/<order_id>')
+def check_star_payment(order_id):
+    if 'uid' not in session: return jsonify({"status": "unauthorized"})
+    try:
+        status = fg.get_status(order_id)
+        if status.is_paid:
+            uid = session['uid']
+            users_col.update_one({"_id": str(uid)}, {"$set": {"is_star": True}})
+            utr = status.utr if hasattr(status, 'utr') else "STAR_PAYMENT"
+            if not orders_col.find_one({"utr": utr, "type": "purchase"}):
+                settings = get_settings()
+                orders_col.insert_one({"utr": utr, "uid": str(uid), "product": "Paid Push (1 Star)", "key": "STAR-ACTIVATED", "price": settings.get('star_price', 100), "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
+            return jsonify({"status": "success"})
+        elif status.is_expired:
+            return jsonify({"status": "expired"})
+        else:
+            return jsonify({"status": "pending"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+# ================== RESELLER & PRODUCT ROUTES ==================
 @app.route('/buy_reseller', methods=['GET', 'POST'])
 def buy_reseller():
     if 'uid' not in session: return redirect(url_for('login'))
@@ -474,7 +608,6 @@ def buy_reseller():
                             <h3 style="color:#fbbf24; margin-top:15px; font-weight:800; font-size:20px;">Waiting for Payment...</h3>
                             
                             <button onclick="checkResellerPayment()" class="action-btn btn-warning" style="margin-top:20px; padding:15px; font-size:16px; border-radius:10px; background:#fbbf24; color:#000;">🔄 Check Status Manually</button>
-                            <p style="color:#ef4444; font-size:14px; margin-top:10px; font-weight:bold;" id="error-msg"></p>
                         </div>
                     </div>
 
@@ -482,14 +615,10 @@ def buy_reseller():
                         <div style="font-size:70px; margin-bottom:20px;">✅</div>
                         <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">VIP ACTIVATED!</h2>
                         <p style="color:#fff; font-size:18px; margin-top:15px;">You are now a Reseller. You will get 40% OFF.</p>
-                        <p style="color:#94a3b8; font-size:14px; margin-top:15px;">Redirecting to store...</p>
                     </div>
                 </div>
             </div>
             <script>
-                let checkCount = 0;
-                const maxChecks = 40; 
-                
                 function checkResellerPayment() {{
                     fetch('/check_reseller_payment/{order.order_id}')
                     .then(response => response.json())
@@ -499,12 +628,10 @@ def buy_reseller():
                             document.getElementById('success-section').style.display = 'block';
                             setTimeout(() => {{ window.location.href = '/'; }}, 3000);
                         }} else if (data.status === 'expired') {{
-                            document.getElementById('loading-section').innerHTML = '<h3 style="color:#ef4444;">QR Expired! Please try again.</h3>';
-                            clearInterval(pollInterval);
+                            alert('QR Expired! Please try again.');
+                            window.location.reload();
                         }}
                     }});
-                    checkCount++;
-                    if(checkCount >= maxChecks) {{ clearInterval(pollInterval); }}
                 }}
                 const pollInterval = setInterval(checkResellerPayment, 3000);
             </script>
@@ -696,7 +823,7 @@ def web_history():
     for o in orders:
         o_type = o.get("type")
         if o_type == "purchase":
-            color = "#fbbf24" if "Reseller" in o.get('product', '') else "#ef4444"
+            color = "#fbbf24" if "Reseller" in o.get('product', '') or "Star" in o.get('product', '') else "#ef4444"
             history_html += f"""
             <div class="product-card" style="margin-bottom:20px; border-left: 5px solid {color};">
                 <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
@@ -857,6 +984,9 @@ def admin_panel():
         </div>
         """
 
+    star_price = get_settings().get('star_price', 100)
+    star_enabled = get_settings().get('star_enabled', True)
+
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
         <div style="font-weight:900; font-size:24px; color:#38bdf8;">⚙️ Controller</div>
@@ -874,6 +1004,22 @@ def admin_panel():
             <div class="stat-card"><div class="stat-title">💰 Revenue</div><div class="stat-value text-green" style="font-size:24px;">₹{total_revenue}</div></div>
             <div class="stat-card"><div class="stat-title">📦 Products</div><div class="stat-value" style="font-size:24px;">{total_products}</div></div>
         </div>
+
+        <!-- PAID PUSH STAR SETTINGS -->
+        <div class="product-card" style="margin-bottom:30px; border-color:#fbbf24;">
+            <h3 style="margin-bottom:25px; color:#fbbf24; font-size:26px;">⭐ Paid Push Settings</h3>
+            <form method="POST" action="/update_star_settings">
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <input type="number" name="star_price" value="{star_price}" placeholder="Star Price (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;" required>
+                    <select name="star_enabled" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
+                        <option value="true" {'selected' if star_enabled else ''}>🟢 Star Service ON</option>
+                        <option value="false" {'selected' if not star_enabled else ''}>🔴 Star Service OFF</option>
+                    </select>
+                    <button type="submit" class="action-btn btn-warning" style="width:auto; padding:15px 25px; font-size:16px;">Update Star Settings</button>
+                </div>
+            </form>
+        </div>
+        <!-- END PAID PUSH SETTINGS -->
 
         <div class="product-card" style="margin-bottom:30px; border-color:#0ea5e9;">
             <h3 style="margin-bottom:25px; color:#38bdf8; font-size:26px;">➕ Add New Product</h3>
@@ -921,6 +1067,13 @@ def admin_panel():
     </script>
     """)
 
+@app.route('/update_star_settings', methods=['POST'])
+def update_star_settings():
+    price = int(request.form.get('star_price', 100))
+    enabled = request.form.get('star_enabled') == 'true'
+    save_settings({"star_price": price, "star_enabled": enabled})
+    return redirect(url_for('admin_panel'))
+
 @app.route('/toggle_stock/<p_id>')
 def toggle_stock(p_id):
     p = products_col.find_one({"_id": ObjectId(p_id)})
@@ -937,7 +1090,7 @@ def admin_history():
         uname = f"@{web_u['username']}" if web_u else o['uid']
         
         if o.get('type') == 'purchase':
-            color = "#fbbf24" if "Reseller" in o.get('product', '') else "#ef4444"
+            color = "#fbbf24" if "Reseller" in o.get('product', '') or "Star" in o.get('product', '') else "#ef4444"
             history_html += f"""
             <div class="product-card" style="margin-bottom:15px; border-left: 5px solid {color}; padding:20px;">
                 <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
@@ -984,12 +1137,13 @@ def admin_users():
     for u in users:
         web_username = web_users_col.find_one({"uid": u['_id']})
         display_name = f"@{web_username['username']}" if web_username else f"{u.get('name', 'User')} (Bot)"
+        star_badge = "⭐ " if u.get('is_star') else ""
 
         users_html += f"""
-        <div class="product-card" style="margin-bottom:15px; padding:20px; border-left: 5px solid {'#f59e0b' if u.get('discount',0) > 0 else '#38bdf8'};">
+        <div class="product-card" style="margin-bottom:15px; padding:20px; border-left: 5px solid {'#fbbf24' if u.get('is_star') else ('#f59e0b' if u.get('discount',0) > 0 else '#38bdf8')};">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
-                    <div style="font-weight:900; color:#fff; font-size:20px;">👤 {display_name}</div>
+                    <div style="font-weight:900; color:#fff; font-size:20px;">{star_badge}👤 {display_name}</div>
                     <div style="font-size:14px; color:#94a3b8; margin-top:5px;">ID: <code>{u['_id']}</code></div>
                 </div>
                 <div style="text-align:right;">
@@ -1047,7 +1201,7 @@ def admin_user_detail(uid):
     for o in orders:
         o_type = o.get("type")
         if o_type == "purchase":
-            color = "#fbbf24" if "Reseller" in o.get('product', '') else "#ef4444"
+            color = "#fbbf24" if "Reseller" in o.get('product', '') or "Star" in o.get('product', '') else "#ef4444"
             history_html += f"""
             <div class="product-card" style="margin-bottom:15px; border-left: 5px solid {color}; padding:15px;">
                 <div style="display:flex; justify-content:space-between; font-size:13px; color:#94a3b8; margin-bottom:5px;">

@@ -38,7 +38,6 @@ web_users_col = db.web_users
 products_col = db.products
 orders_col = db.orders
 settings_col = db.settings
-star_packages_col = db.star_packages # Naya collection packages ke liye
 
 bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
@@ -47,7 +46,8 @@ fg  = FamGateway(api_key=API_KEY)
 def get_settings():
     s = settings_col.find_one({"_id": "global"})
     if not s:
-        default_s = {"_id": "global", "star_enabled": True}
+        # Default 1 Star = 5 Rs
+        default_s = {"_id": "global", "star_price": 5, "star_enabled": True}
         settings_col.insert_one(default_s)
         return default_s
     return s
@@ -453,13 +453,14 @@ def web_home():
     <a href="{SUPPORT_LINK}" target="_blank" class="floating-support">🎧</a>
     """)
 
-# ================== PAID PUSH / STAR SYSTEM ==================
+# ================== PAID PUSH / STAR CALCULATOR SYSTEM ==================
 @app.route('/paid_push', methods=['GET'])
 def paid_push():
     if 'uid' not in session: return redirect(url_for('login'))
     uid = session['uid']
     u = get_user_info(uid)
     settings = get_settings()
+    star_price = settings.get('star_price', 5)
     is_enabled = settings.get('star_enabled', True)
     
     if not is_enabled:
@@ -478,24 +479,6 @@ def paid_push():
         </div>
         """)
 
-    # Fetch all available star packages
-    packages = list(star_packages_col.find({}))
-    
-    packages_html = ""
-    for p in packages:
-        packages_html += f"""
-        <div class="product-card fade-in" style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; border-color:#fbbf24;">
-            <div>
-                <div style="font-size:24px; font-weight:900; color:#fbbf24;">⭐ {p.get('name')}</div>
-                <div style="font-size:20px; font-weight:800; color:#fff;">₹{p.get('price')}</div>
-            </div>
-            <a href="/buy_star_package/{str(p['_id'])}" class="action-btn btn-warning" style="width:auto; padding:12px 25px; font-size:16px; background:#fbbf24; color:#000;">Buy Now</a>
-        </div>
-        """
-        
-    if not packages:
-        packages_html = "<h3 style='text-align:center; color:#94a3b8;'>No Star packages available right now.</h3>"
-
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
     <div class="container fade-in" style="margin-top:30px;">
@@ -511,103 +494,105 @@ def paid_push():
             <p style="color:#fff; font-size:18px;">✅ Priority Updates & 24/7 Support</p>
         </div>
 
-        <h3 style="color:#fbbf24; font-size:24px; margin-bottom:20px;">Select a Package:</h3>
-        {packages_html}
-    </div>
-    """)
-
-@app.route('/buy_star_package/<p_id>', methods=['GET', 'POST'])
-def buy_star_package(p_id):
-    if 'uid' not in session: return redirect(url_for('login'))
-    uid = session['uid']
-    package = star_packages_col.find_one({"_id": ObjectId(p_id)})
-    
-    if not package:
-        return "Package not found", 404
-        
-    amount = package['price']
-
-    if request.method == 'POST':
-        try:
-            order = fg.create_order(amount=amount, customer_name=f"StarPush_{uid}")
-            
-            QR_HTML = BASE_CSS + f"""
-            <div class="top-nav"><a href="/paid_push" class="store-btn">🔙 Back</a></div>
-            <div class="container fade-in" style="margin-top:30px; text-align:center;">
-                <div class="product-card" style="padding: 40px 20px; border-color:#fbbf24; box-shadow: 0 0 30px rgba(251,191,36,0.2);">
-                    <h1 style="font-size:50px; margin-bottom:10px;">⭐</h1>
-                    <h2 style="color:#fbbf24; font-size:32px; font-weight:900; margin-bottom:10px;">{package['name']}</h2>
-                    <p style="color:#fff; font-size:18px; margin-bottom:25px;">Pay ₹{amount} to activate</p>
-                    
-                    <div id="qr-section">
-                        <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(251, 191, 36, 0.6);">
-                            <img src="{order.qr_url}" style="width:100%; max-width:250px; display:block; border-radius:10px;">
-                        </div>
-                        
-                        <div id="loading-section" style="margin-top:30px;">
-                            <div style="display:inline-block; width:45px; height:45px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #fbbf24; border-radius:50%; animation: spin 1s linear infinite;"></div>
-                            <h3 style="color:#fbbf24; margin-top:15px; font-weight:800; font-size:20px;">Waiting for Payment...</h3>
-                            <button onclick="checkStarPayment()" class="action-btn btn-warning" style="margin-top:20px; padding:15px; font-size:16px; border-radius:10px; background:#fbbf24; color:#000;">🔄 Check Status Manually</button>
-                        </div>
-                    </div>
-
-                    <div id="success-section" style="display:none; margin-top:30px;">
-                        <div style="font-size:70px; margin-bottom:20px;">⭐</div>
-                        <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">PAYMENT SUCCESSFUL!</h2>
-                        <p style="color:#fff; font-size:18px; margin-top:15px;">Please provide your details to complete the order.</p>
-                    </div>
-                </div>
-            </div>
-            <script>
-                function checkStarPayment() {{
-                    fetch('/check_star_payment/{order.order_id}/{amount}/{urllib.parse.quote(package["name"])}')
-                    .then(response => response.json())
-                    .then(data => {{
-                        if (data.status === 'success') {{
-                            window.location.href = '/star_form?amount={amount}&pkg={urllib.parse.quote(package["name"])}';
-                        }} else if (data.status === 'expired') {{
-                            alert('QR Expired! Please try again.');
-                            window.location.reload();
-                        }}
-                    }});
-                }}
-                const pollInterval = setInterval(checkStarPayment, 3000);
-            </script>
-            """
-            return render_template_string(QR_HTML)
-        except Exception as e: 
-            return f"<h2 style='color:red; text-align:center; margin-top:50px;'>API Error: {e}</h2>"
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><a href="/paid_push" class="store-btn">🔙 Back</a></div>
-    <div class="container fade-in" style="margin-top:50px;">
         <div class="product-card" style="text-align:center; border-color:#fbbf24; box-shadow: 0 0 40px rgba(251,191,36,0.2);">
-            <h1 style="font-size:60px; margin-bottom:10px;">⭐</h1>
-            <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">{package['name']}</h2>
-            <h3 style="color:#fff; font-size:24px; margin-top:5px;">FREE FIRE (FF)</h3>
+            <h3 style="color:#fff; font-size:22px; margin-bottom:15px;">Rate: <span style="color:#fbbf24;">1 Star = ₹{star_price}</span></h3>
             
-            <div style="background:#000; border:2px solid #fbbf24; padding:20px; border-radius:15px; margin:25px 0;">
-                <h3 style="color:#fff; font-size:24px;">Price: <span style="color:#fbbf24;">₹{amount}</span></h3>
-            </div>
+            <form method="POST" action="/calculate_star">
+                <div class="input-group">
+                    <label style="color:#fbbf24;">Enter Number of Stars (Quantity)</label>
+                    <input type="number" name="quantity" id="star_qty" min="1" value="1" required oninput="calcTotal()" style="text-align:center; font-size:24px; font-weight:bold; color:#fbbf24; background:#000;">
+                </div>
+                
+                <div style="background:#000; border:2px solid #fbbf24; padding:20px; border-radius:15px; margin-bottom:30px;">
+                    <h3 style="color:#fff; font-size:24px;">Total Payable: <span id="total_price" style="color:#fbbf24;">₹{star_price}</span></h3>
+                </div>
 
-            <form method="POST">
-                <button type="submit" class="action-btn btn-warning" style="background:linear-gradient(135deg, #f59e0b, #fbbf24); color:#000; font-size:20px;">Generate QR to Pay ₹{amount}</button>
+                <button type="submit" class="action-btn btn-warning" style="background:linear-gradient(135deg, #f59e0b, #fbbf24); color:#000; font-size:20px;">Proceed to Pay</button>
             </form>
         </div>
     </div>
+    
+    <script>
+        function calcTotal() {{
+            let qty = document.getElementById('star_qty').value;
+            let rate = {star_price};
+            if(qty < 1) qty = 1;
+            let total = qty * rate;
+            document.getElementById('total_price').innerText = '₹' + total;
+        }}
+    </script>
     """)
 
-@app.route('/check_star_payment/<order_id>/<float:amount>/<path:pkg_name>')
-def check_star_payment(order_id, amount, pkg_name):
+@app.route('/calculate_star', methods=['POST'])
+def calculate_star():
+    if 'uid' not in session: return redirect(url_for('login'))
+    uid = session['uid']
+    quantity = int(request.form['quantity'])
+    settings = get_settings()
+    star_price = settings.get('star_price', 5)
+    total_amount = quantity * star_price
+
+    try:
+        order = fg.create_order(amount=total_amount, customer_name=f"StarPush_{uid}")
+        
+        QR_HTML = BASE_CSS + f"""
+        <div class="top-nav"><a href="/paid_push" class="store-btn">🔙 Back</a></div>
+        <div class="container fade-in" style="margin-top:30px; text-align:center;">
+            <div class="product-card" style="padding: 40px 20px; border-color:#fbbf24; box-shadow: 0 0 30px rgba(251,191,36,0.2);">
+                <h1 style="font-size:50px; margin-bottom:10px;">⭐</h1>
+                <h2 style="color:#fbbf24; font-size:32px; font-weight:900; margin-bottom:10px;">{quantity} Stars</h2>
+                <p style="color:#fff; font-size:18px; margin-bottom:25px;">Pay ₹{total_amount} to activate</p>
+                
+                <div id="qr-section">
+                    <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(251, 191, 36, 0.6);">
+                        <img src="{order.qr_url}" style="width:100%; max-width:250px; display:block; border-radius:10px;">
+                    </div>
+                    
+                    <div id="loading-section" style="margin-top:30px;">
+                        <div style="display:inline-block; width:45px; height:45px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #fbbf24; border-radius:50%; animation: spin 1s linear infinite;"></div>
+                        <h3 style="color:#fbbf24; margin-top:15px; font-weight:800; font-size:20px;">Waiting for Payment...</h3>
+                        <button onclick="checkStarPayment()" class="action-btn btn-warning" style="margin-top:20px; padding:15px; font-size:16px; border-radius:10px; background:#fbbf24; color:#000;">🔄 Check Status Manually</button>
+                    </div>
+                </div>
+
+                <div id="success-section" style="display:none; margin-top:30px;">
+                    <div style="font-size:70px; margin-bottom:20px;">⭐</div>
+                    <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">PAYMENT SUCCESSFUL!</h2>
+                    <p style="color:#fff; font-size:18px; margin-top:15px;">Please provide your details to complete the order.</p>
+                </div>
+            </div>
+        </div>
+        <script>
+            function checkStarPayment() {{
+                fetch('/check_star_payment/{order.order_id}/{total_amount}/{quantity}')
+                .then(response => response.json())
+                .then(data => {{
+                    if (data.status === 'success') {{
+                        window.location.href = '/star_form?amount={total_amount}&qty={quantity}';
+                    }} else if (data.status === 'expired') {{
+                        alert('QR Expired! Please try again.');
+                        window.location.reload();
+                    }}
+                }});
+            }}
+            const pollInterval = setInterval(checkStarPayment, 3000);
+        </script>
+        """
+        return render_template_string(QR_HTML)
+    except Exception as e: 
+        return f"<h2 style='color:red; text-align:center; margin-top:50px;'>API Error: {e}</h2>"
+
+@app.route('/check_star_payment/<order_id>/<float:amount>/<int:quantity>')
+def check_star_payment(order_id, amount, quantity):
     if 'uid' not in session: return jsonify({"status": "unauthorized"})
     try:
         status = fg.get_status(order_id)
         if status.is_paid:
             uid = session['uid']
             users_col.update_one({"_id": str(uid)}, {"$set": {"is_star": True}})
-            utr = status.utr if hasattr(status, 'utr') else f"STAR_{pkg_name}"
+            utr = status.utr if hasattr(status, 'utr') else f"STAR_{quantity}"
             if not orders_col.find_one({"utr": utr, "type": "purchase"}):
-                orders_col.insert_one({"utr": utr, "uid": str(uid), "product": f"Paid Push ({pkg_name})", "key": "STAR-ACTIVATED", "price": amount, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
+                orders_col.insert_one({"utr": utr, "uid": str(uid), "product": f"Paid Push ({quantity} Stars)", "key": "STAR-ACTIVATED", "price": amount, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
             return jsonify({"status": "success"})
         elif status.is_expired:
             return jsonify({"status": "expired"})
@@ -620,13 +605,13 @@ def check_star_payment(order_id, amount, pkg_name):
 def star_form():
     if 'uid' not in session: return redirect(url_for('login'))
     amount = request.args.get('amount', 100)
-    pkg_name = request.args.get('pkg', '1 Star')
+    qty = request.args.get('qty', 1)
     
     if request.method == 'POST':
         game_name = request.form['game_name']
         game_uid = request.form['game_uid']
         
-        message = f"Hello Admin, I have paid ₹{amount} for Paid Push ({pkg_name}).\n\n🎮 Game Name: {game_name}\n🆔 Game UID: {game_uid}\n\nPlease push the stars to my ID."
+        message = f"Hello Admin, I have paid ₹{amount} for Paid Push ({qty} Stars).\n\n🎮 Game Name: {game_name}\n🆔 Game UID: {game_uid}\n\nPlease push the stars to my ID."
         wa_link = f"https://wa.me/{ADMIN_WP}?text={urllib.parse.quote(message)}"
         
         return redirect(wa_link)
@@ -637,7 +622,7 @@ def star_form():
         <div class="product-card" style="text-align:center; border-color:#fbbf24; box-shadow: 0 0 40px rgba(251,191,36,0.2);">
             <h1 style="font-size:60px; margin-bottom:10px;">⭐</h1>
             <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">Payment Received!</h2>
-            <p style="color:#fff; font-size:18px; margin:15px 0;">Package: <b>{pkg_name}</b> (₹{amount})</p>
+            <p style="color:#fff; font-size:18px; margin:15px 0;">Package: <b>{qty} Stars</b> (₹{amount})</p>
             <p style="color:#94a3b8; font-size:14px; margin-bottom:20px;">Please enter your Free Fire details.</p>
             
             <form method="POST">
@@ -1064,23 +1049,8 @@ def admin_panel():
         </div>
         """
 
+    star_price = get_settings().get('star_price', 5)
     star_enabled = get_settings().get('star_enabled', True)
-    
-    # Star Packages List
-    star_packages = list(star_packages_col.find({}))
-    star_pkg_html = ""
-    for sp in star_packages:
-        star_pkg_html += f"""
-        <div style="background:#0a101f; padding:15px; border-radius:12px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border:1px solid #334155;">
-            <div>
-                <div style="font-weight:800; color:#fbbf24; font-size:18px;">⭐ {sp.get('name')}</div>
-                <div style="color:#fff; font-weight:600;">₹{sp.get('price')}</div>
-            </div>
-            <form action="/delete_star_package/{sp['_id']}" method="POST">
-                <button type="submit" class="action-btn btn-danger" style="padding:8px 15px; font-size:14px; width:auto;">🗑️ Delete</button>
-            </form>
-        </div>
-        """
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
@@ -1100,35 +1070,22 @@ def admin_panel():
             <div class="stat-card"><div class="stat-title">📦 Products</div><div class="stat-value" style="font-size:24px;">{total_products}</div></div>
         </div>
 
-        <!-- PAID PUSH PACKAGE MANAGER -->
+        <!-- PAID PUSH SETTINGS (SINGLE RATE) -->
         <div class="product-card" style="margin-bottom:30px; border-color:#fbbf24;">
-            <h3 style="margin-bottom:25px; color:#fbbf24; font-size:26px;">⭐ Paid Push Packages Manager</h3>
-            
-            <form method="POST" action="/update_star_settings" style="margin-bottom:20px;">
-                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <h3 style="margin-bottom:25px; color:#fbbf24; font-size:26px;">⭐ Paid Push Settings</h3>
+            <form method="POST" action="/update_star_settings">
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <input type="number" name="star_price" value="{star_price}" placeholder="1 Star Price (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;" required>
                     <select name="star_enabled" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
                         <option value="true" {'selected' if star_enabled else ''}>🟢 Star Service ON</option>
                         <option value="false" {'selected' if not star_enabled else ''}>🔴 Star Service OFF</option>
                     </select>
-                    <button type="submit" class="action-btn btn-warning" style="width:auto; padding:15px 25px; font-size:16px;">Update Status</button>
+                    <button type="submit" class="action-btn btn-warning" style="width:auto; padding:15px 25px; font-size:16px;">Update Star Rate</button>
                 </div>
+                <p style="color:#94a3b8; font-size:14px; margin-top:10px;">* Example: If you set 5, user will pay ₹5 per star. (10 Stars = ₹50)</p>
             </form>
-
-            <hr style="border-color:#334155; margin-bottom:20px;">
-
-            <h4 style="color:#fff; margin-bottom:15px;">➕ Add New Package</h4>
-            <form method="POST" action="/add_star_package" style="margin-bottom:20px;">
-                <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                    <input type="text" name="pkg_name" placeholder="Package Name (e.g. 1 Star, 4 Stars)" style="flex:2; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;" required>
-                    <input type="number" name="pkg_price" placeholder="Price (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;" required>
-                    <button type="submit" class="action-btn btn-success" style="width:auto; padding:15px 25px; font-size:16px;">Add Package</button>
-                </div>
-            </form>
-
-            <h4 style="color:#fff; margin-bottom:15px;">📦 Available Packages</h4>
-            {star_pkg_html if star_pkg_html else '<p style="color:#94a3b8;">No packages created yet.</p>'}
         </div>
-        <!-- END PAID PUSH PACKAGE MANAGER -->
+        <!-- END PAID PUSH SETTINGS -->
 
         <div class="product-card" style="margin-bottom:30px; border-color:#0ea5e9;">
             <h3 style="margin-bottom:25px; color:#38bdf8; font-size:26px;">➕ Add New Product</h3>
@@ -1178,20 +1135,9 @@ def admin_panel():
 
 @app.route('/update_star_settings', methods=['POST'])
 def update_star_settings():
+    price = int(request.form.get('star_price', 5))
     enabled = request.form.get('star_enabled') == 'true'
-    save_settings({"star_enabled": enabled})
-    return redirect(url_for('admin_panel'))
-
-@app.route('/add_star_package', methods=['POST'])
-def add_star_package():
-    name = request.form.get('pkg_name')
-    price = int(request.form.get('pkg_price', 100))
-    star_packages_col.insert_one({"name": name, "price": price})
-    return redirect(url_for('admin_panel'))
-
-@app.route('/delete_star_package/<p_id>', methods=['POST'])
-def delete_star_package(p_id):
-    star_packages_col.delete_one({"_id": ObjectId(p_id)})
+    save_settings({"star_price": price, "star_enabled": enabled})
     return redirect(url_for('admin_panel'))
 
 @app.route('/toggle_stock/<p_id>')

@@ -21,7 +21,6 @@ MONGO_URI = os.environ.get("MONGO_URI")
 UPLOAD_FOLDER = "static/uploads"
 WEB_URL = "https://saksham-panel-kpsl.onrender.com" 
 
-# AAPKA NAYA WHATSAPP NUMBER YAHAN SET HAI
 ADMIN_WP = "918849507563" 
 SUPPORT_LINK = "https://wa.me/918849507563" 
 
@@ -39,6 +38,7 @@ web_users_col = db.web_users
 products_col = db.products
 orders_col = db.orders
 settings_col = db.settings
+star_packages_col = db.star_packages # Naya collection packages ke liye
 
 bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
@@ -47,7 +47,7 @@ fg  = FamGateway(api_key=API_KEY)
 def get_settings():
     s = settings_col.find_one({"_id": "global"})
     if not s:
-        default_s = {"_id": "global", "star_price": 100, "star_enabled": True}
+        default_s = {"_id": "global", "star_enabled": True}
         settings_col.insert_one(default_s)
         return default_s
     return s
@@ -454,13 +454,12 @@ def web_home():
     """)
 
 # ================== PAID PUSH / STAR SYSTEM ==================
-@app.route('/paid_push', methods=['GET', 'POST'])
+@app.route('/paid_push', methods=['GET'])
 def paid_push():
     if 'uid' not in session: return redirect(url_for('login'))
     uid = session['uid']
     u = get_user_info(uid)
     settings = get_settings()
-    star_price = settings.get('star_price', 100)
     is_enabled = settings.get('star_enabled', True)
     
     if not is_enabled:
@@ -479,17 +478,66 @@ def paid_push():
         </div>
         """)
 
+    # Fetch all available star packages
+    packages = list(star_packages_col.find({}))
+    
+    packages_html = ""
+    for p in packages:
+        packages_html += f"""
+        <div class="product-card fade-in" style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; border-color:#fbbf24;">
+            <div>
+                <div style="font-size:24px; font-weight:900; color:#fbbf24;">⭐ {p.get('name')}</div>
+                <div style="font-size:20px; font-weight:800; color:#fff;">₹{p.get('price')}</div>
+            </div>
+            <a href="/buy_star_package/{str(p['_id'])}" class="action-btn btn-warning" style="width:auto; padding:12px 25px; font-size:16px; background:#fbbf24; color:#000;">Buy Now</a>
+        </div>
+        """
+        
+    if not packages:
+        packages_html = "<h3 style='text-align:center; color:#94a3b8;'>No Star packages available right now.</h3>"
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
+    <div class="container fade-in" style="margin-top:30px;">
+        <div class="hero-banner" style="border-color:#fbbf24;">
+            <h1 style="font-size:60px; margin-bottom:10px;">⭐</h1>
+            <h2 style="color:#fbbf24; font-size:36px; font-weight:900;">Premium Paid Push</h2>
+            <h3 style="color:#fff; font-size:24px; margin-top:5px;">FREE FIRE (FF)</h3>
+        </div>
+
+        <div style="background:rgba(251,191,36,0.1); border:2px solid #fbbf24; padding:20px; border-radius:15px; margin-bottom:30px;">
+            <p style="color:#fff; font-size:18px; margin-bottom:10px;">✅ Instant Device Push</p>
+            <p style="color:#fff; font-size:18px; margin-bottom:10px;">✅ VIP Verified Star Badge</p>
+            <p style="color:#fff; font-size:18px;">✅ Priority Updates & 24/7 Support</p>
+        </div>
+
+        <h3 style="color:#fbbf24; font-size:24px; margin-bottom:20px;">Select a Package:</h3>
+        {packages_html}
+    </div>
+    """)
+
+@app.route('/buy_star_package/<p_id>', methods=['GET', 'POST'])
+def buy_star_package(p_id):
+    if 'uid' not in session: return redirect(url_for('login'))
+    uid = session['uid']
+    package = star_packages_col.find_one({"_id": ObjectId(p_id)})
+    
+    if not package:
+        return "Package not found", 404
+        
+    amount = package['price']
+
     if request.method == 'POST':
         try:
-            order = fg.create_order(amount=star_price, customer_name=f"StarPush_{uid}")
+            order = fg.create_order(amount=amount, customer_name=f"StarPush_{uid}")
             
             QR_HTML = BASE_CSS + f"""
             <div class="top-nav"><a href="/paid_push" class="store-btn">🔙 Back</a></div>
             <div class="container fade-in" style="margin-top:30px; text-align:center;">
                 <div class="product-card" style="padding: 40px 20px; border-color:#fbbf24; box-shadow: 0 0 30px rgba(251,191,36,0.2);">
                     <h1 style="font-size:50px; margin-bottom:10px;">⭐</h1>
-                    <h2 style="color:#fbbf24; font-size:32px; font-weight:900; margin-bottom:10px;">Premium Paid Push</h2>
-                    <p style="color:#fff; font-size:18px; margin-bottom:25px;">Pay ₹{star_price} to activate Star VIP</p>
+                    <h2 style="color:#fbbf24; font-size:32px; font-weight:900; margin-bottom:10px;">{package['name']}</h2>
+                    <p style="color:#fff; font-size:18px; margin-bottom:25px;">Pay ₹{amount} to activate</p>
                     
                     <div id="qr-section">
                         <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(251, 191, 36, 0.6);">
@@ -512,11 +560,11 @@ def paid_push():
             </div>
             <script>
                 function checkStarPayment() {{
-                    fetch('/check_star_payment/{order.order_id}/{star_price}')
+                    fetch('/check_star_payment/{order.order_id}/{amount}/{urllib.parse.quote(package["name"])}')
                     .then(response => response.json())
                     .then(data => {{
                         if (data.status === 'success') {{
-                            window.location.href = '/star_form?amount={star_price}';
+                            window.location.href = '/star_form?amount={amount}&pkg={urllib.parse.quote(package["name"])}';
                         }} else if (data.status === 'expired') {{
                             alert('QR Expired! Please try again.');
                             window.location.reload();
@@ -531,41 +579,35 @@ def paid_push():
             return f"<h2 style='color:red; text-align:center; margin-top:50px;'>API Error: {e}</h2>"
 
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
+    <div class="top-nav"><a href="/paid_push" class="store-btn">🔙 Back</a></div>
     <div class="container fade-in" style="margin-top:50px;">
         <div class="product-card" style="text-align:center; border-color:#fbbf24; box-shadow: 0 0 40px rgba(251,191,36,0.2);">
             <h1 style="font-size:60px; margin-bottom:10px;">⭐</h1>
-            <h2 style="color:#fbbf24; font-size:36px; font-weight:900;">Premium Paid Push</h2>
+            <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">{package['name']}</h2>
             <h3 style="color:#fff; font-size:24px; margin-top:5px;">FREE FIRE (FF)</h3>
             
-            <div style="background:rgba(251,191,36,0.1); border:2px solid #fbbf24; padding:20px; border-radius:15px; margin:25px 0; text-align:left;">
-                <p style="color:#fff; font-size:18px; margin-bottom:10px;">✅ Instant Device Push</p>
-                <p style="color:#fff; font-size:18px; margin-bottom:10px;">✅ VIP Verified Star Badge</p>
-                <p style="color:#fff; font-size:18px;">✅ Priority Updates & 24/7 Support</p>
-            </div>
-
-            <div style="background:#000; border:2px solid #fbbf24; padding:20px; border-radius:15px; margin-bottom:30px;">
-                <h3 style="color:#fff; font-size:24px;">Price: <span style="color:#fbbf24;">₹{star_price} (1 Star)</span></h3>
+            <div style="background:#000; border:2px solid #fbbf24; padding:20px; border-radius:15px; margin:25px 0;">
+                <h3 style="color:#fff; font-size:24px;">Price: <span style="color:#fbbf24;">₹{amount}</span></h3>
             </div>
 
             <form method="POST">
-                <button type="submit" class="action-btn btn-warning" style="background:linear-gradient(135deg, #f59e0b, #fbbf24); color:#000; font-size:20px;">Buy 1 Star via UPI</button>
+                <button type="submit" class="action-btn btn-warning" style="background:linear-gradient(135deg, #f59e0b, #fbbf24); color:#000; font-size:20px;">Generate QR to Pay ₹{amount}</button>
             </form>
         </div>
     </div>
     """)
 
-@app.route('/check_star_payment/<order_id>/<float:amount>')
-def check_star_payment(order_id, amount):
+@app.route('/check_star_payment/<order_id>/<float:amount>/<path:pkg_name>')
+def check_star_payment(order_id, amount, pkg_name):
     if 'uid' not in session: return jsonify({"status": "unauthorized"})
     try:
         status = fg.get_status(order_id)
         if status.is_paid:
             uid = session['uid']
             users_col.update_one({"_id": str(uid)}, {"$set": {"is_star": True}})
-            utr = status.utr if hasattr(status, 'utr') else "STAR_PAYMENT"
+            utr = status.utr if hasattr(status, 'utr') else f"STAR_{pkg_name}"
             if not orders_col.find_one({"utr": utr, "type": "purchase"}):
-                orders_col.insert_one({"utr": utr, "uid": str(uid), "product": f"Paid Push ({amount} Star)", "key": "STAR-ACTIVATED", "price": amount, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
+                orders_col.insert_one({"utr": utr, "uid": str(uid), "product": f"Paid Push ({pkg_name})", "key": "STAR-ACTIVATED", "price": amount, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
             return jsonify({"status": "success"})
         elif status.is_expired:
             return jsonify({"status": "expired"})
@@ -578,12 +620,13 @@ def check_star_payment(order_id, amount):
 def star_form():
     if 'uid' not in session: return redirect(url_for('login'))
     amount = request.args.get('amount', 100)
+    pkg_name = request.args.get('pkg', '1 Star')
     
     if request.method == 'POST':
         game_name = request.form['game_name']
         game_uid = request.form['game_uid']
         
-        message = f"Hello Admin, I have paid ₹{amount} for Paid Push (Stars).\n\n🎮 Game Name: {game_name}\n🆔 Game UID: {game_uid}\n\nPlease push the stars to my ID."
+        message = f"Hello Admin, I have paid ₹{amount} for Paid Push ({pkg_name}).\n\n🎮 Game Name: {game_name}\n🆔 Game UID: {game_uid}\n\nPlease push the stars to my ID."
         wa_link = f"https://wa.me/{ADMIN_WP}?text={urllib.parse.quote(message)}"
         
         return redirect(wa_link)
@@ -594,7 +637,8 @@ def star_form():
         <div class="product-card" style="text-align:center; border-color:#fbbf24; box-shadow: 0 0 40px rgba(251,191,36,0.2);">
             <h1 style="font-size:60px; margin-bottom:10px;">⭐</h1>
             <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">Payment Received!</h2>
-            <p style="color:#fff; font-size:18px; margin:15px 0;">Please enter your Free Fire details.</p>
+            <p style="color:#fff; font-size:18px; margin:15px 0;">Package: <b>{pkg_name}</b> (₹{amount})</p>
+            <p style="color:#94a3b8; font-size:14px; margin-bottom:20px;">Please enter your Free Fire details.</p>
             
             <form method="POST">
                 <div class="input-group" style="text-align:left;">
@@ -1020,8 +1064,23 @@ def admin_panel():
         </div>
         """
 
-    star_price = get_settings().get('star_price', 100)
     star_enabled = get_settings().get('star_enabled', True)
+    
+    # Star Packages List
+    star_packages = list(star_packages_col.find({}))
+    star_pkg_html = ""
+    for sp in star_packages:
+        star_pkg_html += f"""
+        <div style="background:#0a101f; padding:15px; border-radius:12px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border:1px solid #334155;">
+            <div>
+                <div style="font-weight:800; color:#fbbf24; font-size:18px;">⭐ {sp.get('name')}</div>
+                <div style="color:#fff; font-weight:600;">₹{sp.get('price')}</div>
+            </div>
+            <form action="/delete_star_package/{sp['_id']}" method="POST">
+                <button type="submit" class="action-btn btn-danger" style="padding:8px 15px; font-size:14px; width:auto;">🗑️ Delete</button>
+            </form>
+        </div>
+        """
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
@@ -1041,21 +1100,35 @@ def admin_panel():
             <div class="stat-card"><div class="stat-title">📦 Products</div><div class="stat-value" style="font-size:24px;">{total_products}</div></div>
         </div>
 
-        <!-- PAID PUSH STAR SETTINGS -->
+        <!-- PAID PUSH PACKAGE MANAGER -->
         <div class="product-card" style="margin-bottom:30px; border-color:#fbbf24;">
-            <h3 style="margin-bottom:25px; color:#fbbf24; font-size:26px;">⭐ Paid Push Settings</h3>
-            <form method="POST" action="/update_star_settings">
-                <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                    <input type="number" name="star_price" value="{star_price}" placeholder="Star Price (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;" required>
+            <h3 style="margin-bottom:25px; color:#fbbf24; font-size:26px;">⭐ Paid Push Packages Manager</h3>
+            
+            <form method="POST" action="/update_star_settings" style="margin-bottom:20px;">
+                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
                     <select name="star_enabled" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
                         <option value="true" {'selected' if star_enabled else ''}>🟢 Star Service ON</option>
                         <option value="false" {'selected' if not star_enabled else ''}>🔴 Star Service OFF</option>
                     </select>
-                    <button type="submit" class="action-btn btn-warning" style="width:auto; padding:15px 25px; font-size:16px;">Update Star Settings</button>
+                    <button type="submit" class="action-btn btn-warning" style="width:auto; padding:15px 25px; font-size:16px;">Update Status</button>
                 </div>
             </form>
+
+            <hr style="border-color:#334155; margin-bottom:20px;">
+
+            <h4 style="color:#fff; margin-bottom:15px;">➕ Add New Package</h4>
+            <form method="POST" action="/add_star_package" style="margin-bottom:20px;">
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <input type="text" name="pkg_name" placeholder="Package Name (e.g. 1 Star, 4 Stars)" style="flex:2; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;" required>
+                    <input type="number" name="pkg_price" placeholder="Price (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;" required>
+                    <button type="submit" class="action-btn btn-success" style="width:auto; padding:15px 25px; font-size:16px;">Add Package</button>
+                </div>
+            </form>
+
+            <h4 style="color:#fff; margin-bottom:15px;">📦 Available Packages</h4>
+            {star_pkg_html if star_pkg_html else '<p style="color:#94a3b8;">No packages created yet.</p>'}
         </div>
-        <!-- END PAID PUSH SETTINGS -->
+        <!-- END PAID PUSH PACKAGE MANAGER -->
 
         <div class="product-card" style="margin-bottom:30px; border-color:#0ea5e9;">
             <h3 style="margin-bottom:25px; color:#38bdf8; font-size:26px;">➕ Add New Product</h3>
@@ -1105,9 +1178,20 @@ def admin_panel():
 
 @app.route('/update_star_settings', methods=['POST'])
 def update_star_settings():
-    price = int(request.form.get('star_price', 100))
     enabled = request.form.get('star_enabled') == 'true'
-    save_settings({"star_price": price, "star_enabled": enabled})
+    save_settings({"star_enabled": enabled})
+    return redirect(url_for('admin_panel'))
+
+@app.route('/add_star_package', methods=['POST'])
+def add_star_package():
+    name = request.form.get('pkg_name')
+    price = int(request.form.get('pkg_price', 100))
+    star_packages_col.insert_one({"name": name, "price": price})
+    return redirect(url_for('admin_panel'))
+
+@app.route('/delete_star_package/<p_id>', methods=['POST'])
+def delete_star_package(p_id):
+    star_packages_col.delete_one({"_id": ObjectId(p_id)})
     return redirect(url_for('admin_panel'))
 
 @app.route('/toggle_stock/<p_id>')

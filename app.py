@@ -250,11 +250,9 @@ BASE_CSS = """
     @keyframes shine { to { background-position: 200% center; } }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-    /* Floating Support Button */
     .floating-support { position: fixed; bottom: 30px; right: 30px; background: linear-gradient(135deg, #10b981, #059669); width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 30px; color: white; text-decoration: none; box-shadow: 0 5px 20px rgba(16,185,129,0.5); z-index: 1000; animation: float 3s ease-in-out infinite; }
     @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
 
-    /* Toast Notification */
     #toast { visibility: hidden; min-width: 250px; background-color: #10b981; color: #fff; text-align: center; border-radius: 12px; padding: 16px; position: fixed; z-index: 10000; left: 50%; bottom: 30px; transform: translateX(-50%); font-size: 16px; font-weight: bold; box-shadow: 0 5px 20px rgba(16,185,129,0.5); opacity: 0; transition: opacity 0.3s, bottom 0.3s; }
     #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
 </style>
@@ -276,19 +274,36 @@ def login():
         user = request.form['username']
         pw = request.form['password']
         existing_user = web_users_col.find_one({"username": user})
-        if existing_user and check_password_hash(existing_user['password'], pw):
-            session['uid'] = existing_user['uid']
-            session['username'] = user
-            return redirect(url_for('web_home'))
-        else:
-            return render_template_string(BASE_CSS + """
-            <div class="container" style="margin-top: 50px;">
-                <div class="product-card text-center">
-                    <h2 style="color:#ef4444; margin-bottom:20px; font-size:28px;">❌ Invalid Login</h2>
-                    <a href="/login" class="action-btn btn-primary">Try Again</a>
-                </div>
+        
+        if existing_user:
+            stored_password = existing_user['password']
+            
+            # Check if it's a hashed password (new system)
+            if stored_password.startswith(('pbkdf2:', 'scrypt:', 'argon2:')):
+                if check_password_hash(stored_password, pw):
+                    session['uid'] = existing_user['uid']
+                    session['username'] = user
+                    return redirect(url_for('web_home'))
+            # Check if it's a legacy plain-text password (old system)
+            else:
+                if stored_password == pw:
+                    # Password matched, upgrade it to a hash for security
+                    new_hashed = generate_password_hash(pw)
+                    web_users_col.update_one({"_id": existing_user["_id"]}, {"$set": {"password": new_hashed}})
+                    
+                    session['uid'] = existing_user['uid']
+                    session['username'] = user
+                    return redirect(url_for('web_home'))
+            
+        # If no match or wrong password
+        return render_template_string(BASE_CSS + """
+        <div class="container" style="margin-top: 50px;">
+            <div class="product-card text-center">
+                <h2 style="color:#ef4444; margin-bottom:20px; font-size:28px;">❌ Invalid Login</h2>
+                <a href="/login" class="action-btn btn-primary">Try Again</a>
             </div>
-            """)
+        </div>
+        """)
     
     if 'uid' in session: return redirect(url_for('web_home'))
     return render_template_string(BASE_CSS + """
@@ -363,7 +378,6 @@ def web_home():
     bal = u.get('balance', 0.0)
     disc = u.get('discount', 0)
     
-    # Search feature
     search_q = request.args.get('q', '')
     if search_q:
         products = list(products_col.find({"name": {"$regex": search_q, "$options": "i"}}))
@@ -812,13 +826,11 @@ def check_payment(order_id, amount):
 # ================== ADMIN PANEL (NO LOGIN) ==================
 @app.route('/admin', methods=['GET'])
 def admin_panel():
-    # Admin Dashboard Stats
     total_users = users_col.count_documents({})
     total_sales = orders_col.count_documents({"type": "purchase"})
     total_revenue = sum([o.get('price', 0) for o in orders_col.find({"type": "purchase"})])
     total_products = products_col.count_documents({})
     
-    # Search feature for admin
     search_q = request.args.get('q', '')
     if search_q:
         products = list(products_col.find({"name": {"$regex": search_q, "$options": "i"}}))
@@ -856,7 +868,6 @@ def admin_panel():
     </div>
     <div class="container fade-in" style="margin-top:20px;">
         
-        <!-- Dashboard Stats -->
         <div class="stats-grid" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
             <div class="stat-card"><div class="stat-title">👥 Users</div><div class="stat-value text-blue" style="font-size:24px;">{total_users}</div></div>
             <div class="stat-card"><div class="stat-title">🛍️ Sales</div><div class="stat-value text-yellow" style="font-size:24px;">{total_sales}</div></div>

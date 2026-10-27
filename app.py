@@ -46,7 +46,6 @@ fg  = FamGateway(api_key=API_KEY)
 def get_settings():
     s = settings_col.find_one({"_id": "global"})
     if not s:
-        # Default 1 Star = 5 Rs
         default_s = {"_id": "global", "star_price": 5, "star_enabled": True}
         settings_col.insert_one(default_s)
         return default_s
@@ -270,6 +269,8 @@ BASE_CSS = """
 
     #toast { visibility: hidden; min-width: 250px; background-color: #10b981; color: #fff; text-align: center; border-radius: 12px; padding: 16px; position: fixed; z-index: 10000; left: 50%; bottom: 30px; transform: translateX(-50%); font-size: 16px; font-weight: bold; box-shadow: 0 5px 20px rgba(16,185,129,0.5); opacity: 0; transition: opacity 0.3s, bottom 0.3s; }
     #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
+    
+    .success-alert { background: rgba(16, 185, 129, 0.2); border: 2px solid #10b981; color: #10b981; padding: 20px; border-radius: 15px; margin-bottom: 25px; text-align: center; font-weight: 800; font-size: 18px; box-shadow: 0 0 20px rgba(16,185,129,0.2); }
 </style>
 <div id="toast">✅ Key Copied!</div>
 <script>
@@ -1051,6 +1052,17 @@ def admin_panel():
 
     star_price = get_settings().get('star_price', 5)
     star_enabled = get_settings().get('star_enabled', True)
+    
+    # Success Message handling for settings
+    success_msg = ""
+    if request.args.get('success') == 'star_updated':
+        success_msg = '<div class="success-alert">✅ Star Rate Updated Successfully!</div>'
+    elif request.args.get('success') == 'product_added':
+        success_msg = '<div class="success-alert">✅ New Product Added Successfully!</div>'
+    elif request.args.get('success') == 'product_edited':
+        success_msg = '<div class="success-alert">✅ Product Updated Successfully!</div>'
+    elif request.args.get('success') == 'user_updated':
+        success_msg = '<div class="success-alert">✅ User Details Updated Successfully!</div>'
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
@@ -1062,6 +1074,8 @@ def admin_panel():
         </div>
     </div>
     <div class="container fade-in" style="margin-top:20px;">
+        
+        {success_msg}
         
         <div class="stats-grid" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
             <div class="stat-card"><div class="stat-title">👥 Users</div><div class="stat-value text-blue" style="font-size:24px;">{total_users}</div></div>
@@ -1135,10 +1149,13 @@ def admin_panel():
 
 @app.route('/update_star_settings', methods=['POST'])
 def update_star_settings():
-    price = int(request.form.get('star_price', 5))
-    enabled = request.form.get('star_enabled') == 'true'
-    save_settings({"star_price": price, "star_enabled": enabled})
-    return redirect(url_for('admin_panel'))
+    try:
+        price = int(request.form.get('star_price', 5))
+        enabled = request.form.get('star_enabled') == 'true'
+        save_settings({"star_price": price, "star_enabled": enabled})
+        return redirect(url_for('admin_panel') + "?success=star_updated")
+    except Exception as e:
+        return f"Error: {e}"
 
 @app.route('/toggle_stock/<p_id>')
 def toggle_stock(p_id):
@@ -1246,16 +1263,17 @@ def admin_users():
 def admin_user_detail(uid):
     msg = ""
     if request.method == 'POST':
-        amt = float(request.form.get('amount', 0))
-        disc = int(request.form.get('discount', 0))
-        
-        users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amt}, "$set": {"discount": disc}})
-        msg = f"""
-        <div style="background:rgba(16,185,129,0.2); border:2px solid #10b981; border-radius:15px; padding:20px; margin-bottom:20px; text-align:center;">
-            <h3 style="color:#10b981; font-weight:900;">✅ User Updated Successfully!</h3>
-            <p style="color:#fff;">Balance Changed by: ₹{amt} | Discount Set: {disc}%</p>
-        </div>
-        """
+        try:
+            amt = float(request.form.get('amount', 0))
+            disc = int(request.form.get('discount', 0))
+            
+            users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amt}, "$set": {"discount": disc}})
+            return redirect(url_for('admin_user_detail', uid=uid) + "?success=1")
+        except Exception as e:
+            msg = f'<div class="alert-danger" style="color:red; margin-bottom:20px;">Error: {e}</div>'
+
+    if request.args.get('success') == '1':
+        msg = '<div class="success-alert">✅ User Details Updated Successfully!</div>'
 
     u = get_user_info(uid)
     web_username = web_users_col.find_one({"uid": uid})
@@ -1347,8 +1365,9 @@ def add_product():
             "hack_video": request.form.get('hack_video', '#'), 
             "prices": price_dict, "status": "active"
         })
-        return redirect(url_for('admin_panel'))
-    except Exception as e: return f"Error: {e}"
+        return redirect(url_for('admin_panel') + "?success=product_added")
+    except Exception as e: 
+        return f"<h3 style='color:red; text-align:center;'>Error: {e}</h3>"
 
 @app.route('/edit_product/<p_id>', methods=['GET', 'POST'])
 def edit_product(p_id):
@@ -1377,8 +1396,9 @@ def edit_product(p_id):
                 "hack_video": request.form.get('hack_video', '#'), 
                 "prices": price_dict
             }})
-            return redirect(url_for('admin_panel'))
-        except Exception as e: return f"Error: {e}"
+            return redirect(url_for('admin_panel') + "?success=product_edited")
+        except Exception as e: 
+            return f"<h3 style='color:red; text-align:center;'>Error: {e}</h3>"
 
     price_fields = ""
     for d, pr in p.get('prices', {}).items():

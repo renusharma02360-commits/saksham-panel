@@ -5,7 +5,7 @@ import requests
 import telebot
 import uuid
 from functools import wraps
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from famgateway import FamGateway
 from flask import Flask, request, render_template_string, redirect, url_for, session, jsonify
 from werkzeug.utils import secure_filename
@@ -14,7 +14,7 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
-# 🚨 APNA NAYA TOKEN YAHAN DAALEIN (BotFather se naya banayen) 🚨
+# 🚨 APNA TOKEN YAHAN DAALEIN 🚨
 BOT_TOKEN = "8765613302:AAE2b0qDyR-o0UkzGs5H7fuSSz0yhLiYSBc" 
 
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
@@ -49,7 +49,7 @@ fg  = FamGateway(api_key=API_KEY)
 def get_user_info(uid):
     u = users_col.find_one({"_id": str(uid)})
     if not u:
-        default_u = {"_id": str(uid), "balance": 0.0, "name": "User", "discount": 0, "verified": False}
+        default_u = {"_id": str(uid), "balance": 0.0, "name": "User", "discount": 0}
         users_col.insert_one(default_u)
         return default_u
     return u
@@ -68,27 +68,48 @@ def credit_balance(uid, amount):
     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
     return get_balance(uid)
 
+def credit_atomic(uid, amount, utr):
+    if orders_col.find_one({"utr": utr, "type": "deposit"}):
+        return True, get_balance(uid)
+    orders_col.insert_one({"utr": utr, "uid": str(uid), "amount": amount, "type": "deposit", "time": time.strftime("%d-%m-%Y %I:%M %p")})
+    users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
+    return True, get_balance(uid)
+
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
 # ================== TELEGRAM BOT ==================
 def get_main_menu(uid):
     text = (
-        "(●) <b>WELCOME TO SAKSHAM PANEL SHOP - PRODUCT STATUS</b> [Shop]\n\n"
-        "➡️ Buy Now : All Key Purchase & Instant Delivery ✅\n"
-        "➡️ Check Update : Check Setup And Update Apk ✅\n"
+        "(●) <b>WELCOME TO SAKSHAM PANEL SHOP\n"
+        "- PRODUCT STATUS</b> [Shop]\n\n"
+        "➡️ Buy Now : All Key Purchase & Instant Delivery\n"
+        "✅\n"
+        "➡️ Check Update : Check Setup And Update Apk\n"
+        "✅\n"
         "➡️ Add Balance : Secure Auto Payment System ✅\n"
-        "➡️ My Profile + All History : Check Your All History ✅\n"
-        "➡️ How To Use Bot : View Tutorial And Work This Bot ✅\n"
-        "➡️ Support : Bot Problem Fixed For Support Admin ✅\n\n"
-        "⬇️ <b>SELECT AN OPTION FROM THE MENU BELOW 🛒</b>"
+        "➡️ My Profile + All History : Check Your All History\n"
+        "✅\n"
+        "➡️ How To Use Bot : View Tutorial And Work This\n"
+        "Bot ✅\n"
+        "➡️ Support : Bot Problem Fixed For Support Admin\n"
+        "✅\n\n"
+        "⬇️ <b>SELECT AN OPTION FROM THE MENU\n"
+        "BELOW 🛒</b>"
     )
     
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("➡️ Shop Now 🛍️", callback_data="bot_shop"))
-    kb.add(InlineKeyboardButton("➡️ Add Amount 💸", callback_data="bot_add_bal"), InlineKeyboardButton("➡️ My Profile 👤", callback_data="bot_profile"))
-    kb.add(InlineKeyboardButton("➡️ Order History 📄", callback_data="bot_history"), InlineKeyboardButton("➡️ Main Channel ⚡", url=CHANNEL_LINK))
-    kb.add(InlineKeyboardButton("➡️ All Hack Update 📁", url=CHANNEL_LINK), InlineKeyboardButton("➡️ How To Buy Panel 🚀", url=SUPPORT_LINK))
+    
+    kb.add(InlineKeyboardButton("➡️ Add Amount 💸", callback_data="bot_add_bal"), 
+           InlineKeyboardButton("➡️ My Profile 👤", callback_data="bot_profile"))
+           
+    kb.add(InlineKeyboardButton("➡️ Order History 📄", callback_data="bot_history"), 
+           InlineKeyboardButton("➡️ Main Channel ⚡", url=CHANNEL_LINK))
+           
+    kb.add(InlineKeyboardButton("➡️ All Hack Update 📁", url=CHANNEL_LINK), 
+           InlineKeyboardButton("➡️ How To Buy Panel 🚀", url=SUPPORT_LINK))
+           
     kb.add(InlineKeyboardButton("➡️ Become A Reseller 🤝", web_app=WebAppInfo(url=f"{WEB_URL}/buy_reseller")))
     kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=SUPPORT_LINK))
     
@@ -100,30 +121,9 @@ def get_main_menu(uid):
 @bot.message_handler(commands=["start"])
 def start(msg):
     uid = str(msg.from_user.id)
-    user = get_user_info(uid)
-    
-    # Verification Logic
-    if not user.get("verified"):
-        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        markup.add(KeyboardButton("📱 Share Contact (For Verification)", request_contact=True))
-        bot.send_message(msg.chat.id, "🛡️ <b>Verification Required</b>\n\nPlease verify your phone number to continue.", parse_mode="HTML", reply_markup=markup)
-        return
-        
-    # If verified, show main menu
+    get_user_info(uid)
     text, kb = get_main_menu(uid)
     bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
-
-@bot.message_handler(content_types=['contact'])
-def handle_contact(msg):
-    uid = str(msg.from_user.id)
-    if msg.contact.user_id == msg.from_user.id:
-        users_col.update_one({"_id": uid}, {"$set": {"phone": msg.contact.phone_number, "verified": True}})
-        bot.send_message(msg.chat.id, "✅ <b>Verification Successful!</b>", parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
-        
-        text, kb = get_main_menu(uid)
-        bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
-    else:
-        bot.send_message(msg.chat.id, "❌ <b>Invalid Contact!</b> Please share your own number.", parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: True)
 def bot_callbacks(call):
@@ -157,7 +157,9 @@ def bot_callbacks(call):
         cat_id = call.data.split("|")[1]
         cat = categories_col.find_one({"_id": ObjectId(cat_id)})
         
+        # Yahan filter hota hai ki product kis category ka hai
         products = list(products_col.find({"category_id": cat_id, "status": {"$ne": "out_of_stock"}}))
+        
         if not products:
             return bot.answer_callback_query(call.id, "❌ No products in this category right now.", show_alert=True)
         
@@ -221,7 +223,7 @@ def bot_callbacks(call):
                 
     elif call.data == "bot_profile":
         u = get_user_info(uid)
-        bot.answer_callback_query(call.id, f"👤 Name: {u.get('name')}\n📱 Phone: {u.get('phone', 'N/A')}\n💰 Balance: ₹{u.get('balance'):.2f}\n🏷️ Discount: {u.get('discount')}%", show_alert=True)
+        bot.answer_callback_query(call.id, f"👤 Name: {u.get('name')}\n💰 Balance: ₹{u.get('balance'):.2f}\n🏷️ Discount: {u.get('discount')}%", show_alert=True)
         
     elif call.data == "bot_history":
         orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
@@ -233,12 +235,12 @@ def bot_callbacks(call):
         bot.send_message(call.message.chat.id, text, parse_mode="HTML")
         
     elif call.data == "bot_add_bal":
-        bot.send_message(call.message.chat.id, "👇 Click here to add balance:", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", web_app=WebAppInfo(url=f"{WEB_URL}/deposit"))))
-    else:
-        bot.answer_callback_query(call.id, "🚧 This feature is coming soon!", show_alert=True)
+        # Calculator UI open hoga yahan se
+        web_app = WebAppInfo(url=f"{WEB_URL}/deposit?uid={uid}")
+        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", web_app=web_app))
+        bot.send_message(call.message.chat.id, "👇 Click here to add balance:", reply_markup=kb)
 
-
-# ================== FLASK WEB APP (ADMIN PANEL) ==================
+# ================== FLASK WEB APP ==================
 app = Flask(__name__)
 app.secret_key = "sk_panel_secret"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -247,8 +249,8 @@ BASE_CSS = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
     * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; }
-    body { background-color: #050810; color: #fff; padding-bottom: 100px; }
-    .container { padding: 20px; max-width: 1000px; margin: 0 auto; }
+    body { background-color: #050810; color: #fff; padding-bottom: 50px; }
+    .container { padding: 20px; max-width: 500px; margin: 0 auto; }
     .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: rgba(15, 23, 42, 0.85); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); }
     .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 15px 25px; border-radius: 25px; font-weight: 800; color: white; text-decoration: none; }
     .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 25px; padding: 30px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
@@ -260,13 +262,23 @@ BASE_CSS = """
     .btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; }
     .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; }
     .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: black; }
-    .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
     .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.08); }
     .stat-title { font-size: 15px; color: #94a3b8; font-weight: 700; }
     .stat-value { font-size: 32px; font-weight: 900; }
+
+    /* Calculator CSS */
+    .calc-display { background: #000; padding: 20px; border-radius: 15px; font-size: 40px; font-weight: 900; color: #00f0ff; text-align: right; margin-bottom: 20px; border: 2px solid #00f0ff; box-shadow: 0 0 20px rgba(0,240,255,0.2); letter-spacing: 2px; }
+    .calc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .calc-btn { background: #1e293b; color: white; border: none; padding: 20px; font-size: 24px; font-weight: 700; border-radius: 15px; cursor: pointer; transition: 0.2s; }
+    .calc-btn:active { transform: scale(0.95); background: #334155; }
+    .calc-btn.clear { background: #ef4444; color: white; }
+    .calc-btn.back { background: #f59e0b; color: black; }
+    .calc-btn.proceed { background: #10b981; color: white; grid-column: span 3; font-size: 20px; margin-top: 10px; text-transform: uppercase; }
 </style>
 """
 
+# ================== ADMIN PANEL ==================
 @app.route('/admin', methods=['GET'])
 def admin_panel():
     total_users = users_col.count_documents({})
@@ -305,7 +317,7 @@ def admin_panel():
             <a href="/" class="store-btn" style="background:#ef4444;">Exit</a>
         </div>
     </div>
-    <div class="container" style="margin-top:20px;">
+    <div class="container" style="max-width: 1000px; margin-top:20px;">
         <div class="stats-grid">
             <div class="stat-card"><div class="stat-title">Users</div><div class="stat-value text-blue">{total_users}</div></div>
             <div class="stat-card"><div class="stat-title">Sales</div><div class="stat-value text-yellow">{total_sales}</div></div>
@@ -352,7 +364,7 @@ def admin_panel():
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
             d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:15px; background:#0f172a; color:#fff; border:2px solid #334155;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:15px; background:#0f172a; color:#fff; border:2px solid #334155;">`;
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px;">`;
             c.appendChild(d);
         }}
     </script>
@@ -502,10 +514,144 @@ def delete_product(p_id):
     products_col.delete_one({"_id": ObjectId(p_id)})
     return redirect(url_for('admin_panel'))
 
-# User Web routes (Deposit/Login) required for FamGateway to work
+# ================== USER WEB APP (DEPOSIT & CALCULATOR) ==================
 @app.route('/deposit', methods=['GET', 'POST'])
 def web_deposit():
-    return "<h2 style='color:white;text-align:center;'>Deposit Page Working (Implement your FamGateway here)</h2>"
+    # Get UID from URL (passed from bot)
+    uid = request.args.get('uid')
+    if not uid:
+        return "User ID not found. Please try again from bot."
+
+    if request.method == 'POST':
+        amount = float(request.form['amount'])
+        
+        if amount < 10:
+            return "<h3 style='color:red; text-align:center;'>Minimum amount is ₹10</h3>"
+
+        try:
+            # FamGateway ka use karke order create karna
+            order = fg.create_order(amount=amount, customer_name=f"User_{uid}")
+            
+            QR_HTML = BASE_CSS + f"""
+            <div class="container fade-in" style="margin-top:30px; text-align:center;">
+                <div class="product-card" style="padding: 40px 20px;">
+                    <h2 style="color:#10b981; font-size:36px; font-weight:900; margin-bottom:10px;">Pay ₹{amount}</h2>
+                    <p style="color:#94a3b8; font-size:16px; margin-bottom:25px;">Scan the QR Code below to pay</p>
+                    
+                    <div id="qr-section">
+                        <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(56, 189, 248, 0.6);">
+                            <img src="{order.qr_url}" style="width:100%; max-width:250px; display:block; border-radius:10px;">
+                        </div>
+                        
+                        <div id="loading-section" style="margin-top:30px;">
+                            <div style="display:inline-block; width:45px; height:45px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #38bdf8; border-radius:50%; animation: spin 1s linear infinite;"></div>
+                            <h3 style="color:#38bdf8; margin-top:15px; font-weight:800; font-size:20px;">Waiting for Payment...</h3>
+                            <button onclick="checkPaymentStatus()" class="action-btn btn-warning" style="margin-top:20px; padding:15px; font-size:16px; border-radius:10px;">🔄 Check Status Manually</button>
+                        </div>
+                    </div>
+
+                    <div id="success-section" style="display:none; margin-top:30px;">
+                        <div style="font-size:70px; margin-bottom:20px;">✅</div>
+                        <h2 style="color:#10b981; font-size:32px; font-weight:900;">Payment Successful!</h2>
+                        <p style="color:#cbd5e1; font-size:20px; margin-top:15px;">New Balance: <b id="new-balance" style="color:#38bdf8;">₹0.00</b></p>
+                        <p style="color:#94a3b8; margin-top:10px;">You can close this window now.</p>
+                    </div>
+                </div>
+            </div>
+            <script>
+                let checkCount = 0;
+                const maxChecks = 40; 
+                
+                function checkPaymentStatus() {{
+                    fetch('/check_payment/{order.order_id}/{amount}?uid={uid}')
+                    .then(response => response.json())
+                    .then(data => {{
+                        if (data.status === 'success') {{
+                            document.getElementById('qr-section').style.display = 'none';
+                            document.getElementById('success-section').style.display = 'block';
+                            document.getElementById('new-balance').innerText = '₹' + data.new_balance.toFixed(2);
+                        }} else if (data.status === 'expired') {{
+                            document.getElementById('loading-section').innerHTML = '<h3 style="color:#ef4444;">QR Expired! Please try again.</h3>';
+                            clearInterval(pollInterval);
+                        }}
+                    }});
+                    checkCount++;
+                    if(checkCount >= maxChecks) {{ clearInterval(pollInterval); }}
+                }}
+                const pollInterval = setInterval(checkPaymentStatus, 3000);
+            </script>
+            """
+            return render_template_string(QR_HTML)
+        except Exception as e: 
+            return f"<h2 style='color:red; text-align:center; margin-top:50px;'>API Error: {e}</h2>"
+
+    # GET Request: Calculator UI dikhana
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:900; font-size:20px; color:#38bdf8;">💸 Add Balance</div>
+    </div>
+    <div class="container" style="margin-top:20px;">
+        <div class="product-card" style="border-color:#0ea5e9;">
+            <form method="POST" id="depositForm">
+                <div class="input-group">
+                    <label style="text-align:center; font-size:18px; color:#94a3b8;">Enter Amount (₹)</label>
+                    <input type="number" id="amountInput" name="amount" required readonly style="font-size:32px; text-align:right; background:#000; color:#00f0ff; border:2px solid #00f0ff; border-radius:15px; padding:20px; font-weight:900;">
+                </div>
+
+                <!-- Calculator UI -->
+                <div class="calc-grid">
+                    <button type="button" class="calc-btn" onclick="addDigit('1')">1</button>
+                    <button type="button" class="calc-btn" onclick="addDigit('2')">2</button>
+                    <button type="button" class="calc-btn" onclick="addDigit('3')">3</button>
+                    <button type="button" class="calc-btn" onclick="addDigit('4')">4</button>
+                    <button type="button" class="calc-btn" onclick="addDigit('5')">5</button>
+                    <button type="button" class="calc-btn" onclick="addDigit('6')">6</button>
+                    <button type="button" class="calc-btn" onclick="addDigit('7')">7</button>
+                    <button type="button" class="calc-btn" onclick="addDigit('8')">8</button>
+                    <button type="button" class="calc-btn" onclick="addDigit('9')">9</button>
+                    <button type="button" class="calc-btn clear" onclick="clearDisplay()">C</button>
+                    <button type="button" class="calc-btn" onclick="addDigit('0')">0</button>
+                    <button type="button" class="calc-btn back" onclick="backspace()">⌫</button>
+                    <button type="submit" class="calc-btn proceed">Proceed to Pay</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script>
+        const input = document.getElementById('amountInput');
+        
+        function addDigit(digit) {{
+            if (input.value === '0') input.value = digit;
+            else input.value += digit;
+        }}
+        
+        function clearDisplay() {{
+            input.value = '';
+        }}
+        
+        function backspace() {{
+            input.value = input.value.slice(0, -1);
+        }}
+    </script>
+    """)
+
+@app.route('/check_payment/<order_id>/<float:amount>')
+def check_payment(order_id, amount):
+    uid = request.args.get('uid')
+    if not uid:
+        return jsonify({"status": "error", "message": "UID missing"})
+        
+    try:
+        status = fg.get_status(order_id)
+        if status.is_paid:
+            ok, new_bal = credit_atomic(uid, amount, status.utr)
+            return jsonify({"status": "success", "new_balance": new_bal})
+        elif status.is_expired:
+            return jsonify({"status": "expired"})
+        else:
+            return jsonify({"status": "pending"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/buy_reseller', methods=['GET', 'POST'])
 def buy_reseller():
@@ -521,7 +667,7 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 def run_bot():
-    print("Bot is starting...")
+    print("Starting Bot...")
     try: 
         bot.delete_webhook(drop_pending_updates=True) 
     except Exception as e: 

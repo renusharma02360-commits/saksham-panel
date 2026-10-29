@@ -244,11 +244,12 @@ def bot_callbacks(call):
             bot.register_next_step_handler(msg, process_deposit_amount)
             bot.answer_callback_query(call.id)
 
-        elif call.data.startswith("check_dep_"):
-            parts = call.data.split("_")
-            order_id = parts[2]
-            amount = float(parts[3])
-            target_uid = parts[4]
+        # FIXED: Parsing using Pipe '|' instead of Underscore '_'
+        elif call.data.startswith("check_dep|"):
+            parts = call.data.split("|")
+            order_id = parts[1]
+            amount = float(parts[2])
+            target_uid = parts[3]
             
             bot.answer_callback_query(call.id, "⏳ Checking status with gateway...")
             verify_payment_manually(call.message.chat.id, target_uid, order_id, amount)
@@ -263,7 +264,6 @@ def process_deposit_amount(message):
     try:
         amount = float(message.text)
         
-        # YAHAN LIMIT HATA DI GAYI HAI. Ab 0 se bada koi bhi amount chalega.
         if amount <= 0:
             msg = bot.reply_to(message, "❌ Amount must be greater than 0. Please enter again:")
             bot.register_next_step_handler(msg, process_deposit_amount)
@@ -274,7 +274,8 @@ def process_deposit_amount(message):
         
         caption = f"💳 <b>Pay ₹{amount}</b>\n\nScan the QR code above using any UPI app.\n\n<i>Bot is checking for payment in the background. Please wait...</i>"
         
-        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"check_dep_{order.order_id}_{amount}_{uid}"))
+        # FIXED: Using Pipe '|' here too
+        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"check_dep|{order.order_id}|{amount}|{uid}"))
         bot.send_photo(message.chat.id, photo=order.qr_url, caption=caption, parse_mode="HTML", reply_markup=kb)
         
         threading.Thread(target=verify_chat_payment, args=(message.chat.id, uid, order.order_id, amount)).start()

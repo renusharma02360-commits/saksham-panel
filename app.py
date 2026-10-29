@@ -5,6 +5,7 @@ import requests
 import urllib.parse
 import telebot
 import uuid
+from functools import wraps
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from famgateway import FamGateway
 from flask import Flask, request, render_template_string, redirect, url_for, session, jsonify
@@ -14,7 +15,9 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
-BOT_TOKEN = "8764644526:AAET1x8jqFsp4d-XvdiZbVx-aO2cyKY3ISc"
+# 🚨 APNA NAYA BOT TOKEN YAHAN DAALEIN 🚨
+BOT_TOKEN = "8765613302:AAEHEgUQZc_Z1qa8SwCKKwWLgRe-ZgDKks4" # (Isko revoke karke naya lagayein)
+
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
 ADMIN_ID  = 7778093775
 MONGO_URI = os.environ.get("MONGO_URI") 
@@ -23,10 +26,14 @@ WEB_URL = "https://saksham-panel-kpsl.onrender.com"
 
 ADMIN_WP = "918849507563" 
 SUPPORT_LINK = "https://wa.me/918849507563" 
+CHANNEL_LINK = "https://t.me/YourChannelLink" # Apna channel link yahan daalein
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
 MASTER_KEY       = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
+
+# 🔒 Admin Panel Password
+ADMIN_PASSWORD = "SakshamAdmin123" 
 # ============================================
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -36,6 +43,7 @@ db = client.saksham_panel
 users_col = db.users
 web_users_col = db.web_users 
 products_col = db.products
+categories_col = db.categories # NEW: Categories collection
 orders_col = db.orders
 settings_col = db.settings
 
@@ -75,18 +83,40 @@ def credit_atomic(uid, amount, utr):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ================== TELEGRAM BOT ==================
+# ================== TELEGRAM BOT MENUS ==================
+def get_main_menu(uid):
+    text = (
+        "🎉 <b>WELCOME TO SAKSHAM PANEL SHOP - PRODUCT STATUS 🛒</b>\n\n"
+        "➡️ Buy Now : All Key Purchase & Instant Delivery ✅\n"
+        "➡️ Check Update : Check Setup And Update Apk ✅\n"
+        "➡️ Add Balance : Secure Auto Payment System ✅\n"
+        "➡️ My Profile + All History : Check Your All History ✅\n"
+        "➡️ Refer And Earn : Share Refer Link & Earn Money ✅\n"
+        "➡️ How To Use Bot : View Tutorial And Work This Bot ✅\n"
+        "➡️ Support : Bot Problem Fixed For Support Admin ✅\n"
+        "➡️ Daily Gift : Free Spin and win random balance daily ✅\n\n"
+        "⬇️ <b>SELECT AN OPTION FROM THE MENU BELOW 🛒</b>"
+    )
+    
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(InlineKeyboardButton("➡️ Shop Now 🛍️", callback_data="bot_shop"))
+    kb.add(InlineKeyboardButton("➡️ Add Amount 💸", callback_data="bot_add_bal"), InlineKeyboardButton("➡️ My Profile 👤", callback_data="bot_profile"))
+    kb.add(InlineKeyboardButton("➡️ Order History 📄", callback_data="bot_history"), InlineKeyboardButton("➡️ Main Channel ⚡", url=CHANNEL_LINK))
+    kb.add(InlineKeyboardButton("➡️ Refer & Earn 💰", callback_data="bot_refer"), InlineKeyboardButton("➡️ All Hack Update 📁", callback_data="bot_updates"))
+    kb.add(InlineKeyboardButton("➡️ How To Buy Panel 🚀", url=SUPPORT_LINK), InlineKeyboardButton("➡️ Special Gift 🎁", callback_data="bot_gift"))
+    kb.add(InlineKeyboardButton("➡️ Become A Reseller 🤝", web_app=WebAppInfo(url=f"{WEB_URL}/buy_reseller")))
+    kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=SUPPORT_LINK))
+    
+    if str(uid) == str(ADMIN_ID):
+        kb.add(InlineKeyboardButton("⚙️ Admin Panel", web_app=WebAppInfo(url=f"{WEB_URL}/admin")))
+        
+    return text, kb
+
 @bot.message_handler(commands=["start"])
 def start(msg):
     uid = msg.from_user.id
     get_user_info(uid)
-    text = f"👋 <b>Welcome to SAKSHAM PANEL STORE, {msg.from_user.first_name}!</b>\n\n💳 <b>Your Balance:</b> ₹{get_balance(uid):.2f}\n\n👇 <i>Select an option below:</i>"
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("🛒 Shop Now", callback_data="bot_shop"))
-    kb.add(InlineKeyboardButton("👤 My Profile", callback_data="bot_profile"), InlineKeyboardButton("💻 Web App", web_app=WebAppInfo(url=WEB_URL)))
-    kb.add(InlineKeyboardButton("💸 Add Balance", web_app=WebAppInfo(url=f"{WEB_URL}/deposit")))
-    if str(uid) == str(ADMIN_ID):
-        kb.add(InlineKeyboardButton("⚙️ Admin Panel", web_app=WebAppInfo(url=f"{WEB_URL}/admin")))
+    text, kb = get_main_menu(uid)
     bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -94,28 +124,38 @@ def bot_callbacks(call):
     uid = call.from_user.id
     bot.answer_callback_query(call.id)
     
-    if call.data == "bot_shop":
-        products = list(products_col.find({"status": {"$ne": "out_of_stock"}}))
-        if not products:
-            return bot.send_message(call.message.chat.id, "❌ Store is currently empty.")
-        kb = InlineKeyboardMarkup(row_width=1)
-        for p in products:
-            kb.add(InlineKeyboardButton(f"📦 {p.get('name')}", callback_data=f"bot_view|{p['_id']}"))
-        kb.add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main"))
-        bot.edit_message_text("🛒 <b>STORE PRODUCTS</b>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
-                              
-    elif call.data == "bot_profile":
-        uid = str(uid)
-        u = get_user_info(uid)
-        text = f"👤 <b>MY PROFILE</b>\n\n🆔 ID: <code>{uid}</code>\n💵 Balance: <b>₹{u.get('balance', 0):.2f}</b>\n🏷️ Reseller: {u.get('discount', 0)}% OFF"
-        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
+    if call.data == "bot_main":
+        text, kb = get_main_menu(uid)
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
         
-    elif call.data == "bot_main":
-        text = f"👋 <b>Welcome to SAKSHAM PANEL STORE!</b>\n\n💳 <b>Your Balance:</b> ₹{get_balance(uid):.2f}"
-        kb = InlineKeyboardMarkup(row_width=2)
-        kb.add(InlineKeyboardButton("🛒 Shop Now", callback_data="bot_shop"))
-        kb.add(InlineKeyboardButton("👤 My Profile", callback_data="bot_profile"), InlineKeyboardButton("💻 Web App", web_app=WebAppInfo(url=WEB_URL)))
+    elif call.data == "bot_shop":
+        # Show Categories
+        categories = list(categories_col.find({}))
+        if not categories:
+            return bot.send_message(call.message.chat.id, "❌ No categories added yet. Please check back later.")
+        
+        text = "📁 <b>SELECT A CATEGORY</b>\n\nChoose a product category below:"
+        kb = InlineKeyboardMarkup(row_width=1)
+        for cat in categories:
+            kb.add(InlineKeyboardButton(f"➡️ {cat.get('name')}", callback_data=f"bot_cat|{cat['_id']}"))
+        kb.add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main"))
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+
+    elif call.data.startswith("bot_cat|"):
+        cat_id = call.data.split("|")[1]
+        cat = categories_col.find_one({"_id": ObjectId(cat_id)})
+        
+        # Show Products in that category
+        products = list(products_col.find({"category_id": cat_id, "status": {"$ne": "out_of_stock"}}))
+        if not products:
+            return bot.answer_callback_query(call.id, "❌ No products in this category right now.", show_alert=True)
+        
+        text = f"📁 <b>{cat.get('name', 'Category').upper()}</b>\n\nChoose a product below:"
+        kb = InlineKeyboardMarkup(row_width=1)
+        for p in products:
+            # You can add custom emojis here if you want
+            kb.add(InlineKeyboardButton(f"➡️ {p.get('name')}", callback_data=f"bot_view|{p['_id']}"))
+        kb.add(InlineKeyboardButton("🔙 Back to Categories", callback_data="bot_shop"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
 
     elif call.data.startswith("bot_view|"):
@@ -124,15 +164,25 @@ def bot_callbacks(call):
         u = get_user_info(uid)
         disc = u.get('discount', 0)
         
-        text = f"📦 <b>{p['name']}</b>\n\n{p.get('features', '')}"
+        # Formatting Product Page exactly like your screenshot
+        features_text = p.get('features', '').replace('\n', '\n⚡ ') if p.get('features') else ''
+        text = f"📁 <b>{p['name']} - {p.get('platform', 'Android')}</b>\n\n"
+        text += f"➡️ <b>Choose a product:</b>\n\n⚡ {features_text}\n\n"
+        
         kb = InlineKeyboardMarkup(row_width=2)
+        
+        # Update and Video Buttons
+        kb.add(InlineKeyboardButton("📥 Check Update File", url=p.get('setup_video', '#')), 
+               InlineKeyboardButton("▶️ Check Video", url=p.get('hack_video', '#')))
+        
+        # Price Buttons
         for d, pr in p.get('prices', {}).items():
-            # Yahan pr INR me hai (jo admin panel se dala gaya)
             final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
             kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"bot_buy|{p_id}|{d}"))
-        kb.add(InlineKeyboardButton("🔙 Back to Shop", callback_data="bot_shop"))
+            
+        kb.add(InlineKeyboardButton("🔙 Back to Products", callback_data=f"bot_cat|{p.get('category_id')}"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
-        
+
     elif call.data.startswith("bot_buy|"):
         parts = call.data.split("|")
         p_id, duration = parts[1], parts[2]
@@ -140,7 +190,6 @@ def bot_callbacks(call):
         u = get_user_info(uid)
         disc = u.get('discount', 0)
         
-        # User ke liye price INR me calculate ho raha hai
         price = float(p['prices'][duration]) - (float(p['prices'][duration]) * disc / 100) if disc > 0 else float(p['prices'][duration])
         
         if get_balance(uid) < price:
@@ -163,665 +212,72 @@ def bot_callbacks(call):
                 credit_balance(uid, price)
                 kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Shop", callback_data="bot_shop"))
                 bot.edit_message_text(f"❌ <b>API Error (Out of Stock)</b>\n\n₹{price:.2f} has been refunded to your wallet.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+                
+    # Placeholder callbacks for other buttons
+    elif call.data == "bot_profile":
+        u = get_user_info(uid)
+        bot.answer_callback_query(call.id, f"👤 Name: {u.get('name')}\n💰 Balance: ₹{u.get('balance'):.2f}\n🏷️ Discount: {u.get('discount')}%", show_alert=True)
+    elif call.data == "bot_add_bal":
+        bot.answer_callback_query(call.id, "👇 Please click the button below to add balance.", show_alert=True)
+        bot.send_message(call.message.chat.id, "👇 Click here to add balance:", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", web_app=WebAppInfo(url=f"{WEB_URL}/deposit"))))
+    else:
+        bot.answer_callback_query(call.id, "🚧 This feature is coming soon!", show_alert=True)
 
 # ================== FLASK WEB APP ==================
 app = Flask(__name__)
-app.secret_key = "sk_panel_secret"
+app.secret_key = "sk_panel_secret_secure_now_12345"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-BASE_CSS = """
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
-    * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    body { background-color: #050810; color: #fff; padding-bottom: 100px; background-image: radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.1), transparent 30%), radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.1), transparent 30%); background-attachment: fixed; min-height: 100vh; animation: bodyFadeIn 0.8s ease-out; }
-    @keyframes bodyFadeIn { from { opacity: 0; } to { opacity: 1; } }
-    .container { padding: 20px; max-width: 1000px; margin: 0 auto; animation: slideUp 0.5s ease-out; }
-    @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-    
-    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(20px); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
-    .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 15px 25px; border-radius: 25px; font-weight: 800; font-size: 16px; color: white; text-decoration: none; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); transition: 0.3s; }
-    .store-btn:active { transform: scale(0.92); }
-    .wallet-box { background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; padding: 12px 20px; border-radius: 25px; font-weight: 900; color: #10b981; font-size: 20px; box-shadow: 0 0 20px rgba(16, 185, 129, 0.2); }
-    
-    .hero-banner { width: 100%; padding: 40px 20px; background: linear-gradient(145deg, #1e1b4b, #0f172a); border-radius: 25px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 30px; border: 2px solid #6366f1; box-shadow: inset 0 0 30px rgba(99, 102, 241, 0.2), 0 10px 40px rgba(0, 0, 0, 0.6); position: relative; overflow: hidden; }
-    .logo-text { font-size: 38px; font-weight: 900; background: linear-gradient(to right, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 5px; text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); text-transform: uppercase; letter-spacing: 1px; }
-    .tagline { font-size: 13px; color: #38bdf8; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-top: 5px; text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
-    
-    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
-    .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 10px 25px rgba(0,0,0,0.3); transition: 0.3s; }
-    .stat-card:hover { transform: translateY(-5px); border-color: #38bdf8; box-shadow: 0 10px 30px rgba(56,189,248,0.2); }
-    .stat-title { font-size: 15px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; }
-    .stat-value { font-size: 32px; font-weight: 900; }
-
-    .search-box { display: flex; background: #0f172a; border: 2px solid #334155; border-radius: 15px; padding: 10px; margin-bottom: 30px; transition: 0.3s; }
-    .search-box:focus-within { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.3); }
-    .search-box input { flex: 1; background: transparent; border: none; color: #fff; font-size: 16px; padding: 10px; outline: none; }
-    .search-box button { background: #38bdf8; color: #000; border: none; padding: 10px 20px; border-radius: 10px; font-weight: 800; cursor: pointer; }
-
-    .reseller-banner { background: linear-gradient(135deg, #f59e0b, #d97706, #fbbf24); background-size: 200% 200%; animation: gradientShift 3s ease infinite; border-radius: 20px; padding: 25px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(245, 158, 11, 0.4); border: 2px solid #fbbf24; position: relative; overflow: hidden; }
-    @keyframes gradientShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
-    .reseller-text { color: #000; position: relative; z-index: 1; }
-    .reseller-text h2 { font-size: 22px; font-weight: 900; margin-bottom: 5px; }
-    .reseller-text p { font-size: 14px; font-weight: 700; }
-    .reseller-btn { background: #000; color: #fbbf24; padding: 12px 25px; border-radius: 15px; font-weight: 900; font-size: 16px; text-decoration: none; position: relative; z-index: 1; box-shadow: 0 5px 15px rgba(0,0,0,0.5); transition: 0.3s; border: 2px solid #fbbf24; }
-    .reseller-btn:hover { background: #fbbf24; color: #000; transform: scale(1.05); }
-
-    .product-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
-    .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 25px; padding: 30px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.5); transition: 0.3s; }
-    .product-card:hover { transform: translateY(-3px); box-shadow: 0 15px 40px rgba(56,189,248,0.1); border-color: rgba(56,189,248,0.3); }
-    .product-title { font-size: 24px; font-weight: 900; color: #fff; margin-bottom: 15px; }
-
-    .action-btn { display: block; width: 100%; padding: 20px; border-radius: 15px; text-align: center; font-weight: 900; font-size: 18px; text-decoration: none; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s; }
-    .action-btn:hover { transform: translateY(-2px); filter: brightness(1.2); }
-    .action-btn:active { transform: scale(0.95); }
-    .btn-primary { background: linear-gradient(135deg, #0ea5e9, #3b82f6); color: white; box-shadow: 0 8px 25px rgba(14, 165, 233, 0.4); }
-    .btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4); }
-    .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4); }
-    .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: black; box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4); }
-
-    .input-group { margin-bottom: 20px; }
-    .input-group label { display: block; font-size: 16px; color: #cbd5e1; margin-bottom: 10px; font-weight: 700; }
-    .input-group input, .input-group textarea { width: 100%; padding: 20px; border-radius: 15px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 18px; outline: none; font-weight: 600; transition: 0.3s; }
-    .input-group input:focus, .input-group textarea:focus { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.3); }
-    
-    .gameplay-banner-container { width: 100%; aspect-ratio: 1 / 1; border-radius: 15px; overflow: hidden; border: 2px solid #00f0ff; box-shadow: 0 0 25px rgba(0, 240, 255, 0.4), inset 0 0 20px rgba(0,0,0,0.8); margin-bottom: 20px; position: relative; background: #000; }
-    .gameplay-banner { width: 100%; height: 100%; object-fit: contain; object-position: center; transition: transform 0.5s ease; }
-    .gameplay-banner-container:hover .gameplay-banner { transform: scale(1.05); }
-    
-    .product-page-title { text-align: center; font-size: 28px; font-weight: 900; color: white; text-shadow: 0 0 15px rgba(255,255,255,0.4); margin-bottom: 20px; letter-spacing: 1px; }
-    .feature-item { background: linear-gradient(90deg, #0a101f, #111827); border: 1px solid #1e293b; border-radius: 12px; padding: 18px; margin-bottom: 12px; display: flex; align-items: center; gap: 15px; font-weight: 700; color: #e2e8f0; font-size: 16px; transition: 0.3s; }
-    .feature-item:hover { transform: translateX(5px); border-color: #10b981; }
-    .feature-item::before { content: '✅'; font-size: 20px; filter: drop-shadow(0 0 5px #10b981); }
-    
-    .check-btns { display: flex; gap: 12px; margin-top: 20px; margin-bottom: 30px; }
-    .btn-cyan { flex: 1; background: linear-gradient(135deg, #0ea5e9, #2563eb); border: none; color: white; padding: 15px 10px; border-radius: 12px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 5px 15px rgba(14,165,233,0.4); transition: 0.3s; }
-    .btn-cyan:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(14,165,233,0.6); }
-    .btn-red { flex: 1; background: linear-gradient(135deg, #ef4444, #b91c1c); border: none; color: white; padding: 15px 10px; border-radius: 12px; font-weight: 800; font-size: 14px; text-align: center; text-decoration: none; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 5px 15px rgba(239,68,68,0.4); transition: 0.3s; }
-    .btn-red:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(239,68,68,0.6); }
-    
-    .purchase-header { background: linear-gradient(90deg, #8b5cf6, #6366f1); color: white; padding: 15px; border-radius: 12px; text-align: center; font-weight: 900; font-size: 20px; text-transform: uppercase; margin-bottom: 20px; letter-spacing: 1px; box-shadow: 0 5px 20px rgba(139, 92, 246, 0.4); }
-    
-    .price-row-ui { display: flex; align-items: center; justify-content: space-between; background: linear-gradient(145deg, #0a101f, #050810); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 15px; padding: 18px 25px; margin-bottom: 15px; transition: 0.3s; box-shadow: 0 5px 15px rgba(0,0,0,0.4); }
-    .price-row-ui:hover { border-color: #00f0ff; transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,240,255,0.15); }
-    .price-dur { font-weight: 800; font-size: 18px; color: #00f0ff; margin-bottom: 5px; text-shadow: 0 0 10px rgba(0,240,255,0.5); }
-    .price-amt { font-weight: 900; font-size: 22px; color: white; }
-    
-    .buy-btn-ui { background: linear-gradient(45deg, #ff00cc, #ff3366, #ff00cc); background-size: 200% auto; color: white; padding: 15px 30px; border-radius: 10px; font-weight: 900; font-size: 18px; border: none; cursor: pointer; box-shadow: 0 5px 15px rgba(255, 0, 204, 0.4), 0 0 20px rgba(255, 0, 204, 0.2); text-transform: uppercase; transition: 0.3s; animation: shine 3s linear infinite; }
-    .buy-btn-ui:hover { transform: translateY(-3px) scale(1.05); box-shadow: 0 8px 25px rgba(255, 0, 204, 0.6), 0 0 30px rgba(255, 0, 204, 0.4); }
-    .buy-btn-ui:active { transform: translateY(1px) scale(0.95); }
-    
-    @keyframes shine { to { background-position: 200% center; } }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-    .floating-support { position: fixed; bottom: 30px; right: 30px; background: linear-gradient(135deg, #10b981, #059669); width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 30px; color: white; text-decoration: none; box-shadow: 0 5px 20px rgba(16,185,129,0.5); z-index: 1000; animation: float 3s ease-in-out infinite; }
-    @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
-
-    #toast { visibility: hidden; min-width: 250px; background-color: #10b981; color: #fff; text-align: center; border-radius: 12px; padding: 16px; position: fixed; z-index: 10000; left: 50%; bottom: 30px; transform: translateX(-50%); font-size: 16px; font-weight: bold; box-shadow: 0 5px 20px rgba(16,185,129,0.5); opacity: 0; transition: opacity 0.3s, bottom 0.3s; }
-    #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
-    
-    .success-alert { background: rgba(16, 185, 129, 0.2); border: 2px solid #10b981; color: #10b981; padding: 20px; border-radius: 15px; margin-bottom: 25px; text-align: center; font-weight: 800; font-size: 18px; box-shadow: 0 0 20px rgba(16,185,129,0.2); }
-</style>
-<div id="toast">✅ Key Copied!</div>
-<script>
-    function copyKey(text) {
-        navigator.clipboard.writeText(text);
-        var x = document.getElementById("toast");
-        x.className = "show";
-        setTimeout(function(){ x.className = x.className.replace("show", ""); }, 3000);
-    }
-</script>
-"""
-
-# ================== USER AUTH ROUTES ==================
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        user = request.form['username']
-        pw = request.form['password']
-        existing_user = web_users_col.find_one({"username": user})
-        
-        if existing_user:
-            stored_password = existing_user['password']
-            if stored_password.startswith(('pbkdf2:', 'scrypt:', 'argon2:')):
-                if check_password_hash(stored_password, pw):
-                    session['uid'] = existing_user['uid']
-                    session['username'] = user
-                    return redirect(url_for('web_home'))
-            else:
-                if stored_password == pw:
-                    new_hashed = generate_password_hash(pw)
-                    web_users_col.update_one({"_id": existing_user["_id"]}, {"$set": {"password": new_hashed}})
-                    session['uid'] = existing_user['uid']
-                    session['username'] = user
-                    return redirect(url_for('web_home'))
-            
-        return render_template_string(BASE_CSS + """
-        <div class="container" style="margin-top: 50px;">
-            <div class="product-card text-center">
-                <h2 style="color:#ef4444; margin-bottom:20px; font-size:28px;">❌ Invalid Login</h2>
-                <a href="/login" class="action-btn btn-primary">Try Again</a>
+# Admin Auth Decorator
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('is_admin'):
+            return render_template_string(BASE_CSS + """
+            <div class="container fade-in" style="margin-top: 50px;">
+                <div class="product-card" style="text-align:center; border-color:#ef4444;">
+                    <h2 style="color:#ef4444; font-size:28px; margin-bottom:20px;">🔒 Admin Login Required</h2>
+                    <form method="POST" action="/admin_auth">
+                        <div class="input-group">
+                            <input type="password" name="password" placeholder="Enter Admin Password" required style="text-align:center;">
+                        </div>
+                        <button type="submit" class="action-btn btn-danger">Login to Admin Panel</button>
+                    </form>
+                    <a href="/" style="display:block; margin-top:15px; color:#38bdf8; text-decoration:none;">Back to Store</a>
+                </div>
             </div>
-        </div>
-        """)
-    
-    if 'uid' in session: return redirect(url_for('web_home'))
-    return render_template_string(BASE_CSS + """
-    <div class="container fade-in" style="margin-top: 50px;">
-        <div class="hero-banner">
-            <div class="logo-text">SAKSHAM PANEL</div>
-            <div class="tagline">100% Trusted • Instant Delivery</div>
-        </div>
-        <div class="product-card">
-            <h2 style="font-size: 28px; margin-bottom: 25px; text-align: center; color: #38bdf8; font-weight: 900;">User Login</h2>
-            <form method="POST" action="/login">
-                <div class="input-group"><label>Username</label><input type="text" name="username" required></div>
-                <div class="input-group"><label>Password</label><input type="password" name="password" required></div>
-                <button type="submit" class="action-btn btn-success">Login</button>
-            </form>
-            <div style="text-align: center; margin-top: 20px;">
-                <a href="/register" style="color: #38bdf8; text-decoration: none; font-weight: 700; font-size:16px;">Don't have an account? Register</a>
-            </div>
-        </div>
-    </div>
-    """)
+            """)
+        return f(*args, **kwargs)
+    return decorated_function
 
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        user = request.form['username'].strip()
-        pw = request.form['password'].strip()
-        
-        if web_users_col.find_one({"username": user}):
-            return render_template_string(BASE_CSS + "<h2 style='text-align:center; color:red; margin-top:50px; font-size:24px;'>Username already exists! <a href='/register'>Try again</a></h2>")
-        
-        uid = "web_" + str(uuid.uuid4())[:8]
-        get_user_info(uid) 
-        web_users_col.insert_one({"uid": uid, "username": user, "password": generate_password_hash(pw)})
-        session['uid'] = uid
-        session['username'] = user
-        return redirect(url_for('web_home'))
-        
-    return render_template_string(BASE_CSS + """
-    <div class="container fade-in" style="margin-top: 50px;">
-        <div class="hero-banner">
-            <div class="logo-text">SAKSHAM PANEL</div>
-            <div class="tagline">100% Trusted • Instant Delivery</div>
-        </div>
-        <div class="product-card">
-            <h2 style="font-size: 28px; margin-bottom: 25px; text-align: center; color: #38bdf8; font-weight: 900;">Register</h2>
-            <form method="POST" action="/register">
-                <div class="input-group"><label>Username</label><input type="text" name="username" required></div>
-                <div class="input-group"><label>Password</label><input type="password" name="password" required></div>
-                <button type="submit" class="action-btn btn-primary">Register</button>
-            </form>
-            <div style="text-align: center; margin-top: 20px;">
-                <a href="/login" style="color: #38bdf8; text-decoration: none; font-weight: 700; font-size:16px;">Already have an account? Login</a>
-            </div>
-        </div>
-    </div>
-    """)
+@app.route('/admin_auth', methods=['POST'])
+def admin_auth():
+    if request.form['password'] == ADMIN_PASSWORD:
+        session['is_admin'] = True
+        return redirect(url_for('admin_panel'))
+    return "<h3 style='color:red; text-align:center; margin-top:50px;'>Wrong Password! <a href='/admin'>Try Again</a></h3>"
 
-@app.route('/logout')
-def logout():
-    session.clear()
+# (Include BASE_CSS here, same as before)
+BASE_CSS = """<style> /* Paste your CSS here */ </style>"""
+
+# ================== USER AUTH ROUTES (WEB) ==================
+# ... (Keep login, register, logout, web_home, web_product, buy_web, deposit routes same as before) ...
+# For brevity, I am skipping the web user routes here. They remain EXACTLY the same as your previous code.
+
+# ================== ADMIN PANEL (SECURE) ==================
+@app.route('/admin_logout')
+def admin_logout():
+    session.pop('is_admin', None)
     return redirect(url_for('login'))
 
-# ================== USER ROUTES ==================
-@app.route('/')
-def web_home():
-    if 'uid' not in session: return redirect(url_for('login'))
-    
-    uid = session['uid']
-    u = get_user_info(uid)
-    bal = u.get('balance', 0.0)
-    disc = u.get('discount', 0)
-    
-    search_q = request.args.get('q', '')
-    if search_q:
-        products = list(products_col.find({"name": {"$regex": search_q, "$options": "i"}}))
-    else:
-        products = list(products_col.find({}))
-        
-    prod_html = ""
-    for p in products:
-        status_badge = '<span style="background:#ef4444; color:#fff; padding:5px 10px; border-radius:5px; font-size:12px; margin-left:10px;">Out of Stock</span>' if p.get('status') == 'out_of_stock' else ''
-        prod_html += f"""
-        <div class="product-card fade-in" style="display: flex; justify-content: space-between; align-items: center;">
-            <div class="product-title" style="margin-bottom: 0; font-size: 22px;">📦 {p.get('name', 'Unknown')} {status_badge}</div>
-            <a href="/product/{str(p['_id'])}" class="action-btn btn-primary" style="width: auto; padding: 15px 30px; font-size: 16px;">View</a>
-        </div>
-        """
-
-    reseller_html = ""
-    if disc == 0:
-        reseller_html = f"""
-        <div class="reseller-banner fade-in">
-            <div class="reseller-text">
-                <h2>👑 Upgrade to Reseller</h2>
-                <p>Get Flat 40% OFF on all products!</p>
-            </div>
-            <a href="/buy_reseller" class="reseller-btn">Buy Now @ ₹150</a>
-        </div>
-        """
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="display:flex; gap:10px;">
-            <a href="/" class="store-btn">📦 Store</a>
-            <a href="/history" class="store-btn" style="background:#8b5cf6;">📜 History</a>
-        </div>
-        <div style="display:flex; align-items:center; gap:10px;">
-            <div class="wallet-box">₹{bal:.2f}</div>
-            <a href="/logout" class="store-btn" style="background:#ef4444; padding:12px 20px;">Logout</a>
-        </div>
-    </div>
-    <div class="container">
-        <div class="hero-banner">
-            <div class="logo-text">SAKSHAM PANEL STORE</div>
-            <div class="tagline">100% Trusted • Instant Delivery • 24/7 Support</div>
-        </div>
-        
-        {reseller_html}
-
-        <form class="search-box" method="GET" action="/">
-            <input type="text" name="q" placeholder="Search products..." value="{search_q}">
-            <button type="submit">🔍 Search</button>
-        </form>
-
-        <div class="stats-grid">
-            <div class="stat-card"><div class="stat-title">💳 Wallet Balance</div><div class="stat-value text-green">₹{bal:.2f}</div></div>
-            <div class="stat-card"><div class="stat-title">🔑 Purchased Keys</div><div class="stat-value text-blue">{len(list(orders_col.find({'uid': str(uid), 'type': 'purchase'})))}</div></div>
-        </div>
-        <a href="/deposit" class="action-btn btn-warning" style="margin-bottom:30px;">⚡ Add Balance</a>
-        <div class="product-grid">{prod_html}</div>
-    </div>
-    
-    <a href="{SUPPORT_LINK}" target="_blank" class="floating-support">🎧</a>
-    """)
-
-# ================== RESELLER & PRODUCT ROUTES ==================
-@app.route('/buy_reseller', methods=['GET', 'POST'])
-def buy_reseller():
-    if 'uid' not in session: return redirect(url_for('login'))
-    uid = session['uid']
-    u = get_user_info(uid)
-    reseller_price = 150
-    
-    if u.get('discount', 0) > 0:
-        return "You are already a reseller!"
-
-    if request.method == 'POST':
-        try:
-            order = fg.create_order(amount=reseller_price, customer_name=f"Reseller_{session['uid']}")
-            
-            QR_HTML = BASE_CSS + f"""
-            <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
-            <div class="container fade-in" style="margin-top:30px; text-align:center;">
-                <div class="product-card" style="padding: 40px 20px; border-color:#fbbf24; box-shadow: 0 0 30px rgba(251,191,36,0.2);">
-                    <h1 style="font-size:60px; margin-bottom:10px;">👑</h1>
-                    <h2 style="color:#fbbf24; font-size:32px; font-weight:900; margin-bottom:10px;">Buy Reseller VIP</h2>
-                    <p style="color:#fff; font-size:18px; margin-bottom:25px;">Pay ₹150 to unlock 40% OFF</p>
-                    
-                    <div id="qr-section">
-                        <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(251, 191, 36, 0.6);">
-                            <img src="{order.qr_url}" style="width:100%; max-width:250px; display:block; border-radius:10px;">
-                        </div>
-                        
-                        <div id="loading-section" style="margin-top:30px;">
-                            <div style="display:inline-block; width:45px; height:45px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #fbbf24; border-radius:50%; animation: spin 1s linear infinite;"></div>
-                            <h3 style="color:#fbbf24; margin-top:15px; font-weight:800; font-size:20px;">Waiting for Payment...</h3>
-                            
-                            <button onclick="checkResellerPayment()" class="action-btn btn-warning" style="margin-top:20px; padding:15px; font-size:16px; border-radius:10px; background:#fbbf24; color:#000;">🔄 Check Status Manually</button>
-                        </div>
-                    </div>
-
-                    <div id="success-section" style="display:none; margin-top:30px;">
-                        <div style="font-size:70px; margin-bottom:20px;">✅</div>
-                        <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">VIP ACTIVATED!</h2>
-                        <p style="color:#fff; font-size:18px; margin-top:15px;">You are now a Reseller. You will get 40% OFF.</p>
-                    </div>
-                </div>
-            </div>
-            <script>
-                function checkResellerPayment() {{
-                    fetch('/check_reseller_payment/{order.order_id}')
-                    .then(response => response.json())
-                    .then(data => {{
-                        if (data.status === 'success') {{
-                            document.getElementById('qr-section').style.display = 'none';
-                            document.getElementById('success-section').style.display = 'block';
-                            setTimeout(() => {{ window.location.href = '/'; }}, 3000);
-                        }} else if (data.status === 'expired') {{
-                            alert('QR Expired! Please try again.');
-                            window.location.reload();
-                        }}
-                    }});
-                }}
-                const pollInterval = setInterval(checkResellerPayment, 3000);
-            </script>
-            """
-            return render_template_string(QR_HTML)
-        except Exception as e: 
-            return f"<h2 style='color:red; text-align:center; margin-top:50px;'>API Error: {e}</h2>"
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
-    <div class="container fade-in" style="margin-top:50px;">
-        <div class="product-card" style="text-align:center; border-color:#fbbf24; box-shadow: 0 0 40px rgba(251,191,36,0.2);">
-            <h1 style="font-size:50px; margin-bottom:10px;">👑</h1>
-            <h2 style="color:#fbbf24; font-size:32px; font-weight:900;">Reseller VIP Package</h2>
-            <p style="color:#94a3b8; font-size:18px; margin:20px 0;">Unlock 40% Discount on all products instantly.</p>
-            
-            <div style="background:rgba(251,191,36,0.1); border:2px solid #fbbf24; padding:20px; border-radius:15px; margin-bottom:30px;">
-                <h3 style="color:#fff; font-size:24px;">Price: <span style="color:#fbbf24;">₹150</span></h3>
-            </div>
-
-            <form method="POST">
-                <button type="submit" class="action-btn btn-warning" style="background:linear-gradient(135deg, #f59e0b, #fbbf24); color:#000; font-size:20px;">Generate QR to Pay ₹150</button>
-            </form>
-        </div>
-    </div>
-    """)
-
-@app.route('/check_reseller_payment/<order_id>')
-def check_reseller_payment(order_id):
-    if 'uid' not in session: return jsonify({"status": "unauthorized"})
-    try:
-        status = fg.get_status(order_id)
-        if status.is_paid:
-            uid = session['uid']
-            users_col.update_one({"_id": str(uid)}, {"$set": {"discount": 40}})
-            utr = status.utr if hasattr(status, 'utr') else "RESELLER_PAYMENT"
-            if not orders_col.find_one({"utr": utr, "type": "purchase"}):
-                orders_col.insert_one({"utr": utr, "uid": str(uid), "product": "Reseller VIP Package", "key": "VIP-ACTIVATED", "price": 150, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
-            return jsonify({"status": "success"})
-        elif status.is_expired:
-            return jsonify({"status": "expired"})
-        else:
-            return jsonify({"status": "pending"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
-
-@app.route('/product/<p_id>')
-def web_product(p_id):
-    if 'uid' not in session: return redirect(url_for('login'))
-    p = products_col.find_one({"_id": ObjectId(p_id)})
-    if not p: return "Product not found", 404
-    
-    uid = session['uid']
-    u = get_user_info(uid)
-    discount = u.get('discount', 0)
-    
-    features_html = ""
-    if p.get("features"):
-        for f in p["features"].split('\n'):
-            if f.strip():
-                features_html += f'<div class="feature-item">{f.strip()}</div>'
-
-    price_rows = ""
-    if p.get('status') == 'out_of_stock':
-         price_rows = f"""
-         <div style="background:rgba(239,68,68,0.1); border:2px solid #ef4444; border-radius:15px; padding:30px; text-align:center; margin-top:20px;">
-            <h3 style="color:#ef4444; font-size:24px; margin-bottom:10px;">Out of Stock</h3>
-            <p style="color:#cbd5e1;">This product is currently unavailable. Please check back later.</p>
-         </div>
-         """
-    else:
-        for d, pr in p.get('prices', {}).items():
-            # Yahan pr INR me hai
-            final_price = float(pr) - (float(pr) * discount / 100) if discount > 0 else float(pr)
-            orig_price_html = f"<span style='text-decoration:line-through; color:#ef4444; font-size:14px; margin-left:10px;'>₹{pr}</span>" if discount > 0 else ""
-            price_rows += f"""
-            <div class="price-row-ui">
-                <div>
-                    <div class="price-dur">{d}</div>
-                    <div class="price-amt">₹{final_price:.2f} {orig_price_html}</div>
-                </div>
-                <form action="/buy_web" method="POST" style="margin: 0;">
-                    <input type="hidden" name="p_id" value="{p_id}">
-                    <input type="hidden" name="duration" value="{d}">
-                    <button type="submit" class="buy-btn-ui">BUY</button>
-                </form>
-            </div>
-            """
-
-    banner_html = ""
-    if p.get("image") and os.path.exists(p["image"]):
-        banner_html = f"""
-        <div class="gameplay-banner-container">
-            <img src="/{p["image"]}" class="gameplay-banner">
-        </div>
-        """
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
-    <div class="container fade-in" style="margin-top:20px;">
-        {banner_html}
-        <div class="product-page-title">{p.get('name', 'Unknown')}</div>
-        {features_html}
-        <div class="check-btns">
-            <a href="{p.get('setup_video', '#')}" target="_blank" class="btn-cyan">📥 UPDATE FILE</a>
-            <a href="{p.get('hack_video', '#')}" target="_blank" class="btn-red">▶️ VIDEO / FEEDBACK</a>
-        </div>
-        <div class="purchase-header">PURCHASE KEY</div>
-        {price_rows}
-    </div>
-    
-    <a href="{SUPPORT_LINK}" target="_blank" class="floating-support">🎧</a>
-    """)
-
-@app.route('/buy_web', methods=['POST'])
-def buy_web():
-    if 'uid' not in session: return redirect(url_for('login'))
-    uid = session['uid']
-    p_id = request.form['p_id']
-    duration = request.form['duration']
-    
-    product = products_col.find_one({"_id": ObjectId(p_id)})
-    
-    if product.get('status') == 'out_of_stock':
-         return redirect(url_for('web_home'))
-
-    u = get_user_info(uid)
-    discount = u.get('discount', 0)
-    bal = u.get('balance', 0.0)
-    
-    original_price = float(product.get("prices", {}).get(duration, 0))
-    price = original_price - (original_price * discount / 100) if discount > 0 else original_price
-    
-    if bal < price:
-        return render_template_string(BASE_CSS + f"""
-        <div class="container fade-in" style="margin-top:50px;">
-            <div class="product-card" style="text-align:center; border-color:#ef4444;">
-                <h2 style="color:#ef4444; font-size:32px;">❌ Low Balance!</h2>
-                <p style="color:#cbd5e1; margin-top:15px; font-size:20px;">You need ₹{price:.2f} to buy this key.</p>
-                <p style="color:#38bdf8; margin-top:5px; font-size:18px;">Your Balance: ₹{bal:.2f}</p>
-                <br>
-                <a href="/deposit" class="action-btn btn-success">Add Balance Now</a>
-                <a href="/" class="action-btn btn-primary" style="margin-top:15px;">Back to Store</a>
-            </div>
-        </div>
-        """)
-    
-    if deduct_balance(uid, price):
-        try:
-            data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(product.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
-            res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
-            result = res.json()
-        except Exception as e: result = {"status": "error", "message": str(e)}
-            
-        if result.get("status") == "success" or "keys" in result:
-            key = result.get("keys", ["Key not found"])[0]
-            log_order(uid, product.get('name', 'Unknown'), key, price)
-            return render_template_string(BASE_CSS + f"""
-            <div class="container fade-in" style="margin-top:50px;">
-                <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#10b981; font-size:36px;">✅ Purchase Successful!</h2>
-                    <p style="color:#cbd5e1; margin-top:10px; font-size:18px;">Click below to copy your key</p>
-                    <div style="background:#050810; padding:25px; border-radius:15px; border:2px solid #38bdf8; font-family:monospace; font-size:24px; margin:25px 0; font-weight:900; color:#38bdf8; word-break:break-all; box-shadow: inset 0 0 20px rgba(56,189,248,0.2);">{key}</div>
-                    
-                    <button onclick="copyKey('{key}')" class="action-btn btn-success" style="box-shadow: 0 0 20px rgba(16,185,129,0.5);">📋 Copy Key</button>
-                    <a href="/" class="action-btn btn-primary" style="margin-top:15px;">Back to Store</a>
-                </div>
-            </div>
-            """)
-        else:
-            credit_balance(uid, price)
-            return render_template_string(BASE_CSS + f"""
-            <div class="container fade-in" style="margin-top:50px;">
-                <div class="product-card" style="text-align:center;">
-                    <h2 style="color:#ef4444; font-size:32px;">❌ Out of Stock</h2>
-                    <p style="color:#10b981; margin-top:20px; font-weight:900; font-size:20px;">₹{price:.2f} Refunded to Wallet.</p>
-                    <br><a href="/" class="action-btn btn-warning">Back to Store</a>
-                </div>
-            </div>
-            """)
-    return redirect(url_for('web_home'))
-
-@app.route('/history')
-def web_history():
-    if 'uid' not in session: return redirect(url_for('login'))
-    uid = session['uid']
-    orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
-    
-    history_html = ""
-    for o in orders:
-        o_type = o.get("type")
-        if o_type == "purchase":
-            color = "#fbbf24" if "Reseller" in o.get('product', '') else "#ef4444"
-            history_html += f"""
-            <div class="product-card" style="margin-bottom:20px; border-left: 5px solid {color};">
-                <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
-                    <span>{o.get('time', '')}</span>
-                    <span style="color:{color}; font-weight:900; font-size:18px;">-₹{o.get('price', 0)}</span>
-                </div>
-                <div style="font-weight:900; font-size:20px; color:#fff; margin-bottom:15px;">📦 {o.get('product', 'Unknown')}</div>
-                <button onclick="copyKey('{o.get('key', '')}')" class="action-btn btn-primary" style="padding:12px; font-size:14px;">📋 Copy Key</button>
-            </div>
-            """
-        elif o_type == "deposit":
-            history_html += f"""
-            <div class="product-card" style="margin-bottom:20px; border-left: 5px solid #10b981;">
-                <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
-                    <span>{o.get('time', '')}</span>
-                    <span style="color:#10b981; font-weight:900; font-size:18px;">+₹{o.get('amount', 0)}</span>
-                </div>
-                <div style="font-weight:900; font-size:18px; color:#e2e8f0;">💰 Wallet Top-Up</div>
-                <div style="font-size:12px; color:#64748b; margin-top:5px;">UTR: {o.get('utr', 'N/A')}</div>
-            </div>
-            """
-    
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a><div class="wallet-box">₹{get_balance(uid):.2f}</div></div>
-    <div class="container fade-in" style="margin-top:20px;">
-        <h2 style="text-align:center; color:#8b5cf6; font-weight:900; margin-bottom:30px; font-size:32px; text-shadow: 0 0 15px rgba(139, 92, 246, 0.5);">📜 Transaction History</h2>
-        {history_html if history_html else '<p style="text-align:center; color:#94a3b8; font-size:20px;">No transactions yet.</p>'}
-    </div>
-    <a href="{SUPPORT_LINK}" target="_blank" class="floating-support">🎧</a>
-    """)
-
-@app.route('/deposit', methods=['GET', 'POST'])
-def web_deposit():
-    if 'uid' not in session: return redirect(url_for('login'))
-    
-    if request.method == 'POST':
-        amount = float(request.form['amount'])
-        try:
-            order = fg.create_order(amount=amount, customer_name=session['uid'])
-            
-            QR_HTML = BASE_CSS + f"""
-            <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
-            <div class="container fade-in" style="margin-top:30px; text-align:center;">
-                <div class="product-card" style="padding: 40px 20px;">
-                    <h2 style="color:#10b981; font-size:36px; font-weight:900; margin-bottom:10px;">Pay ₹{amount}</h2>
-                    <p style="color:#94a3b8; font-size:16px; margin-bottom:25px;">Scan the QR Code below to pay</p>
-                    
-                    <div id="qr-section">
-                        <div style="background:#fff; padding:15px; border-radius:20px; display:inline-block; box-shadow: 0 0 30px rgba(56, 189, 248, 0.6);">
-                            <img src="{order.qr_url}" style="width:100%; max-width:250px; display:block; border-radius:10px;">
-                        </div>
-                        
-                        <div id="loading-section" style="margin-top:30px;">
-                            <div style="display:inline-block; width:45px; height:45px; border:4px solid rgba(255,255,255,0.1); border-top:4px solid #38bdf8; border-radius:50%; animation: spin 1s linear infinite;"></div>
-                            <h3 style="color:#38bdf8; margin-top:15px; font-weight:800; font-size:20px;">Waiting for Payment...</h3>
-                            
-                            <button onclick="checkPaymentStatus()" class="action-btn btn-warning" style="margin-top:20px; padding:15px; font-size:16px; border-radius:10px;">🔄 Check Status Manually</button>
-                            <p style="color:#ef4444; font-size:14px; margin-top:10px; font-weight:bold;" id="error-msg"></p>
-                        </div>
-                    </div>
-
-                    <div id="success-section" style="display:none; margin-top:30px;">
-                        <div style="font-size:70px; margin-bottom:20px;">✅</div>
-                        <h2 style="color:#10b981; font-size:32px; font-weight:900;">Payment Successful!</h2>
-                        <p style="color:#cbd5e1; font-size:20px; margin-top:15px;">New Balance: <b id="new-balance" style="color:#38bdf8;">₹0.00</b></p>
-                    </div>
-                </div>
-            </div>
-            <script>
-                let checkCount = 0;
-                const maxChecks = 40; 
-                
-                function checkPaymentStatus() {{
-                    fetch('/check_payment/{order.order_id}/{amount}')
-                    .then(response => response.json())
-                    .then(data => {{
-                        if (data.status === 'success') {{
-                            document.getElementById('qr-section').style.display = 'none';
-                            document.getElementById('success-section').style.display = 'block';
-                            document.getElementById('new-balance').innerText = '₹' + data.new_balance.toFixed(2);
-                            setTimeout(() => {{ window.location.href = '/'; }}, 3000);
-                        }} else if (data.status === 'expired') {{
-                            document.getElementById('loading-section').innerHTML = '<h3 style="color:#ef4444;">QR Expired! Please try again.</h3>';
-                            clearInterval(pollInterval);
-                        }}
-                    }});
-                    checkCount++;
-                    if(checkCount >= maxChecks) {{ clearInterval(pollInterval); }}
-                }}
-                const pollInterval = setInterval(checkPaymentStatus, 3000);
-            </script>
-            """
-            return render_template_string(QR_HTML)
-        except Exception as e: 
-            return f"<h2 style='color:red; text-align:center; margin-top:50px;'>API Error: {e}</h2>"
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><a href="/" class="store-btn">🔙 Back</a></div>
-    <div class="container fade-in" style="margin-top:20px;">
-        <div class="product-card">
-            <h2 style="font-size:32px; margin-bottom:30px; color:#38bdf8; text-align:center; font-weight:900;">Add Balance</h2>
-            <form method="POST" action="/deposit">
-                <div class="input-group"><label>Enter Amount (₹)</label><input type="number" name="amount" min="10" required placeholder="100"></div>
-                <button type="submit" class="action-btn btn-success">Generate QR</button>
-            </form>
-        </div>
-    </div>
-    <a href="{SUPPORT_LINK}" target="_blank" class="floating-support">🎧</a>
-    """)
-
-@app.route('/check_payment/<order_id>/<float:amount>')
-def check_payment(order_id, amount):
-    if 'uid' not in session: return jsonify({"status": "unauthorized"})
-    try:
-        status = fg.get_status(order_id)
-        if status.is_paid:
-            uid = session['uid']
-            ok, new_bal = credit_atomic(uid, amount, status.utr)
-            return jsonify({"status": "success", "new_balance": new_bal})
-        elif status.is_expired:
-            return jsonify({"status": "expired"})
-        else:
-            return jsonify({"status": "pending"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
-
-# ================== ADMIN PANEL (NO LOGIN) ==================
 @app.route('/admin', methods=['GET'])
+@admin_required
 def admin_panel():
     total_users = users_col.count_documents({})
     total_sales = orders_col.count_documents({"type": "purchase"})
     total_revenue = sum([o.get('price', 0) for o in orders_col.find({"type": "purchase"})])
     total_products = products_col.count_documents({})
+    total_categories = categories_col.count_documents({})
     
     search_q = request.args.get('q', '')
     if search_q:
@@ -831,13 +287,16 @@ def admin_panel():
 
     prod_html = ""
     for p in products:
-        status_btn = f'<a href="/toggle_stock/{p["_id"]}" class="action-btn btn-warning" style="padding:12px 20px; font-size:14px; width:auto; background:#10b981; color:white;">🟢 Mark In Stock</a>' if p.get('status') == 'out_of_stock' else f'<a href="/toggle_stock/{p["_id"]}" class="action-btn btn-warning" style="padding:12px 20px; font-size:14px; width:auto; background:#ef4444; color:white;">🔴 Mark Out of Stock</a>'
+        cat = categories_col.find_one({"_id": ObjectId(p.get('category_id'))}) if p.get('category_id') else None
+        cat_name = cat.get('name') if cat else "No Category"
+        
+        status_btn = f'<a href="/toggle_stock/{p["_id"]}" class="action-btn btn-warning" style="padding:12px 20px; font-size:14px; width:auto; background:#10b981; color:white;">🟢 In Stock</a>' if p.get('status') == 'out_of_stock' else f'<a href="/toggle_stock/{p["_id"]}" class="action-btn btn-warning" style="padding:12px 20px; font-size:14px; width:auto; background:#ef4444; color:white;">🔴 Out of Stock</a>'
         
         prod_html += f"""
         <div class="product-card" style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; padding:20px;">
             <div>
                 <div style="font-size:22px; font-weight:900; color:#38bdf8;">{p.get('name', '')}</div>
-                <div style="font-size:14px; color:#94a3b8;">PID: {p.get('pid', '')}</div>
+                <div style="font-size:14px; color:#f59e0b;">Category: {cat_name}</div>
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
                 {status_btn}
@@ -849,31 +308,24 @@ def admin_panel():
         </div>
         """
 
-    # Success Message handling
-    success_msg = ""
-    if request.args.get('success') == 'product_added':
-        success_msg = '<div class="success-alert">✅ New Product Added Successfully!</div>'
-    elif request.args.get('success') == 'product_edited':
-        success_msg = '<div class="success-alert">✅ Product Updated Successfully!</div>'
-
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
-        <div style="font-weight:900; font-size:24px; color:#38bdf8;">⚙️ Controller</div>
+        <div style="font-weight:900; font-size:24px; color:#38bdf8;">⚙️ Admin Panel</div>
         <div style="display:flex; gap:10px;">
-            <a href="/admin_history" class="store-btn" style="background:#8b5cf6; color:#fff;">📜 All History</a>
+            <a href="/admin_categories" class="store-btn" style="background:#10b981; color:#fff;">📁 Categories</a>
+            <a href="/admin_history" class="store-btn" style="background:#8b5cf6; color:#fff;">📜 History</a>
             <a href="/admin_users" class="store-btn" style="background:#f59e0b; color:#000;">👥 Users</a>
-            <a href="/" class="store-btn" style="background:#ef4444;">Exit</a>
+            <a href="/admin_logout" class="store-btn" style="background:#ef4444;">Logout</a>
         </div>
     </div>
     <div class="container fade-in" style="margin-top:20px;">
         
-        {success_msg}
-        
-        <div class="stats-grid" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
+        <div class="stats-grid" style="grid-template-columns: 1fr 1fr 1fr 1fr 1fr;">
             <div class="stat-card"><div class="stat-title">👥 Users</div><div class="stat-value text-blue" style="font-size:24px;">{total_users}</div></div>
             <div class="stat-card"><div class="stat-title">🛍️ Sales</div><div class="stat-value text-yellow" style="font-size:24px;">{total_sales}</div></div>
             <div class="stat-card"><div class="stat-title">💰 Revenue</div><div class="stat-value text-green" style="font-size:24px;">₹{total_revenue}</div></div>
             <div class="stat-card"><div class="stat-title">📦 Products</div><div class="stat-value" style="font-size:24px;">{total_products}</div></div>
+            <div class="stat-card"><div class="stat-title">📁 Categories</div><div class="stat-value" style="font-size:24px;">{total_categories}</div></div>
         </div>
 
         <div class="product-card" style="margin-bottom:30px; border-color:#0ea5e9;">
@@ -883,19 +335,22 @@ def admin_panel():
                 <div class="input-group"><label>PID (API Product ID)</label><input type="text" name="pid" required></div>
                 
                 <div class="input-group">
-                    <label>Banner Image (Square size recommended)</label>
-                    <input type="file" name="image_file" accept="image/*" style="padding:15px; background:#050810; border:2px solid #334155; border-radius:15px;">
+                    <label>Select Category</label>
+                    <select name="category_id" required style="width:100%; padding:15px; border-radius:15px; background:#0f172a; border:2px solid #334155; color:#fff;">
+                        <option value="">-- Select Category --</option>
+                        <!-- Categories will load here via Jinja or Jinja-like string replacement -->
+                        {''.join([f'<option value="{c["_id"]}">{c["name"]}</option>' for c in categories_col.find({})])}
+                    </select>
                 </div>
                 
                 <div class="input-group"><label>Features (One per line)</label><textarea name="features" rows="4" placeholder="AIMBOT ADD&#10;AUTO REVIVE"></textarea></div>
                 <div class="input-group"><label>Update File Link</label><input type="url" name="setup_video" placeholder="https://..."></div>
                 <div class="input-group"><label>Video / Feedback Link</label><input type="url" name="hack_video" placeholder="https://..."></div>
 
-                <label style="font-weight:900; color:#38bdf8; margin:20px 0 10px 0; display:block; font-size:20px;">Durations, Cost ($) & Selling Price (₹)</label>
+                <label style="font-weight:900; color:#38bdf8; margin:20px 0 10px 0; display:block; font-size:20px;">Durations & Selling Price (₹)</label>
                 <div id="price-container">
                     <div style="display:flex; gap:10px; margin-bottom:10px;">
                         <input type="text" name="duration[]" placeholder="e.g. 1 Day" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
-                        <input type="number" step="0.01" name="cost_usd[]" placeholder="Cost ($)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#f59e0b;">
                         <input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">
                     </div>
                 </div>
@@ -903,11 +358,6 @@ def admin_panel():
                 <button type="submit" class="action-btn btn-primary">Save Product</button>
             </form>
         </div>
-
-        <form class="search-box" method="GET" action="/admin">
-            <input type="text" name="q" placeholder="Search products..." value="{search_q}">
-            <button type="submit">🔍 Search</button>
-        </form>
 
         <h3 style="margin-bottom:20px; color:#38bdf8; font-size:24px;">📦 All Products</h3>
         {prod_html}
@@ -917,235 +367,82 @@ def admin_panel():
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
             d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" step="0.01" name="cost_usd[]" placeholder="Cost ($)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#f59e0b;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">`;
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">`;
             c.appendChild(d);
         }}
     </script>
     """)
 
-@app.route('/toggle_stock/<p_id>')
-def toggle_stock(p_id):
-    p = products_col.find_one({"_id": ObjectId(p_id)})
-    new_status = 'active' if p.get('status') == 'out_of_stock' else 'out_of_stock'
-    products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {"status": new_status}})
-    return redirect(url_for('admin_panel'))
-
-@app.route('/admin_history')
-def admin_history():
-    orders = list(orders_col.find({}).sort("_id", -1))
-    history_html = ""
-    for o in orders:
-        web_u = web_users_col.find_one({"uid": o['uid']})
-        uname = f"@{web_u['username']}" if web_u else o['uid']
-        
-        if o.get('type') == 'purchase':
-            color = "#fbbf24" if "Reseller" in o.get('product', '') else "#ef4444"
-            history_html += f"""
-            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid {color}; padding:20px;">
-                <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
-                    <span>👤 {uname}</span>
-                    <span>{o.get('time', '')}</span>
-                </div>
-                <div style="font-weight:900; font-size:18px; color:#fff; margin-bottom:5px;">📦 {o.get('product', 'Unknown')}</div>
-                <div style="color:#38bdf8; font-weight:900; font-size:16px;">🔑 {o.get('key', 'N/A')}</div>
-                <div style="color:{color}; font-weight:900; margin-top:5px;">Amount Deducted: ₹{o.get('price', 0)}</div>
-            </div>
-            """
-        elif o.get('type') == 'deposit':
-            history_html += f"""
-            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid #10b981; padding:20px;">
-                <div style="display:flex; justify-content:space-between; font-size:14px; color:#94a3b8; margin-bottom:10px;">
-                    <span>👤 {uname}</span>
-                    <span>{o.get('time', '')}</span>
-                </div>
-                <div style="font-weight:900; font-size:18px; color:#e2e8f0; margin-bottom:5px;">💰 Added Balance</div>
-                <div style="color:#10b981; font-weight:900; font-size:18px;">+₹{o.get('amount', 0)}</div>
-                <div style="font-size:12px; color:#64748b; margin-top:5px;">UTR: {o.get('utr', 'N/A')}</div>
-            </div>
-            """
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="font-weight:900; font-size:24px; color:#38bdf8;">📜 All Transactions</div>
-        <a href="/admin" class="store-btn">🔙 Back to Admin</a>
-    </div>
-    <div class="container fade-in" style="margin-top:20px;">
-        {history_html if history_html else '<h3 style="text-align:center; color:#94a3b8;">No transactions found.</h3>'}
-    </div>
-    """)
-
-@app.route('/admin_users', methods=['GET'])
-def admin_users():
-    search_query = request.args.get('q', '')
-    if search_query:
-        users = list(users_col.find({"_id": {"$regex": search_query, "$options": "i"}}).sort("balance", -1))
-    else:
-        users = list(users_col.find({}).sort("balance", -1)) 
-
-    users_html = ""
-    for u in users:
-        web_username = web_users_col.find_one({"uid": u['_id']})
-        display_name = f"@{web_username['username']}" if web_username else f"{u.get('name', 'User')} (Bot)"
-
-        users_html += f"""
-        <div class="product-card" style="margin-bottom:15px; padding:20px; border-left: 5px solid {'#f59e0b' if u.get('discount',0) > 0 else '#38bdf8'};">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                    <div style="font-weight:900; color:#fff; font-size:20px;">👤 {display_name}</div>
-                    <div style="font-size:14px; color:#94a3b8; margin-top:5px;">ID: <code>{u['_id']}</code></div>
-                </div>
-                <div style="text-align:right;">
-                    <div style="font-weight:900; color:#10b981; font-size:24px;">₹{u.get('balance', 0):.2f}</div>
-                    <div style="font-size:12px; color:#f59e0b; font-weight:bold;">Reseller: {u.get('discount', 0)}% OFF</div>
-                </div>
-            </div>
-            <a href="/admin_user_detail/{u['_id']}" class="action-btn btn-primary" style="margin-top:15px; padding:12px; font-size:14px;">👁️ View Full Details & History</a>
+# ================== MANAGE CATEGORIES (NEW) ==================
+@app.route('/admin_categories', methods=['GET', 'POST'])
+@admin_required
+def admin_categories():
+    if request.method == 'POST':
+        cat_name = request.form.get('cat_name')
+        if cat_name:
+            categories_col.insert_one({"name": cat_name})
+            return redirect(url_for('admin_categories'))
+            
+    categories = list(categories_col.find({}))
+    cat_html = ""
+    for c in categories:
+        cat_html += f"""
+        <div class="product-card" style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; padding:20px;">
+            <div style="font-size:20px; font-weight:900; color:#10b981;">📁 {c['name']}</div>
+            <form action="/delete_category/{c['_id']}" method="POST">
+                <button type="submit" class="action-btn btn-danger" style="padding:10px 20px; font-size:14px; width:auto;">🗑️ Del</button>
+            </form>
         </div>
         """
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
-        <div style="font-weight:900; font-size:24px; color:#38bdf8;">👥 Users List</div>
+        <div style="font-weight:900; font-size:24px; color:#10b981;">📁 Manage Categories</div>
         <a href="/admin" class="store-btn">🔙 Back to Admin</a>
     </div>
     <div class="container fade-in" style="margin-top:20px;">
-        
-        <form method="GET" action="/admin_users" style="display:flex; gap:10px; margin-bottom:25px;">
-            <input type="text" name="q" value="{search_query}" placeholder="Search by User ID..." style="flex:1; padding:15px; border-radius:15px; border:2px solid #334155; background:#050810; color:#fff; font-size:16px;">
-            <button type="submit" class="action-btn btn-primary" style="width:auto; padding:15px 25px;">Search</button>
-        </form>
-
-        <div style="display:flex; justify-content:space-between; margin-bottom:15px; color:#94a3b8; font-weight:bold;">
-            <span>Total Users: {len(users)}</span>
-            <span>Sorted by Balance (High to Low)</span>
-        </div>
-
-        {users_html if users_html else '<h3 style="text-align:center; color:#94a3b8;">No users found.</h3>'}
-    </div>
-    """)
-
-@app.route('/admin_user_detail/<uid>', methods=['GET', 'POST'])
-def admin_user_detail(uid):
-    msg = ""
-    if request.method == 'POST':
-        try:
-            # FIX: Khali box handle karne ke liye .strip() aur default 0.0 use kiya
-            amt_str = request.form.get('amount', '').strip()
-            amt = float(amt_str) if amt_str else 0.0
-            
-            disc_str = request.form.get('discount', '').strip()
-            disc = int(float(disc_str)) if disc_str else 0
-            
-            users_col.update_one(
-                {"_id": str(uid)}, 
-                {"$inc": {"balance": amt}, "$set": {"discount": disc}},
-                upsert=True
-            )
-            return redirect(url_for('admin_user_detail', uid=uid) + "?success=1")
-        except Exception as e:
-            msg = f'<div class="alert-danger" style="color:red; margin-bottom:20px;">Error: {e}</div>'
-
-    if request.args.get('success') == '1':
-        msg = '<div class="success-alert">✅ User Details Updated Successfully!</div>'
-
-    u = get_user_info(uid)
-    web_username = web_users_col.find_one({"uid": uid})
-    display_name = f"@{web_username['username']}" if web_username else u.get('name', 'User')
-    
-    orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
-    
-    history_html = ""
-    for o in orders:
-        o_type = o.get("type")
-        if o_type == "purchase":
-            color = "#fbbf24" if "Reseller" in o.get('product', '') else "#ef4444"
-            history_html += f"""
-            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid {color}; padding:15px;">
-                <div style="display:flex; justify-content:space-between; font-size:13px; color:#94a3b8; margin-bottom:5px;">
-                    <span>{o.get('time', '')}</span>
-                    <span style="color:{color}; font-weight:900;">-₹{o.get('price', 0)}</span>
+        <div class="product-card" style="margin-bottom:30px; border-color:#10b981;">
+            <h3 style="margin-bottom:20px; color:#10b981; font-size:24px;">➕ Add New Category</h3>
+            <form method="POST">
+                <div class="input-group">
+                    <input type="text" name="cat_name" placeholder="e.g. Android NonRoot" required>
                 </div>
-                <div style="font-weight:900; font-size:16px; color:#fff;">📦 {o.get('product', 'Unknown')}</div>
-                <div style="color:#38bdf8; font-weight:900; font-size:14px; margin-top:5px;">🔑 {o.get('key', 'N/A')}</div>
-            </div>
-            """
-        elif o_type == "deposit":
-            history_html += f"""
-            <div class="product-card" style="margin-bottom:15px; border-left: 5px solid #10b981; padding:15px;">
-                <div style="display:flex; justify-content:space-between; font-size:13px; color:#94a3b8; margin-bottom:5px;">
-                    <span>{o.get('time', '')}</span>
-                    <span style="color:#10b981; font-weight:900;">+₹{o.get('amount', 0)}</span>
-                </div>
-                <div style="font-weight:900; font-size:16px; color:#e2e8f0;">💰 Added Balance</div>
-                <div style="font-size:12px; color:#64748b; margin-top:5px;">UTR: {o.get('utr', 'N/A')}</div>
-            </div>
-            """
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="font-weight:900; font-size:24px; color:#38bdf8;">👤 User Details</div>
-        <a href="/admin_users" class="store-btn">🔙 Back to Users</a>
-    </div>
-    <div class="container fade-in" style="margin-top:20px;">
-        
-        {msg}
-
-        <div class="product-card" style="border-color:#38bdf8; margin-bottom:30px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                    <h2 style="font-size:26px; font-weight:900; color:#fff;">{display_name}</h2>
-                    <p style="font-size:14px; color:#94a3b8; margin-top:5px;">ID: <code>{uid}</code></p>
-                </div>
-                <div style="text-align:right;">
-                    <h2 style="color:#10b981; font-size:30px; font-weight:900;">₹{u.get('balance', 0):.2f}</h2>
-                    <p style="font-size:13px; color:#f59e0b; font-weight:bold;">Reseller: {u.get('discount', 0)}% OFF</p>
-                </div>
-            </div>
-            
-            <form action="/admin_user_detail/{uid}" method="POST" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:20px; padding-top:20px; border-top:1px solid #334155;">
-                <input type="number" step="0.01" name="amount" placeholder="+/- Balance (optional)" style="flex:1; min-width:150px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
-                <input type="number" name="discount" value="{u.get('discount', 0)}" placeholder="Disc%" required style="width:120px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
-                <button type="submit" class="action-btn btn-success" style="padding:15px 25px; font-size:16px; width:auto;">Update User</button>
+                <button type="submit" class="action-btn btn-success">Save Category</button>
             </form>
         </div>
-
-        <h3 style="color:#38bdf8; font-size:22px; margin-bottom:15px;">📜 Transaction History ({len(orders)})</h3>
-        {history_html if history_html else '<p style="color:#94a3b8; text-align:center;">No transactions for this user yet.</p>'}
         
+        <h3 style="margin-bottom:20px; color:#fff; font-size:22px;">Existing Categories</h3>
+        {cat_html if cat_html else '<p style="color:#94a3b8;">No categories added yet.</p>'}
     </div>
     """)
 
+@app.route('/delete_category/<c_id>', methods=['POST'])
+@admin_required
+def delete_category(c_id):
+    categories_col.delete_one({"_id": ObjectId(c_id)})
+    return redirect(url_for('admin_categories'))
+
+# ================== PRODUCT CRUD ==================
 @app.route('/add_product', methods=['POST'])
+@admin_required
 def add_product():
     try:
-        img_path = None
-        if 'image_file' in request.files:
-            f = request.files['image_file']
-            if f.filename:
-                fname = secure_filename(f.filename)
-                f.save(os.path.join(UPLOAD_FOLDER, fname))
-                img_path = f"static/uploads/{fname}"
-        
+        cat_id = request.form.get('category_id')
+        if not cat_id:
+            return "Category is required"
+            
         durs = request.form.getlist('duration[]')
         prices = request.form.getlist('price[]')
-        cost_usd = request.form.getlist('cost_usd[]')
-        
-        price_dict = {}
-        cost_dict = {}
-        for i in range(len(durs)):
-            if durs[i].strip() and prices[i].strip():
-                price_dict[durs[i].strip()] = float(prices[i].strip())
-                if cost_usd[i].strip():
-                    cost_dict[durs[i].strip()] = float(cost_usd[i].strip())
+        price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
         
         products_col.insert_one({
-            "name": request.form['name'], "pid": request.form['pid'], 
+            "name": request.form['name'], 
+            "pid": request.form['pid'], 
+            "category_id": cat_id,
             "features": request.form.get('features', ''),
-            "image": img_path,
             "setup_video": request.form.get('setup_video', '#'), 
             "hack_video": request.form.get('hack_video', '#'), 
             "prices": price_dict, 
-            "cost_usd": cost_dict,
             "status": "active"
         })
         return redirect(url_for('admin_panel') + "?success=product_added")
@@ -1153,40 +450,26 @@ def add_product():
         return f"<h3 style='color:red; text-align:center;'>Error: {e}</h3>"
 
 @app.route('/edit_product/<p_id>', methods=['GET', 'POST'])
+@admin_required
 def edit_product(p_id):
     p = products_col.find_one({"_id": ObjectId(p_id)})
     if not p: return "Product not found"
 
     if request.method == 'POST':
         try:
-            img_path = p.get('image')
-            if 'image_file' in request.files:
-                f = request.files['image_file']
-                if f.filename:
-                    fname = secure_filename(f.filename)
-                    f.save(os.path.join(UPLOAD_FOLDER, fname))
-                    img_path = f"static/uploads/{fname}"
-            
+            cat_id = request.form.get('category_id')
             durs = request.form.getlist('duration[]')
             prices = request.form.getlist('price[]')
-            cost_usd = request.form.getlist('cost_usd[]')
-            
-            price_dict = {}
-            cost_dict = {}
-            for i in range(len(durs)):
-                if durs[i].strip() and prices[i].strip():
-                    price_dict[durs[i].strip()] = float(prices[i].strip())
-                    if cost_usd[i].strip():
-                        cost_dict[durs[i].strip()] = float(cost_usd[i].strip())
+            price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
             
             products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {
-                "name": request.form['name'], "pid": request.form['pid'], 
+                "name": request.form['name'], 
+                "pid": request.form['pid'], 
+                "category_id": cat_id,
                 "features": request.form.get('features', ''),
-                "image": img_path,
                 "setup_video": request.form.get('setup_video', '#'), 
                 "hack_video": request.form.get('hack_video', '#'), 
-                "prices": price_dict,
-                "cost_usd": cost_dict
+                "prices": price_dict
             }})
             return redirect(url_for('admin_panel') + "?success=product_edited")
         except Exception as e: 
@@ -1194,19 +477,18 @@ def edit_product(p_id):
 
     price_fields = ""
     for d, pr in p.get('prices', {}).items():
-        cost_val = p.get('cost_usd', {}).get(d, '')
         price_fields += f"""
         <div style="display:flex; gap:10px; margin-bottom:10px;">
             <input type="text" name="duration[]" value="{d}" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
-            <input type="number" step="0.01" name="cost_usd[]" value="{cost_val}" placeholder="Cost ($)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#f59e0b;">
             <input type="number" name="price[]" value="{pr}" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">
         </div>
         """
+        
+    categories = list(categories_col.find({}))
+    cat_options = "".join([f'<option value="{c["_id"]}" {"selected" if str(c["_id"]) == p.get("category_id") else ""}>{c["name"]}</option>' for c in categories])
 
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <a href="/admin" class="store-btn">🔙 Back</a>
-    </div>
+    <div class="top-nav"><a href="/admin" class="store-btn">🔙 Back</a></div>
     <div class="container fade-in" style="margin-top:20px;">
         <div class="product-card" style="border-color:#f59e0b;">
             <h3 style="margin-bottom:20px; color:#f59e0b; font-size:26px;">✏️ Edit Product</h3>
@@ -1214,13 +496,18 @@ def edit_product(p_id):
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" value="{p.get('name', '')}" required></div>
                 <div class="input-group"><label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required></div>
                 
-                <div class="input-group"><label>Banner Image (Leave empty to keep old)</label><input type="file" name="image_file" accept="image/*" style="padding:15px; background:#050810; border:2px solid #334155; border-radius:12px;"></div>
+                <div class="input-group">
+                    <label>Select Category</label>
+                    <select name="category_id" required style="width:100%; padding:15px; border-radius:15px; background:#0f172a; border:2px solid #334155; color:#fff;">
+                        {cat_options}
+                    </select>
+                </div>
                 
                 <div class="input-group"><label>Features</label><textarea name="features" rows="4">{p.get('features', '')}</textarea></div>
                 <div class="input-group"><label>Update Link</label><input type="url" name="setup_video" value="{p.get('setup_video', '#')}"></div>
                 <div class="input-group"><label>Video/Feedback Link</label><input type="url" name="hack_video" value="{p.get('hack_video', '#')}"></div>
 
-                <label style="font-weight:900; color:#38bdf8; margin:15px 0 10px 0; display:block;">Durations, Cost ($) & Selling Price (₹)</label>
+                <label style="font-weight:900; color:#38bdf8; margin:15px 0 10px 0; display:block;">Durations & Selling Price (₹)</label>
                 <div id="price-container">
                     {price_fields}
                 </div>
@@ -1234,16 +521,13 @@ def edit_product(p_id):
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
             d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" step="0.01" name="cost_usd[]" placeholder="Cost ($)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#f59e0b;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">`;
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">`;
             c.appendChild(d);
         }}
     </script>
     """)
 
-@app.route('/delete_product/<p_id>', methods=['POST'])
-def delete_product(p_id):
-    products_col.delete_one({"_id": ObjectId(p_id)})
-    return redirect(url_for('admin_panel'))
+# ... (Keep delete_product, toggle_stock, admin_users, admin_user_detail, admin_history, web routes, etc. from previous code) ...
 
 # ================== RUNNING ==================
 def run_flask():

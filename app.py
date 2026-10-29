@@ -153,7 +153,7 @@ def bot_callbacks(call):
             
             kb = InlineKeyboardMarkup(row_width=2)
             
-            # FIX: Check if URLs are valid before adding them to buttons
+            # Safe URL check
             update_link = str(p.get('setup_video', '')).strip()
             video_link = str(p.get('hack_video', '')).strip()
             
@@ -167,7 +167,6 @@ def bot_callbacks(call):
             for d, pr in p.get('prices', {}).items():
                 if not d.strip(): continue
                 final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
-                # Using safe delimiter '_'
                 kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"buy_{p_id}_{d}"))
                 
             kb.add(InlineKeyboardButton("🔙 Back", callback_data=f"cat_{p.get('category_id')}"))
@@ -176,7 +175,7 @@ def bot_callbacks(call):
         elif call.data.startswith("buy_"):
             parts = call.data.split("_")
             p_id = parts[1]
-            duration = "_".join(parts[2:]) # Join back in case duration had underscores
+            duration = "_".join(parts[2:])
             
             p = products_col.find_one({"_id": ObjectId(p_id)})
             u = get_user_info(uid)
@@ -218,12 +217,11 @@ def bot_callbacks(call):
             
             text = "📜 <b>Your Order History</b>\n\n"
             for o in orders[:5]:
-                text += f"📦 {o.get('product')}\n🔑 <code>{o.get('key')}</code>\n📅 {o.get('time')}\n➖➖➖➖➖➖➖➖\n"
+                text += f"📦 {o.get('product', 'Deposit')}\n🔑 <code>{o.get('key', 'N/A')}</code>\n📅 {o.get('time')}\n➖➖➖➖➖➖➖➖\n"
             
             kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
             bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=kb)
             
-        # CHAT BASED ADD BALANCE (No Web App)
         elif call.data == "bot_add_bal":
             msg = bot.send_message(call.message.chat.id, "💸 <b>Enter Amount</b>\n\nPlease type the amount (in ₹) you want to add to your wallet (e.g., 50, 100):", parse_mode="HTML", reply_markup=ForceReply(selective=True))
             bot.register_next_step_handler(msg, process_deposit_amount)
@@ -232,9 +230,7 @@ def bot_callbacks(call):
         error_msg = f"⚠️ <b>Bot Error Detected!</b>\n\nUser ID: <code>{uid}</code>\nButton: {call.data}\nError: <code>{str(e)}</code>"
         try: bot.send_message(ADMIN_ID, error_msg, parse_mode="HTML")
         except: pass
-        print(f"Callback Error: {e}")
 
-# --- NEW: Chat Based Deposit Logic ---
 def process_deposit_amount(message):
     uid = str(message.from_user.id)
     try:
@@ -245,15 +241,11 @@ def process_deposit_amount(message):
             return
         
         bot.send_message(message.chat.id, "⏳ <i>Generating QR Code...</i>", parse_mode="HTML")
-        
-        # Create order
         order = fg.create_order(amount=amount, customer_name=f"User_{uid}")
         
-        # Send QR Image directly in chat
         caption = f"💳 <b>Pay ₹{amount}</b>\n\nScan the QR code above using any UPI app.\n\n<i>Bot is checking for payment automatically. Please wait...</i>"
         bot.send_photo(message.chat.id, photo=order.qr_url, caption=caption, parse_mode="HTML")
         
-        # Start Background Verification
         threading.Thread(target=verify_chat_payment, args=(message.chat.id, uid, order.order_id, amount)).start()
         
     except ValueError:
@@ -263,7 +255,7 @@ def process_deposit_amount(message):
         bot.send_message(message.chat.id, f"❌ Error creating order. Please try again later.")
 
 def verify_chat_payment(chat_id, uid, order_id, amount):
-    for _ in range(60): # Check for 3 minutes (60 * 3s)
+    for _ in range(60):
         time.sleep(3)
         try:
             status = fg.get_status(order_id)
@@ -271,8 +263,7 @@ def verify_chat_payment(chat_id, uid, order_id, amount):
                 ok, new_bal = credit_atomic(uid, amount, status.utr)
                 bot.send_message(chat_id, f"✅ <b>Payment Successful!</b>\n\n₹{amount} has been added to your wallet.\n💰 New Balance: ₹{new_bal:.2f}", parse_mode="HTML")
                 return
-        except:
-            pass
+        except: pass
     bot.send_message(chat_id, "⚠️ Payment session expired. If you paid, please contact support.")
 
 # ================== FLASK WEB APP (Admin Only) ==================
@@ -331,6 +322,7 @@ def admin_panel():
     <div class="top-nav">
         <div style="font-weight:900; font-size:20px;">⚙️ Admin Panel</div>
         <div style="display:flex; gap:10px;">
+            <a href="/admin_deposits" class="store-btn" style="background:#8b5cf6;">💰 Deposits</a>
             <a href="/admin_users" class="store-btn" style="background:#f59e0b; color:#000;">👥 Users</a>
             <a href="/admin_categories" class="store-btn" style="background:#10b981;">📁 Categories</a>
         </div>
@@ -380,6 +372,37 @@ def admin_panel():
             c.appendChild(d);
         }}
     </script>
+    """)
+
+# --- NEW: ADMIN DEPOSITS PAGE ---
+@app.route('/admin_deposits')
+def admin_deposits():
+    deposits = list(orders_col.find({"type": "deposit"}).sort("_id", -1))
+    dep_html = ""
+    for d in deposits:
+        user = users_col.find_one({"_id": d['uid']})
+        uname = user.get('name', 'User') if user else d['uid']
+        
+        dep_html += f"""
+        <div class="card" style="padding:15px; border-left: 4px solid #10b981;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                <span style="font-weight:bold; color:#38bdf8;">{uname}</span>
+                <span style="color:#10b981; font-weight:900;">+₹{d.get('amount')}</span>
+            </div>
+            <div style="font-size:12px; color:#94a3b8;">ID: <code>{d.get('uid')}</code></div>
+            <div style="font-size:12px; color:#94a3b8;">UTR: {d.get('utr', 'N/A')}</div>
+            <div style="font-size:12px; color:#f59e0b;">Time: {d.get('time')}</div>
+        </div>
+        """
+        
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:900; font-size:20px; color:#8b5cf6;">💰 All Deposits</div>
+        <a href="/admin" class="store-btn">🔙 Back</a>
+    </div>
+    <div class="container" style="margin-top:20px;">
+        {dep_html if dep_html else '<h3 style="text-align:center; color:#94a3b8;">No deposits found yet.</h3>'}
+    </div>
     """)
 
 @app.route('/admin_categories', methods=['GET', 'POST'])

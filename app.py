@@ -16,7 +16,7 @@ from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
 # 🚨 APNA NAYA BOT TOKEN YAHAN DAALEIN 🚨
-BOT_TOKEN = "8765613302:AAEHEgUQZc_Z1qa8SwCKKwWLgRe-ZgDKks4" # (Isko revoke karke naya lagayein)
+BOT_TOKEN = "8765613302:AAEHEgUQZc_Z1qa8SwCKKwWLgRe-ZgDKks4" 
 
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
 ADMIN_ID  = 7778093775
@@ -26,14 +26,11 @@ WEB_URL = "https://saksham-panel-kpsl.onrender.com"
 
 ADMIN_WP = "918849507563" 
 SUPPORT_LINK = "https://wa.me/918849507563" 
-CHANNEL_LINK = "https://t.me/YourChannelLink" # Apna channel link yahan daalein
+CHANNEL_LINK = "https://t.me/YourChannel" # Apna channel link yahan daalein
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
 MASTER_KEY       = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
-
-# 🔒 Admin Panel Password
-ADMIN_PASSWORD = "SakshamAdmin123" 
 # ============================================
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -43,9 +40,8 @@ db = client.saksham_panel
 users_col = db.users
 web_users_col = db.web_users 
 products_col = db.products
-categories_col = db.categories # NEW: Categories collection
+categories_col = db.categories 
 orders_col = db.orders
-settings_col = db.settings
 
 bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
@@ -86,15 +82,14 @@ def log_order(uid, product, key, price):
 # ================== TELEGRAM BOT MENUS ==================
 def get_main_menu(uid):
     text = (
-        "🎉 <b>WELCOME TO SAKSHAM PANEL SHOP - PRODUCT STATUS 🛒</b>\n\n"
+        "👋 <b>WELCOME TO SAKSHAM PANEL SHOP - PRODUCT STATUS 🛒</b>\n\n"
         "➡️ Buy Now : All Key Purchase & Instant Delivery ✅\n"
         "➡️ Check Update : Check Setup And Update Apk ✅\n"
         "➡️ Add Balance : Secure Auto Payment System ✅\n"
         "➡️ My Profile + All History : Check Your All History ✅\n"
         "➡️ Refer And Earn : Share Refer Link & Earn Money ✅\n"
         "➡️ How To Use Bot : View Tutorial And Work This Bot ✅\n"
-        "➡️ Support : Bot Problem Fixed For Support Admin ✅\n"
-        "➡️ Daily Gift : Free Spin and win random balance daily ✅\n\n"
+        "➡️ Support : Bot Problem Fixed For Support Admin ✅\n\n"
         "⬇️ <b>SELECT AN OPTION FROM THE MENU BELOW 🛒</b>"
     )
     
@@ -102,11 +97,12 @@ def get_main_menu(uid):
     kb.add(InlineKeyboardButton("➡️ Shop Now 🛍️", callback_data="bot_shop"))
     kb.add(InlineKeyboardButton("➡️ Add Amount 💸", callback_data="bot_add_bal"), InlineKeyboardButton("➡️ My Profile 👤", callback_data="bot_profile"))
     kb.add(InlineKeyboardButton("➡️ Order History 📄", callback_data="bot_history"), InlineKeyboardButton("➡️ Main Channel ⚡", url=CHANNEL_LINK))
-    kb.add(InlineKeyboardButton("➡️ Refer & Earn 💰", callback_data="bot_refer"), InlineKeyboardButton("➡️ All Hack Update 📁", callback_data="bot_updates"))
+    kb.add(InlineKeyboardButton("➡️ Refer & Earn 💰", callback_data="bot_refer"), InlineKeyboardButton("➡️ All Hack Update 📁", url=CHANNEL_LINK))
     kb.add(InlineKeyboardButton("➡️ How To Buy Panel 🚀", url=SUPPORT_LINK), InlineKeyboardButton("➡️ Special Gift 🎁", callback_data="bot_gift"))
     kb.add(InlineKeyboardButton("➡️ Become A Reseller 🤝", web_app=WebAppInfo(url=f"{WEB_URL}/buy_reseller")))
     kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=SUPPORT_LINK))
     
+    # Admin panel button
     if str(uid) == str(ADMIN_ID):
         kb.add(InlineKeyboardButton("⚙️ Admin Panel", web_app=WebAppInfo(url=f"{WEB_URL}/admin")))
         
@@ -134,28 +130,26 @@ def bot_callbacks(call):
         if not categories:
             return bot.send_message(call.message.chat.id, "❌ No categories added yet. Please check back later.")
         
-        text = "📁 <b>SELECT A CATEGORY</b>\n\nChoose a product category below:"
+        text = "📁 <b>CHOOSE A CATEGORY</b>\n\nChoose a product category below:"
         kb = InlineKeyboardMarkup(row_width=1)
         for cat in categories:
             kb.add(InlineKeyboardButton(f"➡️ {cat.get('name')}", callback_data=f"bot_cat|{cat['_id']}"))
-        kb.add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main"))
+        kb.add(InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
 
     elif call.data.startswith("bot_cat|"):
         cat_id = call.data.split("|")[1]
         cat = categories_col.find_one({"_id": ObjectId(cat_id)})
         
-        # Show Products in that category
         products = list(products_col.find({"category_id": cat_id, "status": {"$ne": "out_of_stock"}}))
         if not products:
             return bot.answer_callback_query(call.id, "❌ No products in this category right now.", show_alert=True)
         
-        text = f"📁 <b>{cat.get('name', 'Category').upper()}</b>\n\nChoose a product below:"
+        text = f"📁 <b>SAKSHAM PANEL SHOP — {cat.get('name', 'Category').upper()}</b>\n\n➡️ Choose a product 🕊️❤️"
         kb = InlineKeyboardMarkup(row_width=1)
         for p in products:
-            # You can add custom emojis here if you want
-            kb.add(InlineKeyboardButton(f"➡️ {p.get('name')}", callback_data=f"bot_view|{p['_id']}"))
-        kb.add(InlineKeyboardButton("🔙 Back to Categories", callback_data="bot_shop"))
+            kb.add(InlineKeyboardButton(f"{p.get('name')}", callback_data=f"bot_view|{p['_id']}"))
+        kb.add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
 
     elif call.data.startswith("bot_view|"):
@@ -164,23 +158,18 @@ def bot_callbacks(call):
         u = get_user_info(uid)
         disc = u.get('discount', 0)
         
-        # Formatting Product Page exactly like your screenshot
         features_text = p.get('features', '').replace('\n', '\n⚡ ') if p.get('features') else ''
-        text = f"📁 <b>{p['name']} - {p.get('platform', 'Android')}</b>\n\n"
-        text += f"➡️ <b>Choose a product:</b>\n\n⚡ {features_text}\n\n"
+        text = f"📁 <b>{p['name']}</b>\n\n⚡ {features_text}\n\n"
         
         kb = InlineKeyboardMarkup(row_width=2)
+        kb.add(InlineKeyboardButton("📥 Update File", url=p.get('setup_video', '#')), 
+               InlineKeyboardButton("▶️ Video/Feedback", url=p.get('hack_video', '#')))
         
-        # Update and Video Buttons
-        kb.add(InlineKeyboardButton("📥 Check Update File", url=p.get('setup_video', '#')), 
-               InlineKeyboardButton("▶️ Check Video", url=p.get('hack_video', '#')))
-        
-        # Price Buttons
         for d, pr in p.get('prices', {}).items():
             final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
             kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"bot_buy|{p_id}|{d}"))
             
-        kb.add(InlineKeyboardButton("🔙 Back to Products", callback_data=f"bot_cat|{p.get('category_id')}"))
+        kb.add(InlineKeyboardButton("🔙 Back", callback_data=f"bot_cat|{p.get('category_id')}"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
 
     elif call.data.startswith("bot_buy|"):
@@ -206,72 +195,53 @@ def bot_callbacks(call):
             if result.get("status") == "success" or "keys" in result:
                 key = result.get("keys", ["Key not found"])[0]
                 log_order(uid, p['name'], key, price)
-                kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main"))
+                kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
                 bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             else:
                 credit_balance(uid, price)
-                kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Shop", callback_data="bot_shop"))
+                kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop"))
                 bot.edit_message_text(f"❌ <b>API Error (Out of Stock)</b>\n\n₹{price:.2f} has been refunded to your wallet.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
                 
-    # Placeholder callbacks for other buttons
     elif call.data == "bot_profile":
         u = get_user_info(uid)
         bot.answer_callback_query(call.id, f"👤 Name: {u.get('name')}\n💰 Balance: ₹{u.get('balance'):.2f}\n🏷️ Discount: {u.get('discount')}%", show_alert=True)
     elif call.data == "bot_add_bal":
-        bot.answer_callback_query(call.id, "👇 Please click the button below to add balance.", show_alert=True)
         bot.send_message(call.message.chat.id, "👇 Click here to add balance:", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", web_app=WebAppInfo(url=f"{WEB_URL}/deposit"))))
     else:
         bot.answer_callback_query(call.id, "🚧 This feature is coming soon!", show_alert=True)
+
 
 # ================== FLASK WEB APP ==================
 app = Flask(__name__)
 app.secret_key = "sk_panel_secret_secure_now_12345"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Admin Auth Decorator
-def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not session.get('is_admin'):
-            return render_template_string(BASE_CSS + """
-            <div class="container fade-in" style="margin-top: 50px;">
-                <div class="product-card" style="text-align:center; border-color:#ef4444;">
-                    <h2 style="color:#ef4444; font-size:28px; margin-bottom:20px;">🔒 Admin Login Required</h2>
-                    <form method="POST" action="/admin_auth">
-                        <div class="input-group">
-                            <input type="password" name="password" placeholder="Enter Admin Password" required style="text-align:center;">
-                        </div>
-                        <button type="submit" class="action-btn btn-danger">Login to Admin Panel</button>
-                    </form>
-                    <a href="/" style="display:block; margin-top:15px; color:#38bdf8; text-decoration:none;">Back to Store</a>
-                </div>
-            </div>
-            """)
-        return f(*args, **kwargs)
-    return decorated_function
+BASE_CSS = """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
+    * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; }
+    body { background-color: #050810; color: #fff; padding-bottom: 100px; }
+    .container { padding: 20px; max-width: 1000px; margin: 0 auto; }
+    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: rgba(15, 23, 42, 0.85); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 15px 25px; border-radius: 25px; font-weight: 800; color: white; text-decoration: none; }
+    .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 25px; padding: 30px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
+    .input-group { margin-bottom: 20px; }
+    .input-group label { display: block; font-size: 16px; color: #cbd5e1; margin-bottom: 10px; font-weight: 700; }
+    .input-group input, .input-group textarea, select { width: 100%; padding: 20px; border-radius: 15px; border: 2px solid #334155; background: #0f172a; color: #fff; font-size: 18px; outline: none; }
+    .action-btn { display: block; width: 100%; padding: 20px; border-radius: 15px; text-align: center; font-weight: 900; font-size: 18px; text-decoration: none; border: none; cursor: pointer; text-transform: uppercase; }
+    .btn-primary { background: linear-gradient(135deg, #0ea5e9, #3b82f6); color: white; }
+    .btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; }
+    .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; }
+    .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: black; }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+    .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.08); }
+    .stat-title { font-size: 15px; color: #94a3b8; font-weight: 700; }
+    .stat-value { font-size: 32px; font-weight: 900; }
+</style>
+"""
 
-@app.route('/admin_auth', methods=['POST'])
-def admin_auth():
-    if request.form['password'] == ADMIN_PASSWORD:
-        session['is_admin'] = True
-        return redirect(url_for('admin_panel'))
-    return "<h3 style='color:red; text-align:center; margin-top:50px;'>Wrong Password! <a href='/admin'>Try Again</a></h3>"
-
-# (Include BASE_CSS here, same as before)
-BASE_CSS = """<style> /* Paste your CSS here */ </style>"""
-
-# ================== USER AUTH ROUTES (WEB) ==================
-# ... (Keep login, register, logout, web_home, web_product, buy_web, deposit routes same as before) ...
-# For brevity, I am skipping the web user routes here. They remain EXACTLY the same as your previous code.
-
-# ================== ADMIN PANEL (SECURE) ==================
-@app.route('/admin_logout')
-def admin_logout():
-    session.pop('is_admin', None)
-    return redirect(url_for('login'))
-
+# ================== ADMIN PANEL (NO LOGIN REQUIRED) ==================
 @app.route('/admin', methods=['GET'])
-@admin_required
 def admin_panel():
     total_users = users_col.count_documents({})
     total_sales = orders_col.count_documents({"type": "purchase"})
@@ -290,19 +260,19 @@ def admin_panel():
         cat = categories_col.find_one({"_id": ObjectId(p.get('category_id'))}) if p.get('category_id') else None
         cat_name = cat.get('name') if cat else "No Category"
         
-        status_btn = f'<a href="/toggle_stock/{p["_id"]}" class="action-btn btn-warning" style="padding:12px 20px; font-size:14px; width:auto; background:#10b981; color:white;">🟢 In Stock</a>' if p.get('status') == 'out_of_stock' else f'<a href="/toggle_stock/{p["_id"]}" class="action-btn btn-warning" style="padding:12px 20px; font-size:14px; width:auto; background:#ef4444; color:white;">🔴 Out of Stock</a>'
+        status_btn = f'<a href="/toggle_stock/{p["_id"]}" class="action-btn btn-warning" style="padding:10px; font-size:14px; width:auto;">In Stock</a>' if p.get('status') == 'out_of_stock' else f'<a href="/toggle_stock/{p["_id"]}" class="action-btn btn-danger" style="padding:10px; font-size:14px; width:auto;">Out of Stock</a>'
         
         prod_html += f"""
-        <div class="product-card" style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; padding:20px;">
+        <div class="product-card" style="display:flex; justify-content:space-between; align-items:center;">
             <div>
                 <div style="font-size:22px; font-weight:900; color:#38bdf8;">{p.get('name', '')}</div>
                 <div style="font-size:14px; color:#f59e0b;">Category: {cat_name}</div>
             </div>
-            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <div style="display:flex; gap:10px;">
                 {status_btn}
-                <a href="/edit_product/{p['_id']}" class="action-btn btn-warning" style="padding:12px 20px; font-size:14px; width:auto;">✏️ Edit</a>
+                <a href="/edit_product/{p['_id']}" class="action-btn btn-warning" style="padding:10px; font-size:14px; width:auto;">Edit</a>
                 <form action="/delete_product/{p['_id']}" method="POST">
-                    <button type="submit" class="action-btn btn-danger" style="padding:12px 20px; font-size:14px; width:auto;">🗑️ Del</button>
+                    <button type="submit" class="action-btn btn-danger" style="padding:10px; font-size:14px; width:auto;">Del</button>
                 </form>
             </div>
         </div>
@@ -312,23 +282,20 @@ def admin_panel():
     <div class="top-nav">
         <div style="font-weight:900; font-size:24px; color:#38bdf8;">⚙️ Admin Panel</div>
         <div style="display:flex; gap:10px;">
-            <a href="/admin_categories" class="store-btn" style="background:#10b981; color:#fff;">📁 Categories</a>
-            <a href="/admin_history" class="store-btn" style="background:#8b5cf6; color:#fff;">📜 History</a>
-            <a href="/admin_users" class="store-btn" style="background:#f59e0b; color:#000;">👥 Users</a>
-            <a href="/admin_logout" class="store-btn" style="background:#ef4444;">Logout</a>
+            <a href="/admin_categories" class="store-btn" style="background:#10b981;">📁 Categories</a>
+            <a href="/" class="store-btn" style="background:#ef4444;">Exit</a>
         </div>
     </div>
-    <div class="container fade-in" style="margin-top:20px;">
-        
-        <div class="stats-grid" style="grid-template-columns: 1fr 1fr 1fr 1fr 1fr;">
-            <div class="stat-card"><div class="stat-title">👥 Users</div><div class="stat-value text-blue" style="font-size:24px;">{total_users}</div></div>
-            <div class="stat-card"><div class="stat-title">🛍️ Sales</div><div class="stat-value text-yellow" style="font-size:24px;">{total_sales}</div></div>
-            <div class="stat-card"><div class="stat-title">💰 Revenue</div><div class="stat-value text-green" style="font-size:24px;">₹{total_revenue}</div></div>
-            <div class="stat-card"><div class="stat-title">📦 Products</div><div class="stat-value" style="font-size:24px;">{total_products}</div></div>
-            <div class="stat-card"><div class="stat-title">📁 Categories</div><div class="stat-value" style="font-size:24px;">{total_categories}</div></div>
+    <div class="container" style="margin-top:20px;">
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-title">Users</div><div class="stat-value text-blue">{total_users}</div></div>
+            <div class="stat-card"><div class="stat-title">Sales</div><div class="stat-value text-yellow">{total_sales}</div></div>
+            <div class="stat-card"><div class="stat-title">Revenue</div><div class="stat-value text-green">₹{total_revenue}</div></div>
+            <div class="stat-card"><div class="stat-title">Products</div><div class="stat-value">{total_products}</div></div>
+            <div class="stat-card"><div class="stat-title">Categories</div><div class="stat-value">{total_categories}</div></div>
         </div>
 
-        <div class="product-card" style="margin-bottom:30px; border-color:#0ea5e9;">
+        <div class="product-card" style="border-color:#0ea5e9;">
             <h3 style="margin-bottom:25px; color:#38bdf8; font-size:26px;">➕ Add New Product</h3>
             <form method="POST" action="/add_product" enctype="multipart/form-data">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" required></div>
@@ -336,22 +303,21 @@ def admin_panel():
                 
                 <div class="input-group">
                     <label>Select Category</label>
-                    <select name="category_id" required style="width:100%; padding:15px; border-radius:15px; background:#0f172a; border:2px solid #334155; color:#fff;">
+                    <select name="category_id" required>
                         <option value="">-- Select Category --</option>
-                        <!-- Categories will load here via Jinja or Jinja-like string replacement -->
                         {''.join([f'<option value="{c["_id"]}">{c["name"]}</option>' for c in categories_col.find({})])}
                     </select>
                 </div>
                 
-                <div class="input-group"><label>Features (One per line)</label><textarea name="features" rows="4" placeholder="AIMBOT ADD&#10;AUTO REVIVE"></textarea></div>
+                <div class="input-group"><label>Features (One per line)</label><textarea name="features" rows="4"></textarea></div>
                 <div class="input-group"><label>Update File Link</label><input type="url" name="setup_video" placeholder="https://..."></div>
                 <div class="input-group"><label>Video / Feedback Link</label><input type="url" name="hack_video" placeholder="https://..."></div>
 
                 <label style="font-weight:900; color:#38bdf8; margin:20px 0 10px 0; display:block; font-size:20px;">Durations & Selling Price (₹)</label>
                 <div id="price-container">
                     <div style="display:flex; gap:10px; margin-bottom:10px;">
-                        <input type="text" name="duration[]" placeholder="e.g. 1 Day" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
-                        <input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">
+                        <input type="text" name="duration[]" placeholder="e.g. 1 Day" style="flex:1; padding:15px;">
+                        <input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px;">
                     </div>
                 </div>
                 <button type="button" onclick="addPrice()" class="action-btn btn-success" style="margin-bottom:25px; background:#f59e0b; color:#000;">+ Add More</button>
@@ -367,15 +333,13 @@ def admin_panel():
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
             d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">`;
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:15px; background:#0f172a; color:#fff; border:2px solid #334155;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:15px; background:#0f172a; color:#fff; border:2px solid #334155;">`;
             c.appendChild(d);
         }}
     </script>
     """)
 
-# ================== MANAGE CATEGORIES (NEW) ==================
 @app.route('/admin_categories', methods=['GET', 'POST'])
-@admin_required
 def admin_categories():
     if request.method == 'POST':
         cat_name = request.form.get('cat_name')
@@ -387,73 +351,59 @@ def admin_categories():
     cat_html = ""
     for c in categories:
         cat_html += f"""
-        <div class="product-card" style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; padding:20px;">
+        <div class="product-card" style="display:flex; justify-content:space-between; align-items:center;">
             <div style="font-size:20px; font-weight:900; color:#10b981;">📁 {c['name']}</div>
             <form action="/delete_category/{c['_id']}" method="POST">
-                <button type="submit" class="action-btn btn-danger" style="padding:10px 20px; font-size:14px; width:auto;">🗑️ Del</button>
+                <button type="submit" class="action-btn btn-danger" style="padding:10px; font-size:14px; width:auto;">Del</button>
             </form>
         </div>
         """
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
-        <div style="font-weight:900; font-size:24px; color:#10b981;">📁 Manage Categories</div>
-        <a href="/admin" class="store-btn">🔙 Back to Admin</a>
+        <div style="font-weight:900; font-size:24px; color:#10b981;">📁 Categories</div>
+        <a href="/admin" class="store-btn">🔙 Back</a>
     </div>
-    <div class="container fade-in" style="margin-top:20px;">
-        <div class="product-card" style="margin-bottom:30px; border-color:#10b981;">
-            <h3 style="margin-bottom:20px; color:#10b981; font-size:24px;">➕ Add New Category</h3>
+    <div class="container" style="margin-top:20px;">
+        <div class="product-card" style="border-color:#10b981;">
+            <h3 style="margin-bottom:20px; color:#10b981;">➕ Add New Category</h3>
             <form method="POST">
                 <div class="input-group">
-                    <input type="text" name="cat_name" placeholder="e.g. Android NonRoot" required>
+                    <input type="text" name="cat_name" placeholder="e.g. Android Root" required>
                 </div>
-                <button type="submit" class="action-btn btn-success">Save Category</button>
+                <button type="submit" class="action-btn btn-success">Save</button>
             </form>
         </div>
-        
-        <h3 style="margin-bottom:20px; color:#fff; font-size:22px;">Existing Categories</h3>
-        {cat_html if cat_html else '<p style="color:#94a3b8;">No categories added yet.</p>'}
+        {cat_html}
     </div>
     """)
 
 @app.route('/delete_category/<c_id>', methods=['POST'])
-@admin_required
 def delete_category(c_id):
     categories_col.delete_one({"_id": ObjectId(c_id)})
     return redirect(url_for('admin_categories'))
 
-# ================== PRODUCT CRUD ==================
 @app.route('/add_product', methods=['POST'])
-@admin_required
 def add_product():
     try:
         cat_id = request.form.get('category_id')
-        if not cat_id:
-            return "Category is required"
-            
         durs = request.form.getlist('duration[]')
         prices = request.form.getlist('price[]')
         price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
         
         products_col.insert_one({
-            "name": request.form['name'], 
-            "pid": request.form['pid'], 
-            "category_id": cat_id,
-            "features": request.form.get('features', ''),
-            "setup_video": request.form.get('setup_video', '#'), 
-            "hack_video": request.form.get('hack_video', '#'), 
-            "prices": price_dict, 
-            "status": "active"
+            "name": request.form['name'], "pid": request.form['pid'], "category_id": cat_id,
+            "features": request.form.get('features', ''), "setup_video": request.form.get('setup_video', '#'), 
+            "hack_video": request.form.get('hack_video', '#'), "prices": price_dict, "status": "active"
         })
-        return redirect(url_for('admin_panel') + "?success=product_added")
+        return redirect(url_for('admin_panel'))
     except Exception as e: 
-        return f"<h3 style='color:red; text-align:center;'>Error: {e}</h3>"
+        return f"Error: {e}"
 
 @app.route('/edit_product/<p_id>', methods=['GET', 'POST'])
-@admin_required
 def edit_product(p_id):
     p = products_col.find_one({"_id": ObjectId(p_id)})
-    if not p: return "Product not found"
+    if not p: return "Not found"
 
     if request.method == 'POST':
         try:
@@ -463,24 +413,20 @@ def edit_product(p_id):
             price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
             
             products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {
-                "name": request.form['name'], 
-                "pid": request.form['pid'], 
-                "category_id": cat_id,
-                "features": request.form.get('features', ''),
-                "setup_video": request.form.get('setup_video', '#'), 
-                "hack_video": request.form.get('hack_video', '#'), 
-                "prices": price_dict
+                "name": request.form['name'], "pid": request.form['pid'], "category_id": cat_id,
+                "features": request.form.get('features', ''), "setup_video": request.form.get('setup_video', '#'), 
+                "hack_video": request.form.get('hack_video', '#'), "prices": price_dict
             }})
-            return redirect(url_for('admin_panel') + "?success=product_edited")
+            return redirect(url_for('admin_panel'))
         except Exception as e: 
-            return f"<h3 style='color:red; text-align:center;'>Error: {e}</h3>"
+            return f"Error: {e}"
 
     price_fields = ""
     for d, pr in p.get('prices', {}).items():
         price_fields += f"""
         <div style="display:flex; gap:10px; margin-bottom:10px;">
-            <input type="text" name="duration[]" value="{d}" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
-            <input type="number" name="price[]" value="{pr}" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">
+            <input type="text" name="duration[]" value="{d}" style="flex:1; padding:15px;">
+            <input type="number" name="price[]" value="{pr}" style="flex:1; padding:15px;">
         </div>
         """
         
@@ -489,30 +435,23 @@ def edit_product(p_id):
 
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><a href="/admin" class="store-btn">🔙 Back</a></div>
-    <div class="container fade-in" style="margin-top:20px;">
-        <div class="product-card" style="border-color:#f59e0b;">
-            <h3 style="margin-bottom:20px; color:#f59e0b; font-size:26px;">✏️ Edit Product</h3>
-            <form method="POST" enctype="multipart/form-data">
+    <div class="container" style="margin-top:20px;">
+        <div class="product-card">
+            <h3 style="margin-bottom:20px; color:#f59e0b;">✏️ Edit Product</h3>
+            <form method="POST">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" value="{p.get('name', '')}" required></div>
                 <div class="input-group"><label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required></div>
-                
                 <div class="input-group">
-                    <label>Select Category</label>
-                    <select name="category_id" required style="width:100%; padding:15px; border-radius:15px; background:#0f172a; border:2px solid #334155; color:#fff;">
-                        {cat_options}
-                    </select>
+                    <label>Category</label>
+                    <select name="category_id">{cat_options}</select>
                 </div>
-                
                 <div class="input-group"><label>Features</label><textarea name="features" rows="4">{p.get('features', '')}</textarea></div>
                 <div class="input-group"><label>Update Link</label><input type="url" name="setup_video" value="{p.get('setup_video', '#')}"></div>
-                <div class="input-group"><label>Video/Feedback Link</label><input type="url" name="hack_video" value="{p.get('hack_video', '#')}"></div>
-
-                <label style="font-weight:900; color:#38bdf8; margin:15px 0 10px 0; display:block;">Durations & Selling Price (₹)</label>
-                <div id="price-container">
-                    {price_fields}
-                </div>
+                <div class="input-group"><label>Video Link</label><input type="url" name="hack_video" value="{p.get('hack_video', '#')}"></div>
+                <label style="font-weight:900; color:#38bdf8; margin:15px 0 10px 0; display:block;">Durations & Price</label>
+                <div id="price-container">{price_fields}</div>
                 <button type="button" onclick="addPrice()" class="action-btn btn-success" style="margin-bottom:20px; background:#f59e0b; color:#000;">+ Add More</button>
-                <button type="submit" class="action-btn btn-warning">Update Product</button>
+                <button type="submit" class="action-btn btn-warning">Update</button>
             </form>
         </div>
     </div>
@@ -521,13 +460,23 @@ def edit_product(p_id):
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
             d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">`;
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px;">`;
             c.appendChild(d);
         }}
     </script>
     """)
 
-# ... (Keep delete_product, toggle_stock, admin_users, admin_user_detail, admin_history, web routes, etc. from previous code) ...
+@app.route('/delete_product/<p_id>', methods=['POST'])
+def delete_product(p_id):
+    products_col.delete_one({"_id": ObjectId(p_id)})
+    return redirect(url_for('admin_panel'))
+
+@app.route('/toggle_stock/<p_id>')
+def toggle_stock(p_id):
+    p = products_col.find_one({"_id": ObjectId(p_id)})
+    new_status = 'active' if p.get('status') == 'out_of_stock' else 'out_of_stock'
+    products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {"status": new_status}})
+    return redirect(url_for('admin_panel'))
 
 # ================== RUNNING ==================
 def run_flask():

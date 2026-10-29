@@ -68,6 +68,7 @@ def deduct_balance(uid, amount):
 def credit_atomic(uid, amount, utr):
     if orders_col.find_one({"utr": utr, "type": "deposit"}):
         return True, get_balance(uid)
+    
     orders_col.insert_one({"utr": utr, "uid": str(uid), "amount": amount, "type": "deposit", "time": time.strftime("%d-%m-%Y %I:%M %p")})
     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
     return True, get_balance(uid)
@@ -193,11 +194,9 @@ def bot_callbacks(call):
             
             user_bal = get_balance(uid)
             
-            # Yahan Low Balance alert show hoga kyunki pehle answer_callback_query call nahi hua
             if user_bal < price:
                 return bot.answer_callback_query(call.id, f"❌ Low Balance!\n\nYour Balance: ₹{user_bal:.2f}\nRequired: ₹{price:.2f}\n\nPlease add funds using 'Add Amount'.", show_alert=True)
                 
-            # Sufficient balance, stop loading animation
             bot.answer_callback_query(call.id)
             
             if deduct_balance(uid, price):
@@ -215,7 +214,6 @@ def bot_callbacks(call):
                     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main"))
                     bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
                 else:
-                    # Refund if API fails
                     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": price}})
                     err_msg = result.get("message", "Out of Stock / API Error")
                     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop"))
@@ -245,7 +243,16 @@ def bot_callbacks(call):
             msg = bot.send_message(call.message.chat.id, "💸 <b>Enter Amount</b>\n\nPlease type the amount (in ₹) you want to add to your wallet (e.g., 50, 100):", parse_mode="HTML", reply_markup=ForceReply(selective=True))
             bot.register_next_step_handler(msg, process_deposit_amount)
             bot.answer_callback_query(call.id)
+
+        elif call.data.startswith("check_dep_"):
+            parts = call.data.split("_")
+            order_id = parts[2]
+            amount = float(parts[3])
+            target_uid = parts[4]
             
+            bot.answer_callback_query(call.id, "⏳ Checking status with gateway...")
+            verify_payment_manually(call.message.chat.id, target_uid, order_id, amount)
+
     except Exception as e:
         error_msg = f"⚠️ <b>Bot Error Detected!</b>\n\nUser ID: <code>{uid}</code>\nButton: {call.data}\nError: <code>{str(e)}</code>"
         try: bot.send_message(ADMIN_ID, error_msg, parse_mode="HTML")
@@ -255,16 +262,20 @@ def process_deposit_amount(message):
     uid = str(message.from_user.id)
     try:
         amount = float(message.text)
-        if amount < 10:
-            msg = bot.reply_to(message, "❌ Minimum amount is ₹10. Please enter again:")
+        
+        # YAHAN LIMIT HATA DI GAYI HAI. Ab 0 se bada koi bhi amount chalega.
+        if amount <= 0:
+            msg = bot.reply_to(message, "❌ Amount must be greater than 0. Please enter again:")
             bot.register_next_step_handler(msg, process_deposit_amount)
             return
         
         bot.send_message(message.chat.id, "⏳ <i>Generating QR Code...</i>", parse_mode="HTML")
         order = fg.create_order(amount=amount, customer_name=f"User_{uid}")
         
-        caption = f"💳 <b>Pay ₹{amount}</b>\n\nScan the QR code above using any UPI app.\n\n<i>Bot is checking for payment automatically. Please wait...</i>"
-        bot.send_photo(message.chat.id, photo=order.qr_url, caption=caption, parse_mode="HTML")
+        caption = f"💳 <b>Pay ₹{amount}</b>\n\nScan the QR code above using any UPI app.\n\n<i>Bot is checking for payment in the background. Please wait...</i>"
+        
+        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"check_dep_{order.order_id}_{amount}_{uid}"))
+        bot.send_photo(message.chat.id, photo=order.qr_url, caption=caption, parse_mode="HTML", reply_markup=kb)
         
         threading.Thread(target=verify_chat_payment, args=(message.chat.id, uid, order.order_id, amount)).start()
         
@@ -273,9 +284,11 @@ def process_deposit_amount(message):
         bot.register_next_step_handler(msg, process_deposit_amount)
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Error creating order. Please try again later.")
+        try: bot.send_message(ADMIN_ID, f"Deposit Error: {str(e)}", parse_mode="HTML")
+        except: pass
 
 def verify_chat_payment(chat_id, uid, order_id, amount):
-    for _ in range(60):
+    for _ in range(200): 
         time.sleep(3)
         try:
             status = fg.get_status(order_id)
@@ -283,8 +296,24 @@ def verify_chat_payment(chat_id, uid, order_id, amount):
                 ok, new_bal = credit_atomic(uid, amount, status.utr)
                 bot.send_message(chat_id, f"✅ <b>Payment Successful!</b>\n\n₹{amount} has been added to your wallet.\n💰 New Balance: ₹{new_bal:.2f}", parse_mode="HTML")
                 return
+        except Exception as e: 
+            print(f"API Check Error: {e}")
+    
+    bot.send_message(chat_id, "⚠️ Auto-check session expired. If you paid, please click 'Check Payment Status' button or contact support.")
+
+def verify_payment_manually(chat_id, uid, order_id, amount):
+    try:
+        status = fg.get_status(order_id)
+        if status.is_paid:
+            ok, new_bal = credit_atomic(uid, amount, status.utr)
+            bot.send_message(chat_id, f"✅ <b>Payment Verified Manually!</b>\n\n₹{amount} has been added to your wallet.\n💰 New Balance: ₹{new_bal:.2f}", parse_mode="HTML")
+        else:
+            bot.send_message(chat_id, f"❌ Payment not received yet for Order ID: <code>{order_id}</code>.\n\nIf you just paid, please wait 1-2 minutes and try again.", parse_mode="HTML")
+    except Exception as e:
+        bot.send_message(chat_id, f"⚠️ Gateway Error: Could not fetch status. Please try again later.")
+        try: bot.send_message(ADMIN_ID, f"Manual Check Error:\nOrder: {order_id}\nError: {str(e)}", parse_mode="HTML")
         except: pass
-    bot.send_message(chat_id, "⚠️ Payment session expired. If you paid, please contact support.")
+
 
 # ================== FLASK WEB APP (Admin Only) ==================
 app = Flask(__name__)

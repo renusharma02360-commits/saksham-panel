@@ -23,7 +23,7 @@ MONGO_URI = os.environ.get("MONGO_URI")
 UPLOAD_FOLDER = "static/uploads"
 WEB_URL = "https://saksham-panel-kpsl.onrender.com" 
 
-# Agar aapke paas MongoDB URI nahi hai, toh ye local chalega (Render par env variable set karna)
+# Agar MongoDB URI nahi hai toh default (Render pe env variable set karein)
 if not MONGO_URI:
     MONGO_URI = "mongodb://localhost:27017/"
 
@@ -40,7 +40,7 @@ users_col = db.users
 products_col = db.products
 categories_col = db.categories 
 orders_col = db.orders
-settings_col = db.settings # Naya collection settings ke liye
+settings_col = db.settings
 
 bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
@@ -85,9 +85,9 @@ def credit_atomic(uid, amount, utr):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ================== TELEGRAM BOT (DYNAMIC UI) ==================
+# ================== TELEGRAM BOT ==================
 def get_main_menu(uid):
-    welcome_text = get_setting("welcome_text", 
+    text = get_setting("welcome_text", 
         "(●) <b>WELCOME TO SAKSHAM PANEL SHOP - PRODUCT STATUS</b> [Shop]\n\n"
         "➡️ Buy Now : All Key Purchase & Instant Delivery ✅\n"
         "➡️ Add Balance : Secure Auto Payment System ✅\n"
@@ -104,13 +104,12 @@ def get_main_menu(uid):
            InlineKeyboardButton("➡️ My Profile 👤", callback_data="bot_profile"))
     kb.add(InlineKeyboardButton("➡️ Order History 📄", callback_data="bot_history"), 
            InlineKeyboardButton("➡️ Main Channel ⚡", url=channel_link))
-    kb.add(InlineKeyboardButton("➡️ Become A Reseller 🤝", web_app=WebAppInfo(url=f"{WEB_URL}/buy_reseller?uid={uid}")))
     kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=support_link))
     
     if str(uid) == str(ADMIN_ID):
         kb.add(InlineKeyboardButton("⚙️ Admin Panel", web_app=WebAppInfo(url=f"{WEB_URL}/admin")))
         
-    return welcome_text, kb
+    return text, kb
 
 @bot.message_handler(commands=["start"])
 def start(msg):
@@ -121,117 +120,127 @@ def start(msg):
 
 @bot.callback_query_handler(func=lambda call: True)
 def bot_callbacks(call):
-    uid = call.from_user.id
+    uid = str(call.from_user.id)
     bot.answer_callback_query(call.id)
     
-    if call.data == "bot_main":
-        text, kb = get_main_menu(uid)
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
-        
-    elif call.data == "bot_shop":
-        categories = list(categories_col.find({}))
-        if not categories:
-            return bot.answer_callback_query(call.id, "❌ No categories added yet.", show_alert=True)
-        
-        text = (
-            "🛍️ <b>SAKSHAM PANEL SHOP</b>\n"
-            "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
-            "🔥 Premium Mods, Panels & Bypasses — all in one place!\n"
-            "⚡ Instant delivery • 🔒 Verified sellers • 💯 Trusted by 1000+ buyers\n\n"
-            "👇 <i>Tap a category below to get started:</i>"
-        )
-        
-        kb = InlineKeyboardMarkup(row_width=1)
-        for cat in categories:
-            kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()} PANEL", callback_data=f"bot_cat|{cat['_id']}"))
-        kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_main"))
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data.startswith("bot_cat|"):
-        cat_id = call.data.split("|")[1]
-        cat = categories_col.find_one({"_id": ObjectId(cat_id)})
-        
-        # Filter products by category
-        products = list(products_col.find({"category_id": cat_id, "status": {"$ne": "out_of_stock"}}))
-        if not products:
-            return bot.answer_callback_query(call.id, "❌ No products in this category right now.", show_alert=True)
-        
-        text = f"📁 <b>SAKSHAM PANEL SHOP — {cat.get('name', 'Category').upper()}</b>\n\n➡️ Choose a product 🕊️❤️"
-        kb = InlineKeyboardMarkup(row_width=1)
-        for p in products:
-            icon = p.get('icon', '🔹')
-            kb.add(InlineKeyboardButton(f"{icon} {p.get('name')}", callback_data=f"bot_view|{p['_id']}"))
-        kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_shop"))
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data.startswith("bot_view|"):
-        p_id = call.data.split("|")[1]
-        p = products_col.find_one({"_id": ObjectId(p_id)})
-        u = get_user_info(uid)
-        disc = u.get('discount', 0)
-        
-        features_text = p.get('features', '').replace('\n', '\n⚡ ') if p.get('features') else ''
-        text = f"📁 <b>{p['name']}</b>\n\n⚡ {features_text}\n\n"
-        
-        kb = InlineKeyboardMarkup(row_width=2)
-        kb.add(InlineKeyboardButton("📥 Update File", url=p.get('setup_video', '#')), 
-               InlineKeyboardButton("▶️ Video/Feedback", url=p.get('hack_video', '#')))
-        
-        for d, pr in p.get('prices', {}).items():
-            final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
-            kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"bot_buy|{p_id}|{d}"))
+    try:
+        if call.data == "bot_main":
+            text, kb = get_main_menu(uid)
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             
-        kb.add(InlineKeyboardButton("🔙 Back", callback_data=f"bot_cat|{p.get('category_id')}"))
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data.startswith("bot_buy|"):
-        parts = call.data.split("|")
-        p_id, duration = parts[1], parts[2]
-        p = products_col.find_one({"_id": ObjectId(p_id)})
-        u = get_user_info(uid)
-        disc = u.get('discount', 0)
-        
-        price = float(p['prices'][duration]) - (float(p['prices'][duration]) * disc / 100) if disc > 0 else float(p['prices'][duration])
-        
-        if get_balance(uid) < price:
-            return bot.answer_callback_query(call.id, "❌ Low Balance! Please add funds.", show_alert=True)
+        elif call.data == "bot_shop":
+            categories = list(categories_col.find({}))
+            if not categories:
+                return bot.answer_callback_query(call.id, "❌ No categories added yet.", show_alert=True)
             
-        if deduct_balance(uid, price):
-            bot.edit_message_text("⏳ <i>Processing your order...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
-            try:
-                data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(p.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
-                res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
-                result = res.json()
-            except Exception as e: result = {"status": "error", "message": str(e)}
+            text = "📁 <b>CHOOSE A CATEGORY</b>\n\n🔥 Premium Mods, Panels & Bypasses — all in one place!\n⚡ Instant delivery • 🔒 Verified sellers\n\n👇 <i>Tap a category below to get started:</i>"
+            kb = InlineKeyboardMarkup(row_width=1)
+            for cat in categories:
+                kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()}", callback_data=f"bot_cat|{cat['_id']}"))
+            kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_main"))
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+
+        elif call.data.startswith("bot_cat|"):
+            cat_id = call.data.split("|")[1]
+            cat = categories_col.find_one({"_id": ObjectId(cat_id)})
+            
+            # Sirf usi category ke products fetch honge
+            products = list(products_col.find({"category_id": str(cat_id), "status": {"$ne": "out_of_stock"}}))
+            
+            if not products:
+                return bot.answer_callback_query(call.id, "❌ No products in this category right now.", show_alert=True)
+            
+            text = f"📁 <b>SAKSHAM PANEL SHOP — {cat.get('name', 'Category').upper()}</b>\n\n➡️ Choose a product 🕊️❤️"
+            kb = InlineKeyboardMarkup(row_width=1)
+            for p in products:
+                icon = p.get('icon', '🔹')
+                kb.add(InlineKeyboardButton(f"{icon} {p.get('name')}", callback_data=f"bot_view|{p['_id']}"))
+            kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_shop"))
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+
+        elif call.data.startswith("bot_view|"):
+            p_id = call.data.split("|")[1]
+            p = products_col.find_one({"_id": ObjectId(p_id)})
+            u = get_user_info(uid)
+            disc = u.get('discount', 0)
+            
+            features_text = p.get('features', '').replace('\n', '\n⚡ ') if p.get('features') else ''
+            text = f"📁 <b>{p['name']}</b>\n\n⚡ {features_text}\n\n"
+            
+            kb = InlineKeyboardMarkup(row_width=2)
+            kb.add(InlineKeyboardButton("📥 Update File", url=p.get('setup_video', '#')), 
+                   InlineKeyboardButton("▶️ Video/Feedback", url=p.get('hack_video', '#')))
+            
+            for d, pr in p.get('prices', {}).items():
+                final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
+                kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"bot_buy|{p_id}|{d}"))
                 
-            if result.get("status") == "success" or "keys" in result:
-                key = result.get("keys", ["Key not found"])[0]
-                log_order(uid, p['name'], key, price)
-                kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main"))
-                bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
-            else:
-                credit_balance(uid, price)
-                kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop"))
-                bot.edit_message_text(f"❌ <b>API Error (Out of Stock)</b>\n\n₹{price:.2f} has been refunded to your wallet.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+            kb.add(InlineKeyboardButton("🔙 Back", callback_data=f"bot_cat|{p.get('category_id')}"))
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+
+        elif call.data.startswith("bot_buy|"):
+            parts = call.data.split("|")
+            p_id, duration = parts[1], parts[2]
+            p = products_col.find_one({"_id": ObjectId(p_id)})
+            u = get_user_info(uid)
+            disc = u.get('discount', 0)
+            
+            price = float(p['prices'][duration]) - (float(p['prices'][duration]) * disc / 100) if disc > 0 else float(p['prices'][duration])
+            
+            if get_balance(uid) < price:
+                return bot.answer_callback_query(call.id, "❌ Low Balance! Please add funds.", show_alert=True)
                 
-    elif call.data == "bot_profile":
-        u = get_user_info(uid)
-        bot.answer_callback_query(call.id, f"👤 Name: {u.get('name')}\n💰 Balance: ₹{u.get('balance'):.2f}\n🏷️ Discount: {u.get('discount')}%", show_alert=True)
-        
-    elif call.data == "bot_history":
-        orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
-        if not orders:
-            return bot.answer_callback_query(call.id, "No orders found.", show_alert=True)
-        text = "📜 <b>Your Order History</b>\n\n"
-        for o in orders[:5]: 
-            text += f"📦 {o.get('product')}\n🔑 <code>{o.get('key')}</code>\n➖➖➖➖➖➖➖➖\n"
-        bot.send_message(call.message.chat.id, text, parse_mode="HTML")
-        
-    elif call.data == "bot_add_bal":
-        # Calculator UI open hoga yahan se
-        web_app = WebAppInfo(url=f"{WEB_URL}/deposit?uid={uid}")
-        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", web_app=web_app))
-        bot.send_message(call.message.chat.id, "👇 Click here to add balance:", reply_markup=kb)
+            if deduct_balance(uid, price):
+                bot.edit_message_text("⏳ <i>Processing your order...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+                try:
+                    data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(p.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
+                    res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
+                    result = res.json()
+                except Exception as e: result = {"status": "error", "message": str(e)}
+                    
+                if result.get("status") == "success" or "keys" in result:
+                    key = result.get("keys", ["Key not found"])[0]
+                    log_order(uid, p['name'], key, price)
+                    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main"))
+                    bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+                else:
+                    credit_balance(uid, price)
+                    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop"))
+                    bot.edit_message_text(f"❌ <b>API Error (Out of Stock)</b>\n\n₹{price:.2f} has been refunded to your wallet.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+                    
+        elif call.data == "bot_profile":
+            u = get_user_info(uid)
+            text = (
+                f"👤 <b>YOUR PROFILE</b>\n\n"
+                f"🆔 <b>User ID:</b> <code>{uid}</code>\n"
+                f"💰 <b>Balance:</b> ₹{u.get('balance', 0.0):.2f}\n"
+                f"🏷️ <b>Discount:</b> {u.get('discount', 0)}%\n"
+                f"📅 <b>Joined:</b> {u.get('joined', 'N/A')}\n"
+            )
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", callback_data="bot_add_bal"), InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+            
+        elif call.data == "bot_history":
+            orders = list(orders_col.find({"uid": uid}).sort("_id", -1))
+            if not orders:
+                return bot.answer_callback_query(call.id, "No orders found.", show_alert=True)
+            
+            text = "📜 <b>Your Order History</b>\n\n"
+            for o in orders[:5]: # Show last 5 orders
+                text += f"📦 {o.get('product')}\n🔑 <code>{o.get('key')}</code>\n📅 {o.get('time')}\n➖➖➖➖➖➖➖➖\n"
+            
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
+            bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=kb)
+            
+        elif call.data == "bot_add_bal":
+            # WebApp open hoga yahan
+            web_app = WebAppInfo(url=f"{WEB_URL}/deposit?uid={uid}")
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", web_app=web_app))
+            bot.send_message(call.message.chat.id, "👇 Click the button below to open the secure payment calculator:", reply_markup=kb)
+            
+    except Exception as e:
+        print(f"Callback Error: {e}")
+        bot.send_message(call.message.chat.id, "⚠️ An error occurred. Please try again later.")
 
 # ================== FLASK WEB APP ==================
 app = Flask(__name__)
@@ -307,7 +316,7 @@ def admin_panel():
         <div style="font-weight:900; font-size:24px; color:#38bdf8;">⚙️ Admin Panel</div>
         <div style="display:flex; gap:10px;">
             <a href="/admin_users" class="store-btn" style="background:#f59e0b;">👥 Users</a>
-            <a href="/admin_settings" class="store-btn" style="background:#8b5cf6;">⚙️ Bot Settings</a>
+            <a href="/admin_settings" class="store-btn" style="background:#8b5cf6;">⚙️ Settings</a>
             <a href="/admin_categories" class="store-btn" style="background:#10b981;">📁 Categories</a>
         </div>
     </div>
@@ -364,7 +373,6 @@ def admin_panel():
     </script>
     """)
 
-# ---------------- NEW: ADMIN SETTINGS ----------------
 @app.route('/admin_settings', methods=['GET', 'POST'])
 def admin_settings():
     if request.method == 'POST':
@@ -404,8 +412,7 @@ def admin_settings():
     </div>
     """)
 
-# ---------------- NEW: ADMIN USERS ----------------
-@app.route('/admin_users', methods=['GET'])
+@app.route('/admin_users')
 def admin_users():
     users = list(users_col.find({}))
     user_html = ""
@@ -416,7 +423,7 @@ def admin_users():
             <div>
                 <div style="font-size:18px; font-weight:900; color:#38bdf8;">{u.get('name', 'User')}</div>
                 <div style="font-size:14px; color:#94a3b8;">ID: <code>{u['_id']}</code></div>
-                <div style="font-size:12px; color:#f59e0b;">Joined: {u.get('joined', 'N/A')} | Reseller: {reseller}</div>
+                <div style="font-size:12px; color:#f59e0b;">Reseller: {reseller}</div>
             </div>
             <div style="text-align:right;">
                 <div style="font-size:20px; font-weight:900; color:#10b981;">₹{u.get('balance', 0):.2f}</div>
@@ -424,15 +431,9 @@ def admin_users():
             </div>
         </div>
         """
-        
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="font-weight:900; font-size:24px; color:#f59e0b;">👥 Users ({len(users)})</div>
-        <a href="/admin" class="store-btn">🔙 Back</a>
-    </div>
-    <div class="container" style="margin-top:20px;">
-        {user_html}
-    </div>
+    <div class="top-nav"><div style="font-weight:900; font-size:24px; color:#f59e0b;">👥 Users ({len(users)})</div><a href="/admin" class="store-btn">🔙 Back</a></div>
+    <div class="container" style="margin-top:20px;">{user_html}</div>
     """)
 
 @app.route('/admin_edit_user/<uid>', methods=['GET', 'POST'])
@@ -443,30 +444,19 @@ def admin_edit_user(uid):
         disc = int(request.form['discount'])
         users_col.update_one({"_id": str(uid)}, {"$set": {"balance": bal, "discount": disc}})
         return redirect(url_for('admin_users'))
-
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="font-weight:900; font-size:24px; color:#f59e0b;">✏️ Edit User: {u.get('name')}</div>
-        <a href="/admin_users" class="store-btn">🔙 Back</a>
-    </div>
+    <div class="top-nav"><div style="font-weight:900; font-size:24px; color:#f59e0b;">✏️ Edit User: {u.get('name')}</div><a href="/admin_users" class="store-btn">🔙 Back</a></div>
     <div class="container" style="margin-top:20px;">
         <div class="product-card" style="border-color:#f59e0b;">
             <form method="POST">
-                <div class="input-group">
-                    <label>Balance (₹)</label>
-                    <input type="number" step="0.01" name="balance" value="{u.get('balance', 0)}" required>
-                </div>
-                <div class="input-group">
-                    <label>Discount (%) - (0 for none, 56 for reseller)</label>
-                    <input type="number" name="discount" value="{u.get('discount', 0)}" required>
-                </div>
+                <div class="input-group"><label>Balance (₹)</label><input type="number" step="0.01" name="balance" value="{u.get('balance', 0)}" required></div>
+                <div class="input-group"><label>Discount (%) - (0 for none, 56 for reseller)</label><input type="number" name="discount" value="{u.get('discount', 0)}" required></div>
                 <button type="submit" class="action-btn btn-warning">Update User</button>
             </form>
         </div>
     </div>
     """)
 
-# ================== OTHER ADMIN ROUTES (Categories & Products) ==================
 @app.route('/admin_categories', methods=['GET', 'POST'])
 def admin_categories():
     if request.method == 'POST':
@@ -486,19 +476,13 @@ def admin_categories():
             </form>
         </div>
         """
-
     return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="font-weight:900; font-size:24px; color:#10b981;">📁 Categories</div>
-        <a href="/admin" class="store-btn">🔙 Back</a>
-    </div>
+    <div class="top-nav"><div style="font-weight:900; font-size:24px; color:#10b981;">📁 Categories</div><a href="/admin" class="store-btn">🔙 Back</a></div>
     <div class="container" style="margin-top:20px;">
         <div class="product-card" style="border-color:#10b981;">
             <h3 style="margin-bottom:20px; color:#10b981;">➕ Add New Category</h3>
             <form method="POST">
-                <div class="input-group">
-                    <input type="text" name="cat_name" placeholder="e.g. Android Root" required>
-                </div>
+                <div class="input-group"><input type="text" name="cat_name" placeholder="e.g. Android Root" required></div>
                 <button type="submit" class="action-btn btn-success">Save</button>
             </form>
         </div>
@@ -514,7 +498,7 @@ def delete_category(c_id):
 @app.route('/add_product', methods=['POST'])
 def add_product():
     try:
-        cat_id = request.form.get('category_id')
+        cat_id = str(request.form.get('category_id')) # String mein convert karna zaroori hai
         durs = request.form.getlist('duration[]')
         prices = request.form.getlist('price[]')
         price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
@@ -541,7 +525,7 @@ def edit_product(p_id):
 
     if request.method == 'POST':
         try:
-            cat_id = request.form.get('category_id')
+            cat_id = str(request.form.get('category_id'))
             durs = request.form.getlist('duration[]')
             prices = request.form.getlist('price[]')
             price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
@@ -611,7 +595,7 @@ def delete_product(p_id):
     products_col.delete_one({"_id": ObjectId(p_id)})
     return redirect(url_for('admin_panel'))
 
-# ================== USER WEB APP (DEPOSIT & CALCULATOR) ==================
+# ================== USER WEB APP (DEPOSIT) ==================
 @app.route('/deposit', methods=['GET', 'POST'])
 def web_deposit():
     uid = request.args.get('uid')
@@ -744,10 +728,6 @@ def check_payment(order_id, amount):
             return jsonify({"status": "pending"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
-
-@app.route('/buy_reseller', methods=['GET', 'POST'])
-def buy_reseller():
-    return "<h2 style='color:white;text-align:center;'>Reseller Page Working</h2>"
 
 @app.route('/')
 def home():

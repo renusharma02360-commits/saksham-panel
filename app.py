@@ -3,13 +3,11 @@ import time
 import threading
 import requests
 import telebot
-import imaplib
-import email
-from email.header import decode_header
 import re
 import urllib.parse
 from functools import wraps
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, ReplyKeyboardRemove, ForceReply
+from famgateway import FamGateway
 from flask import Flask, request, render_template_string, redirect, url_for
 from pymongo import MongoClient
 from bson.objectid import ObjectId
@@ -21,21 +19,13 @@ MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
 ADMIN_ID = 7778093775
 WEB_URL = "https://saksham-panel-kpsl.onrender.com"
 
-# 💳 UPI & GMAIL CONFIG
-MERCHANT_UPI_ID = "saksham72006@fam" 
-MERCHANT_NAME = "SakshamMods"
+# 💳 FAMGATEWAY CONFIG (Aapki Key)
+API_KEY = "fam_c8a61c94c53cd1cd51dc5a16d019626ddc7da1c5"
 
-# 📧 GMAIL CONFIG
-GMAIL_USER = "reneusharma02360@gmail.com"
-GMAIL_APP_PASSWORD = "rigzkrppziofvcmv" 
-
-# API Keys (Reseller)
+# RESELLER API (Keys nikalne ke liye)
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
 MASTER_KEY = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
-
-SUPPORT_LINK = "https://wa.me/918849507563"
-CHANNEL_LINK = "https://t.me/YourChannel"
 # ============================================
 
 try:
@@ -45,17 +35,32 @@ try:
     products_col = db.products
     categories_col = db.categories
     orders_col = db.orders
+    settings_col = db.settings
     print("✅ Database Connected")
 except Exception as e:
     print(f"❌ Database Error: {e}")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
+# FamGateway Initialize
+try:
+    fg = FamGateway(api_key=API_KEY)
+    print("✅ FamGateway Connected")
+except Exception as e:
+    print(f"❌ Gateway Error: {e}")
+
 # ---------------- DB HELPERS ----------------
+def get_setting(key, default):
+    s = settings_col.find_one({"_id": key})
+    return s["value"] if s else default
+
 def get_user_info(uid):
     u = users_col.find_one({"_id": str(uid)})
     if not u:
-        default_u = {"_id": str(uid), "balance": 0.0, "name": "User", "discount": 0, "joined": time.strftime("%d-%m-%Y")}
+        default_u = {
+            "_id": str(uid), "balance": 0.0, "name": "User", "discount": 0, "joined": time.strftime("%d-%m-%Y"),
+            "custom_prices": {} 
+        }
         users_col.insert_one(default_u)
         return default_u
     return u
@@ -73,7 +78,6 @@ def deduct_balance(uid, amount):
 def credit_atomic(uid, amount, utr):
     if orders_col.find_one({"utr": utr, "type": "deposit"}):
         return True, get_balance(uid)
-    
     orders_col.insert_one({"utr": utr, "uid": str(uid), "amount": amount, "type": "deposit", "time": time.strftime("%d-%m-%Y %I:%M %p")})
     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
     return True, get_balance(uid)
@@ -81,67 +85,27 @@ def credit_atomic(uid, amount, utr):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ---------------- 📧 EMAIL CHECK HELPER ----------------
-def check_bank_email(expected_amount):
-    try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com")
-        mail.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-        mail.select("inbox")
-
-        status, messages = mail.search(None, '(UNSEEN)')
-        mail_ids = messages[0].split()
-
-        if not mail_ids:
-            mail.logout()
-            return False, None
-
-        for i in mail_ids[-10:]:
-            status, msg_data = mail.fetch(i, '(RFC822)')
-            for response_part in msg_data:
-                if isinstance(response_part, tuple):
-                    msg = email.message_from_bytes(response_part[1])
-                    
-                    body = ""
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            if part.get_content_type() == "text/plain":
-                                body = part.get_payload(decode=True).decode(errors='ignore')
-                                break
-                    else:
-                        body = msg.get_payload(decode=True).decode(errors='ignore')
-
-                    amount_str = str(expected_amount)
-                    if amount_str in body:
-                        utr_match = re.search(r'\b\d{12}\b', body)
-                        found_utr = utr_match.group(0) if utr_match else f"UPI_{int(time.time())}"
-                        mail.store(i, '+FLAGS', '\\Seen')
-                        mail.logout()
-                        return True, found_utr
-                            
-        mail.logout()
-        return False, None
-    except Exception as e:
-        print(f"Gmail Check Error: {e}")
-        return False, None
-
 # ================== TELEGRAM BOT ==================
 def get_main_menu(uid):
-    text = (
-        "(●) <b>WELCOME TO SAKSHAM PANEL SHOP\n- PRODUCT STATUS</b> [Shop]\n\n"
-        "➡️ Buy Now : All Key Purchase & Instant Delivery ✅\n"
-        "➡️ Add Balance : Secure Auto Payment System ✅\n"
-        "➡️ My Profile + All History : Check Your All History ✅\n"
-        "➡️ Support : Bot Problem Fixed For Support Admin ✅\n\n"
-        "⬇️ <b>SELECT AN OPTION FROM THE MENU BELOW 🛒</b>"
-    )
+    welcome_text = get_setting("welcome_text", "(●) <b>WELCOME TO SAKSHAM PANEL SHOP</b>\n\n➡️ Buy Now : All Key Purchase & Instant Delivery ✅\n➡️ Add Balance : Secure Auto Payment System ✅\n\n⬇️ <b>SELECT AN OPTION FROM THE MENU BELOW 🛒</b>")
+    
+    btn_shop = get_setting("btn_shop", "➡️ Shop Now 🛍️")
+    btn_add = get_setting("btn_add", "➡️ Add Amount 💸")
+    btn_profile = get_setting("btn_profile", "➡️ My Profile 👤")
+    btn_history = get_setting("btn_history", "➡️ Order History 📄")
+    btn_channel = get_setting("btn_channel", "➡️ Main Channel ⚡")
+    channel_link = get_setting("channel_link", "https://t.me/YourChannel")
+    support_link = get_setting("support_link", "https://wa.me/918849507563")
+
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("➡️ Shop Now 🛍️", callback_data="bot_shop"))
-    kb.add(InlineKeyboardButton("➡️ Add Amount 💸", callback_data="bot_add_bal"), 
-           InlineKeyboardButton("➡️ My Profile 👤", callback_data="bot_profile"))
-    kb.add(InlineKeyboardButton("➡️ Order History 📄", callback_data="bot_history"), 
-           InlineKeyboardButton("➡️ Main Channel ⚡", url=CHANNEL_LINK))
-    kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=SUPPORT_LINK))
-    return text, kb
+    kb.add(InlineKeyboardButton(btn_shop, callback_data="bot_shop"))
+    kb.add(InlineKeyboardButton(btn_add, callback_data="bot_add_bal"), 
+           InlineKeyboardButton(btn_profile, callback_data="bot_profile"))
+    kb.add(InlineKeyboardButton(btn_history, callback_data="bot_history"), 
+           InlineKeyboardButton(btn_channel, url=channel_link))
+    kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=support_link))
+    
+    return welcome_text, kb
 
 @bot.message_handler(commands=["start"])
 def start(msg):
@@ -153,7 +117,6 @@ def start(msg):
 @bot.callback_query_handler(func=lambda call: True)
 def bot_callbacks(call):
     uid = str(call.from_user.id)
-    
     try:
         if call.data == "bot_main":
             text, kb = get_main_menu(uid)
@@ -177,15 +140,12 @@ def bot_callbacks(call):
             cat_id = call.data.split("_")[1]
             cat = categories_col.find_one({"_id": ObjectId(cat_id)})
             products = list(products_col.find({"category_id": str(cat_id)}))
-            
-            if not products:
-                return bot.answer_callback_query(call.id, f"❌ No products found.", show_alert=True)
+            if not products: return bot.answer_callback_query(call.id, f"❌ No products found.", show_alert=True)
             
             text = f"📁 <b>{cat.get('name', 'Category').upper()}</b>\n\n➡️ Choose a product 🕊️❤️"
             kb = InlineKeyboardMarkup(row_width=1)
             for p in products:
-                icon = p.get('icon', '🔹')
-                kb.add(InlineKeyboardButton(f"{icon} {p.get('name')}", callback_data=f"view_{p['_id']}"))
+                kb.add(InlineKeyboardButton(f"{p.get('icon', '🔹')} {p.get('name')}", callback_data=f"view_{p['_id']}"))
             kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_shop"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             bot.answer_callback_query(call.id)
@@ -195,6 +155,7 @@ def bot_callbacks(call):
             p = products_col.find_one({"_id": ObjectId(p_id)})
             u = get_user_info(uid)
             disc = u.get('discount', 0)
+            custom_prices = u.get('custom_prices', {}).get(str(p_id), {})
             
             features_text = p.get('features', '').replace('\n', '\n⚡ ') if p.get('features') else ''
             text = f"📁 <b>{p['name']}</b>\n\n⚡ {features_text}\n\n"
@@ -202,15 +163,13 @@ def bot_callbacks(call):
             kb = InlineKeyboardMarkup(row_width=2)
             update_link = str(p.get('setup_video', '')).strip()
             video_link = str(p.get('hack_video', '')).strip()
-            
-            if update_link.startswith('http'):
-                kb.add(InlineKeyboardButton("📥 Update File", url=update_link))
-            if video_link.startswith('http'):
-                kb.add(InlineKeyboardButton("▶️ Video/Feedback", url=video_link))
+            if update_link.startswith('http'): kb.add(InlineKeyboardButton("📥 Update File", url=update_link))
+            if video_link.startswith('http'): kb.add(InlineKeyboardButton("▶️ Video/Feedback", url=video_link))
             
             for d, pr in p.get('prices', {}).items():
                 if not d.strip(): continue
-                final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
+                if d in custom_prices: final_pr = custom_prices[d]
+                else: final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
                 kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"buy_{p_id}_{d}"))
                 
             kb.add(InlineKeyboardButton("🔙 Back", callback_data=f"cat_{p.get('category_id')}"))
@@ -225,15 +184,15 @@ def bot_callbacks(call):
             p = products_col.find_one({"_id": ObjectId(p_id)})
             u = get_user_info(uid)
             disc = u.get('discount', 0)
+            custom_prices = u.get('custom_prices', {}).get(str(p_id), {})
             
-            if duration not in p.get('prices', {}): return bot.answer_callback_query(call.id, "❌ Invalid duration.", show_alert=True)
-                
             base_price = float(p['prices'][duration])
-            price = base_price - (base_price * disc / 100) if disc > 0 else base_price
-            user_bal = get_balance(uid)
+            if duration in custom_prices: price = float(custom_prices[duration])
+            else: price = base_price - (base_price * disc / 100) if disc > 0 else base_price
             
+            user_bal = get_balance(uid)
             if user_bal < price:
-                return bot.answer_callback_query(call.id, f"❌ Low Balance!\n\nBalance: ₹{user_bal:.2f}\nRequired: ₹{price:.2f}\n\nPlease add funds.", show_alert=True)
+                return bot.answer_callback_query(call.id, f"❌ Low Balance!\n\nBalance: ₹{user_bal:.2f}\nRequired: ₹{price:.2f}", show_alert=True)
                 
             bot.answer_callback_query(call.id)
             
@@ -242,19 +201,8 @@ def bot_callbacks(call):
                 try:
                     data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(p.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
                     res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
-                    
-                    # DEBUG: Check what API is returning
-                    if not res.text.strip():
-                        raise Exception("API returned empty text.")
-                        
-                    try:
-                        result = res.json()
-                    except:
-                        # SEND RAW RESPONSE TO ADMIN
-                        raw_error = f"Status Code: {res.status_code}\nResponse: {res.text[:500]}"
-                        bot.send_message(ADMIN_ID, f"🚨 <b>API Format Error!</b>\n<pre>{raw_error}</pre>", parse_mode="HTML")
-                        raise Exception("Invalid JSON response")
-
+                    if not res.text.strip(): raise Exception("API returned empty text.")
+                    result = res.json()
                 except Exception as e: 
                     result = {"status": "error", "message": str(e)}
                     
@@ -266,12 +214,11 @@ def bot_callbacks(call):
                 else:
                     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": price}})
                     err_msg = result.get("message", "Out of Stock / API Error")
-                    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop"))
-                    bot.edit_message_text(f"❌ <b>API Error</b>\n\nReason: {err_msg}\n\n₹{price:.2f} Refunded.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+                    bot.edit_message_text(f"❌ <b>API Error</b>\n\nReason: {err_msg}\n\n₹{price:.2f} Refunded.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop")))
 
         elif call.data == "bot_profile":
             u = get_user_info(uid)
-            text = f"👤 <b>YOUR PROFILE</b>\n\n🆔 ID: <code>{uid}</code>\n💰 Balance: ₹{u.get('balance', 0.0):.2f}\n🏷️ Discount: {u.get('discount', 0)}%\n📅 Joined: {u.get('joined', time.strftime('%d-%m-%Y'))}"
+            text = f"👤 <b>YOUR PROFILE</b>\n\n🆔 ID: <code>{uid}</code>\n💰 Balance: ₹{u.get('balance', 0.0):.2f}\n🏷️ Discount: {u.get('discount', 0)}%\n📅 Joined: {u.get('joined')}"
             kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", callback_data="bot_add_bal"), InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             bot.answer_callback_query(call.id)
@@ -279,73 +226,300 @@ def bot_callbacks(call):
         elif call.data == "bot_history":
             orders = list(orders_col.find({"uid": uid}).sort("_id", -1))
             if not orders: return bot.answer_callback_query(call.id, "No orders found.", show_alert=True)
-            
             text = "📜 <b>Your Order History</b>\n\n"
             for o in orders[:5]:
                 text += f"📦 {o.get('product', 'Deposit')}\n🔑 <code>{o.get('key', 'N/A')}</code>\n📅 {o.get('time')}\n➖➖➖➖➖➖➖➖\n"
-            
-            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
-            bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=kb)
+            bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main")))
             bot.answer_callback_query(call.id)
             
         elif call.data == "bot_add_bal":
-            msg = bot.send_message(call.message.chat.id, "💸 <b>Enter Amount</b>\n\nPlease type the amount (in ₹) you want to add to your wallet (e.g., 50, 100):", parse_mode="HTML", reply_markup=ForceReply(selective=True))
+            msg = bot.send_message(call.message.chat.id, "💸 <b>Enter Amount</b>\n\nPlease type the amount (in ₹) you want to add to your wallet:", parse_mode="HTML", reply_markup=ForceReply(selective=True))
             bot.register_next_step_handler(msg, process_deposit_amount)
             bot.answer_callback_query(call.id)
 
     except Exception as e:
-        error_msg = f"⚠️ <b>Bot Error Detected!</b>\n\nUser ID: <code>{uid}</code>\nButton: {call.data}\nError: <code>{str(e)}</code>"
-        try: bot.send_message(ADMIN_ID, error_msg, parse_mode="HTML")
+        try: bot.send_message(ADMIN_ID, f"⚠️ <b>Bot Error:</b>\n<code>{str(e)}</code>", parse_mode="HTML")
         except: pass
 
+# --- FAMGATEWAY DEPOSIT LOGIC ---
 def process_deposit_amount(message):
     uid = str(message.from_user.id)
     try:
         amount = float(message.text)
         if amount <= 0: return bot.reply_to(message, "❌ Amount must be greater than 0.")
         
-        unique_amount = round(amount + (int(time.time()) % 99) / 100.0, 2)
+        bot.send_message(message.chat.id, "⏳ <i>Generating FamGateway QR Code...</i>", parse_mode="HTML")
+        try:
+            # FamGateway se order banwa rahe hain
+            order = fg.create_order(amount=amount, customer_name=f"User_{uid}")
+        except Exception as e:
+            bot.send_message(message.chat.id, "❌ Failed to create order via FamGateway. Please try again.")
+            bot.send_message(ADMIN_ID, f"🚨 <b>FamGateway Error:</b>\nError: {str(e)}", parse_mode="HTML")
+            return
         
-        bot.send_message(message.chat.id, f"⏳ <i>Generating QR Code for ₹{unique_amount}...</i>", parse_mode="HTML")
+        caption = f"💳 <b>Pay ₹{amount}</b>\n\nScan the QR code above using any UPI app.\n\n<i>Bot is checking with FamGateway in the background...</i>"
+        bot.send_photo(message.chat.id, photo=order.qr_url, caption=caption, parse_mode="HTML")
         
-        upi_url = f"upi://pay?pa={MERCHANT_UPI_ID}&pn={MERCHANT_NAME}&am={unique_amount}&cu=INR"
-        qr_img_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(upi_url)}"
-        
-        caption = (
-            f"💳 <b>Pay EXACTLY ₹{unique_amount}</b>\n"
-            f"UPI ID: <code>{MERCHANT_UPI_ID}</code>\n\n"
-            f"1. Scan QR and pay ₹{unique_amount}\n"
-            f"2. Bot is checking your Gmail automatically. Please wait..."
-        )
-        
-        bot.send_photo(message.chat.id, photo=qr_img_url, caption=caption, parse_mode="HTML")
-        
-        threading.Thread(target=verify_payment_email, args=(message.chat.id, uid, unique_amount)).start()
+        # Sirf FamGateway check karega (No Gmail)
+        threading.Thread(target=verify_chat_payment_famgateway, args=(message.chat.id, uid, order.order_id, amount)).start()
         
     except ValueError:
         msg = bot.reply_to(message, "❌ Invalid amount. Please type numbers only:")
         bot.register_next_step_handler(msg, process_deposit_amount)
 
-def verify_payment_email(chat_id, uid, unique_amount):
-    for i in range(120): 
-        time.sleep(10)
-        
-        is_paid, found_utr = check_bank_email(unique_amount)
-        if is_paid:
-            ok, new_bal = credit_atomic(uid, float(unique_amount), found_utr)
-            bot.send_message(chat_id, f"✅ <b>Payment Successful!</b>\n\n₹{unique_amount} has been added to your wallet.\n💰 New Balance: ₹{new_bal:.2f}", parse_mode="HTML")
-            return
-            
-    bot.send_message(chat_id, "⚠️ Auto-check session expired. If you paid, please contact support.", parse_mode="HTML")
+def verify_chat_payment_famgateway(chat_id, uid, order_id, amount):
+    # 20 minutes tak FamGateway check karega
+    for i in range(240): 
+        time.sleep(5)
+        try:
+            status = fg.get_status(order_id)
+            if status.is_paid:
+                ok, new_bal = credit_atomic(uid, amount, status.utr)
+                bot.send_message(chat_id, f"✅ <b>Payment Successful!</b>\n\n₹{amount} has been added to your wallet.\n💰 New Balance: ₹{new_bal:.2f}", parse_mode="HTML")
+                return
+        except Exception as e: 
+            pass # Error ko ignore kar raha hai taaki bot crash na ho
 
-# ================== FLASK WEB APP (Admin Panel) ==================
-# [Flask code is same as before, skipping for brevity but you need to keep it]
+# ================== FLASK WEB APP (PROFESSIONAL ADMIN PANEL) ==================
 app = Flask(__name__)
 app.secret_key = "sk_panel_secret"
-BASE_CSS = """<style> /* ... same css ... */ </style>"""
+
+BASE_CSS = """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+    * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; }
+    body { background-color: #0d1117; color: #c9d1d9; padding-bottom: 50px; }
+    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; background: #161b22; border-bottom: 1px solid #30363d; }
+    .nav-links a { color: #8b949e; text-decoration: none; margin-right: 20px; font-weight: 600; transition: 0.2s; padding: 8px 12px; border-radius: 6px; }
+    .nav-links a:hover, .nav-links a.active { color: #fff; background: #21262d; }
+    .container { padding: 30px; max-width: 1000px; margin: 0 auto; }
+    .card { background: #161b22; border-radius: 12px; padding: 25px; border: 1px solid #30363d; margin-bottom: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+    .stat-card { background: linear-gradient(145deg, #161b22, #0d1117); border-radius: 12px; padding: 20px; border: 1px solid #30363d; text-align: center; }
+    .stat-title { font-size: 13px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+    .stat-value { font-size: 28px; font-weight: 800; color: #58a6ff; margin-top: 5px; }
+    input, textarea, select { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #30363d; background: #0d1117; color: #c9d1d9; font-size: 15px; outline: none; margin-bottom: 15px; transition: 0.2s; }
+    input:focus, textarea:focus, select:focus { border-color: #58a6ff; box-shadow: 0 0 0 3px rgba(88,166,255,0.2); }
+    label { display: block; font-size: 14px; color: #8b949e; margin-bottom: 8px; font-weight: 600; }
+    .btn { display: inline-block; padding: 12px 24px; border-radius: 8px; font-weight: 700; font-size: 15px; border: none; cursor: pointer; text-decoration: none; color: #fff; transition: 0.2s; text-align: center; }
+    .btn-primary { background: #238636; }
+    .btn-primary:hover { background: #2ea043; }
+    .btn-danger { background: #da3633; }
+    .btn-warning { background: #d29922; color: #000; }
+    .btn-warning:hover { background: #e3b341; }
+    .btn-blue { background: #1f6feb; }
+    .btn-blue:hover { background: #388bfd; }
+</style>
+"""
 
 @app.route('/')
-def home(): return "Bot is running with Gmail Verify!"
+def home(): return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin')
+def admin_dashboard():
+    total_users = users_col.count_documents({})
+    total_products = products_col.count_documents({})
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div>
+        <div class="nav-links">
+            <a href="/admin" class="active">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products">Products</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a>
+        </div>
+    </div>
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-title">Total Users</div><div class="stat-value">{total_users}</div></div>
+            <div class="stat-card"><div class="stat-title">Total Products</div><div class="stat-value">{total_products}</div></div>
+        </div>
+        <div class="card" style="border-color:#58a6ff; text-align:center;">
+            <h2 style="color:#58a6ff; margin-bottom:10px;">Welcome to Saksham Panel</h2>
+            <p style="color:#8b949e;">All systems operational. You are using FamGateway for payments.</p>
+        </div>
+    </div>
+    """)
+
+@app.route('/admin_settings', methods=['GET', 'POST'])
+def admin_settings():
+    if request.method == 'POST':
+        for key in request.form: settings_col.update_one({"_id": key}, {"$set": {"value": request.form[key]}}, upsert=True)
+        return redirect(url_for('admin_settings'))
+
+    settings = {
+        "welcome_text": get_setting("welcome_text", "(●) <b>WELCOME TO SAKSHAM PANEL SHOP</b>\n\n➡️ Buy Now : All Key Purchase & Instant Delivery ✅\n➡️ Add Balance : Secure Auto Payment System ✅\n\n⬇️ <b>SELECT AN OPTION FROM THE MENU BELOW 🛒</b>"),
+        "btn_shop": get_setting("btn_shop", "➡️ Shop Now 🛍️"), "btn_add": get_setting("btn_add", "➡️ Add Amount 💸"),
+        "btn_profile": get_setting("btn_profile", "➡️ My Profile 👤"), "btn_history": get_setting("btn_history", "➡️ Order History 📄"),
+        "btn_channel": get_setting("btn_channel", "➡️ Main Channel ⚡"), "channel_link": get_setting("channel_link", "https://t.me/YourChannel"),
+        "support_link": get_setting("support_link", "https://wa.me/918849507563")
+    }
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products">Products</a><a href="/admin_categories">Categories</a><a href="/admin_settings" class="active">Bot Settings</a></div></div>
+    <div class="container">
+        <div class="card">
+            <h3 style="margin-bottom:20px; color:#fff;">Edit Bot Text & Links</h3>
+            <form method="POST">
+                <label>Welcome Message</label><textarea name="welcome_text" rows="5">{settings['welcome_text']}</textarea>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Shop Button</label><input type="text" name="btn_shop" value="{settings['btn_shop']}"></div>
+                    <div><label>Add Amount Button</label><input type="text" name="btn_add" value="{settings['btn_add']}"></div>
+                    <div><label>Profile Button</label><input type="text" name="btn_profile" value="{settings['btn_profile']}"></div>
+                    <div><label>History Button</label><input type="text" name="btn_history" value="{settings['btn_history']}"></div>
+                    <div><label>Channel Button</label><input type="text" name="btn_channel" value="{settings['btn_channel']}"></div>
+                    <div><label>Channel Link</label><input type="text" name="channel_link" value="{settings['channel_link']}"></div>
+                    <div><label>Support Link</label><input type="text" name="support_link" value="{settings['support_link']}"></div>
+                </div>
+                <button type="submit" class="btn btn-blue" style="width:100%; margin-top:20px;">Save Settings</button>
+            </form>
+        </div>
+    </div>
+    """)
+
+@app.route('/admin_users')
+def admin_users():
+    users = list(users_col.find({}))
+    user_html = "".join([f"""
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;">
+            <div><div style="font-size:16px; font-weight:700; color:#58a6ff;">{u.get('name', 'User')}</div><div style="font-size:12px; color:#8b949e;"><code>{u['_id']}</code></div></div>
+            <div style="text-align:right;"><div style="font-size:18px; font-weight:800; color:#2ea043;">₹{u.get('balance', 0):.2f}</div><a href="/admin_edit_user/{u['_id']}" class="btn btn-warning" style="padding:6px 12px; font-size:12px; margin-top:5px;">Edit</a></div>
+        </div>
+    """ for u in users])
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users" class="active">Users</a><a href="/admin_products">Products</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
+    <div class="container"><h3 style="color:#fff; margin-bottom:15px;">All Users</h3>{user_html if user_html else '<p>No users found.</p>'}</div>
+    """)
+
+@app.route('/admin_edit_user/<uid>', methods=['GET', 'POST'])
+def admin_edit_user(uid):
+    u = get_user_info(uid)
+    if request.method == 'POST':
+        bal = float(request.form['balance'])
+        disc = int(request.form['discount'])
+        try:
+            import json
+            custom_prices = json.loads(request.form.get('custom_prices', '{}'))
+        except: custom_prices = {}
+        users_col.update_one({"_id": str(uid)}, {"$set": {"balance": bal, "discount": disc, "custom_prices": custom_prices}})
+        return redirect(url_for('admin_users'))
+    import json
+    custom_prices_str = json.dumps(u.get('custom_prices', {}), indent=2)
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users" class="active">Users</a><a href="/admin_products">Products</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
+    <div class="container">
+        <div class="card">
+            <h3 style="margin-bottom:20px; color:#fff;">Edit User: {u.get('name')}</h3>
+            <form method="POST">
+                <label>Balance (₹)</label><input type="number" step="0.01" name="balance" value="{u.get('balance', 0)}" required>
+                <label>Global Discount (%)</label><input type="number" name="discount" value="{u.get('discount', 0)}" required>
+                <label style="margin-top:20px; color:#f59e0b;">Custom Prices (JSON - Overrides Default)</label>
+                <textarea name="custom_prices" rows="6" style="font-family:monospace; font-size:13px; background:#0d1117;">{custom_prices_str}</textarea>
+                <p style="font-size:12px; color:#8b949e; margin-bottom:15px;">Example: <code>{"PRODUCT_ID_HERE": {"1 Day": 50, "7 Days": 300}}</code></p>
+                <button type="submit" class="btn btn-blue" style="width:100%;">Update User</button>
+            </form>
+        </div>
+    </div>
+    """)
+
+@app.route('/admin_products')
+def admin_products():
+    products = list(products_col.find({}))
+    prod_html = ""
+    for p in products:
+        cat = categories_col.find_one({"_id": ObjectId(p.get('category_id'))}) if p.get('category_id') else None
+        cat_name = cat.get('name') if cat else "No Category"
+        prod_html += f"""
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;">
+            <div><div style="font-size:18px; font-weight:800; color:#58a6ff;">{p.get('icon', '🔹')} {p.get('name', '')}</div><div style="font-size:12px; color:#8b949e;">ID: <code>{p['_id']}</code> | Cat: {cat_name}</div></div>
+            <div style="display:flex; gap:10px;"><a href="/admin_edit_product/{p['_id']}" class="btn btn-warning" style="padding:8px 12px; font-size:12px;">Edit</a><form action="/delete_product/{p['_id']}" method="POST"><button type="submit" class="btn btn-danger" style="padding:8px 12px; font-size:12px;">Del</button></form></div>
+        </div>
+        """
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products" class="active">Products</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
+    <div class="container">
+        <div class="card" style="border-color:#238636;">
+            <h3 style="margin-bottom:20px; color:#fff;">➕ Add New Product</h3>
+            <form method="POST" action="/add_product">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Name</label><input type="text" name="name" required></div><div><label>Icon</label><input type="text" name="icon" placeholder="🔹" required></div>
+                    <div><label>PID</label><input type="text" name="pid" required></div><div><label>Category</label><select name="category_id" required><option value="">-- Select --</option>{''.join([f'<option value="{c["_id"]}">{c["name"]}</option>' for c in categories_col.find({})])}</select></div>
+                </div>
+                <label>Features</label><textarea name="features" rows="3"></textarea>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Update Link</label><input type="text" name="setup_video"></div><div><label>Video Link</label><input type="text" name="hack_video"></div>
+                </div>
+                <label style="margin-top:15px; color:#58a6ff;">Durations & Price</label>
+                <div id="price-container"><div style="display:flex; gap:10px; margin-bottom:10px;"><input type="text" name="duration[]" placeholder="e.g. 1 Day" style="flex:1;"><input type="number" name="price[]" placeholder="Price (₹)" style="flex:1;"></div></div>
+                <button type="button" onclick="addPrice()" class="btn btn-warning" style="margin-bottom:15px;">+ Add More</button><button type="submit" class="btn btn-primary" style="width:100%;">Save Product</button>
+            </form>
+        </div>
+        <h3 style="color:#fff; margin-bottom:15px;">All Products</h3>{prod_html}
+    </div>
+    <script>function addPrice() {{const c = document.getElementById('price-container');const d = document.createElement('div');d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1;"><input type="number" name="price[]" placeholder="Price (₹)" style="flex:1;">`;c.appendChild(d);}}</script>
+    """)
+
+@app.route('/admin_edit_product/<p_id>', methods=['GET', 'POST'])
+def admin_edit_product(p_id):
+    p = products_col.find_one({"_id": ObjectId(p_id)})
+    if request.method == 'POST':
+        cat_id = str(request.form.get('category_id'))
+        durs = request.form.getlist('duration[]')
+        prices = request.form.getlist('price[]')
+        price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
+        products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {"name": request.form['name'], "icon": request.form.get('icon', '🔹'), "pid": request.form['pid'], "category_id": cat_id, "features": request.form.get('features', ''), "setup_video": request.form.get('setup_video', ''), "hack_video": request.form.get('hack_video', ''), "prices": price_dict}})
+        return redirect(url_for('admin_products'))
+    price_fields = "".join([f'<div style="display:flex; gap:10px; margin-bottom:10px;"><input type="text" name="duration[]" value="{d}" style="flex:1;"><input type="number" name="price[]" value="{pr}" style="flex:1;"></div>' for d, pr in p.get('prices', {}).items()])
+    categories = list(categories_col.find({}))
+    cat_options = "".join([f'<option value="{c["_id"]}" {"selected" if str(c["_id"]) == p.get("category_id") else ""}>{c["name"]}</option>' for c in categories])
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products" class="active">Products</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
+    <div class="container">
+        <div class="card">
+            <h3 style="margin-bottom:20px; color:#fff;">Edit Product: {p.get('name')}</h3>
+            <form method="POST">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Name</label><input type="text" name="name" value="{p.get('name', '')}" required></div><div><label>Icon</label><input type="text" name="icon" value="{p.get('icon', '🔹')}" required></div>
+                    <div><label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required></div><div><label>Category</label><select name="category_id">{cat_options}</select></div>
+                </div>
+                <label>Features</label><textarea name="features" rows="3">{p.get('features', '')}</textarea>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Update Link</label><input type="text" name="setup_video" value="{p.get('setup_video', '')}"></div><div><label>Video Link</label><input type="text" name="hack_video" value="{p.get('hack_video', '')}"></div>
+                </div>
+                <label style="margin-top:15px; color:#58a6ff;">Durations & Price</label><div id="price-container">{price_fields}</div>
+                <button type="button" onclick="addPrice()" class="btn btn-warning" style="margin-bottom:15px;">+ Add More</button><button type="submit" class="btn btn-primary" style="width:100%;">Update Product</button>
+            </form>
+        </div>
+    </div>
+    <script>function addPrice() {{const c = document.getElementById('price-container');const d = document.createElement('div');d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1;"><input type="number" name="price[]" placeholder="Price (₹)" style="flex:1;">`;c.appendChild(d);}}</script>
+    """)
+
+@app.route('/add_product', methods=['POST'])
+def add_product():
+    cat_id = str(request.form.get('category_id'))
+    durs = request.form.getlist('duration[]')
+    prices = request.form.getlist('price[]')
+    price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
+    products_col.insert_one({"name": request.form['name'], "icon": request.form.get('icon', '🔹'), "pid": request.form['pid'], "category_id": cat_id, "features": request.form.get('features', ''), "setup_video": request.form.get('setup_video', ''), "hack_video": request.form.get('hack_video', ''), "prices": price_dict, "status": "active"})
+    return redirect(url_for('admin_products'))
+
+@app.route('/delete_product/<p_id>', methods=['POST'])
+def delete_product(p_id):
+    products_col.delete_one({"_id": ObjectId(p_id)})
+    return redirect(url_for('admin_products'))
+
+@app.route('/admin_categories', methods=['GET', 'POST'])
+def admin_categories():
+    if request.method == 'POST':
+        if request.form.get('cat_name'): categories_col.insert_one({"name": request.form.get('cat_name')})
+        return redirect(url_for('admin_categories'))
+    cat_html = "".join([f'<div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div style="font-size:16px; font-weight:700; color:#2ea043;">📁 {c["name"]}</div><form action="/delete_category/{c["_id"]}" method="POST"><button type="submit" class="btn btn-danger" style="padding:6px 12px; font-size:12px;">Del</button></form></div>' for c in categories_col.find({})])
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products">Products</a><a href="/admin_categories" class="active">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
+    <div class="container"><div class="card"><h3 style="margin-bottom:20px; color:#fff;">➕ Add Category</h3><form method="POST" style="display:flex; gap:10px;"><input type="text" name="cat_name" placeholder="Category Name" required style="flex:1; margin:0;"><button type="submit" class="btn btn-primary" style="margin:0;">Save</button></form></div>{cat_html}</div>
+    """)
+
+@app.route('/delete_category/<c_id>', methods=['POST'])
+def delete_category(c_id):
+    categories_col.delete_one({"_id": ObjectId(c_id)})
+    return redirect(url_for('admin_categories'))
 
 # ================== RUNNING ==================
 if __name__ == "__main__":

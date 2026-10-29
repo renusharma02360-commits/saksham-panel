@@ -127,6 +127,7 @@ def bot_callbacks(call):
         text = f"📦 <b>{p['name']}</b>\n\n{p.get('features', '')}"
         kb = InlineKeyboardMarkup(row_width=2)
         for d, pr in p.get('prices', {}).items():
+            # Yahan pr INR me hai (jo admin panel se dala gaya)
             final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
             kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"bot_buy|{p_id}|{d}"))
         kb.add(InlineKeyboardButton("🔙 Back to Shop", callback_data="bot_shop"))
@@ -138,6 +139,8 @@ def bot_callbacks(call):
         p = products_col.find_one({"_id": ObjectId(p_id)})
         u = get_user_info(uid)
         disc = u.get('discount', 0)
+        
+        # User ke liye price INR me calculate ho raha hai
         price = float(p['prices'][duration]) - (float(p['prices'][duration]) * disc / 100) if disc > 0 else float(p['prices'][duration])
         
         if get_balance(uid) < price:
@@ -565,6 +568,7 @@ def web_product(p_id):
          """
     else:
         for d, pr in p.get('prices', {}).items():
+            # Yahan pr INR me hai
             final_price = float(pr) - (float(pr) * discount / 100) if discount > 0 else float(pr)
             orig_price_html = f"<span style='text-decoration:line-through; color:#ef4444; font-size:14px; margin-left:10px;'>₹{pr}</span>" if discount > 0 else ""
             price_rows += f"""
@@ -876,7 +880,7 @@ def admin_panel():
             <h3 style="margin-bottom:25px; color:#38bdf8; font-size:26px;">➕ Add New Product</h3>
             <form method="POST" action="/add_product" enctype="multipart/form-data">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" required></div>
-                <div class="input-group"><label>PID</label><input type="text" name="pid" required></div>
+                <div class="input-group"><label>PID (API Product ID)</label><input type="text" name="pid" required></div>
                 
                 <div class="input-group">
                     <label>Banner Image (Square size recommended)</label>
@@ -887,11 +891,12 @@ def admin_panel():
                 <div class="input-group"><label>Update File Link</label><input type="url" name="setup_video" placeholder="https://..."></div>
                 <div class="input-group"><label>Video / Feedback Link</label><input type="url" name="hack_video" placeholder="https://..."></div>
 
-                <label style="font-weight:900; color:#38bdf8; margin:20px 0 10px 0; display:block; font-size:20px;">Durations & Prices</label>
+                <label style="font-weight:900; color:#38bdf8; margin:20px 0 10px 0; display:block; font-size:20px;">Durations, Cost ($) & Selling Price (₹)</label>
                 <div id="price-container">
                     <div style="display:flex; gap:10px; margin-bottom:10px;">
-                        <input type="text" name="duration[]" placeholder="1 Hours" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
-                        <input type="number" name="price[]" placeholder="Price" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
+                        <input type="text" name="duration[]" placeholder="e.g. 1 Day" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
+                        <input type="number" step="0.01" name="cost_usd[]" placeholder="Cost ($)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#f59e0b;">
+                        <input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">
                     </div>
                 </div>
                 <button type="button" onclick="addPrice()" class="action-btn btn-success" style="margin-bottom:25px; background:#f59e0b; color:#000;">+ Add More</button>
@@ -912,7 +917,7 @@ def admin_panel():
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
             d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">`;
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" step="0.01" name="cost_usd[]" placeholder="Cost ($)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#f59e0b;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">`;
             c.appendChild(d);
         }}
     </script>
@@ -1024,10 +1029,18 @@ def admin_user_detail(uid):
     msg = ""
     if request.method == 'POST':
         try:
-            amt = float(request.form.get('amount', 0))
-            disc = int(request.form.get('discount', 0))
+            # FIX: Khali box handle karne ke liye .strip() aur default 0.0 use kiya
+            amt_str = request.form.get('amount', '').strip()
+            amt = float(amt_str) if amt_str else 0.0
             
-            users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amt}, "$set": {"discount": disc}})
+            disc_str = request.form.get('discount', '').strip()
+            disc = int(float(disc_str)) if disc_str else 0
+            
+            users_col.update_one(
+                {"_id": str(uid)}, 
+                {"$inc": {"balance": amt}, "$set": {"discount": disc}},
+                upsert=True
+            )
             return redirect(url_for('admin_user_detail', uid=uid) + "?success=1")
         except Exception as e:
             msg = f'<div class="alert-danger" style="color:red; margin-bottom:20px;">Error: {e}</div>'
@@ -1090,8 +1103,8 @@ def admin_user_detail(uid):
             </div>
             
             <form action="/admin_user_detail/{uid}" method="POST" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:20px; padding-top:20px; border-top:1px solid #334155;">
-                <input type="number" name="amount" placeholder="+/- Balance (e.g. 100 or -50)" style="flex:1; min-width:150px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
-                <input type="number" name="discount" value="{u.get('discount', 0)}" placeholder="Disc%" style="width:120px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
+                <input type="number" step="0.01" name="amount" placeholder="+/- Balance (optional)" style="flex:1; min-width:150px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
+                <input type="number" name="discount" value="{u.get('discount', 0)}" placeholder="Disc%" required style="width:120px; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff; font-size:16px;">
                 <button type="submit" class="action-btn btn-success" style="padding:15px 25px; font-size:16px; width:auto;">Update User</button>
             </form>
         </div>
@@ -1115,7 +1128,15 @@ def add_product():
         
         durs = request.form.getlist('duration[]')
         prices = request.form.getlist('price[]')
-        price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
+        cost_usd = request.form.getlist('cost_usd[]')
+        
+        price_dict = {}
+        cost_dict = {}
+        for i in range(len(durs)):
+            if durs[i].strip() and prices[i].strip():
+                price_dict[durs[i].strip()] = float(prices[i].strip())
+                if cost_usd[i].strip():
+                    cost_dict[durs[i].strip()] = float(cost_usd[i].strip())
         
         products_col.insert_one({
             "name": request.form['name'], "pid": request.form['pid'], 
@@ -1123,7 +1144,9 @@ def add_product():
             "image": img_path,
             "setup_video": request.form.get('setup_video', '#'), 
             "hack_video": request.form.get('hack_video', '#'), 
-            "prices": price_dict, "status": "active"
+            "prices": price_dict, 
+            "cost_usd": cost_dict,
+            "status": "active"
         })
         return redirect(url_for('admin_panel') + "?success=product_added")
     except Exception as e: 
@@ -1146,7 +1169,15 @@ def edit_product(p_id):
             
             durs = request.form.getlist('duration[]')
             prices = request.form.getlist('price[]')
-            price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
+            cost_usd = request.form.getlist('cost_usd[]')
+            
+            price_dict = {}
+            cost_dict = {}
+            for i in range(len(durs)):
+                if durs[i].strip() and prices[i].strip():
+                    price_dict[durs[i].strip()] = float(prices[i].strip())
+                    if cost_usd[i].strip():
+                        cost_dict[durs[i].strip()] = float(cost_usd[i].strip())
             
             products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {
                 "name": request.form['name'], "pid": request.form['pid'], 
@@ -1154,7 +1185,8 @@ def edit_product(p_id):
                 "image": img_path,
                 "setup_video": request.form.get('setup_video', '#'), 
                 "hack_video": request.form.get('hack_video', '#'), 
-                "prices": price_dict
+                "prices": price_dict,
+                "cost_usd": cost_dict
             }})
             return redirect(url_for('admin_panel') + "?success=product_edited")
         except Exception as e: 
@@ -1162,10 +1194,12 @@ def edit_product(p_id):
 
     price_fields = ""
     for d, pr in p.get('prices', {}).items():
+        cost_val = p.get('cost_usd', {}).get(d, '')
         price_fields += f"""
         <div style="display:flex; gap:10px; margin-bottom:10px;">
             <input type="text" name="duration[]" value="{d}" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
-            <input type="number" name="price[]" value="{pr}" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">
+            <input type="number" step="0.01" name="cost_usd[]" value="{cost_val}" placeholder="Cost ($)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#f59e0b;">
+            <input type="number" name="price[]" value="{pr}" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">
         </div>
         """
 
@@ -1186,7 +1220,7 @@ def edit_product(p_id):
                 <div class="input-group"><label>Update Link</label><input type="url" name="setup_video" value="{p.get('setup_video', '#')}"></div>
                 <div class="input-group"><label>Video/Feedback Link</label><input type="url" name="hack_video" value="{p.get('hack_video', '#')}"></div>
 
-                <label style="font-weight:900; color:#38bdf8; margin:15px 0 10px 0; display:block;">Durations & Prices</label>
+                <label style="font-weight:900; color:#38bdf8; margin:15px 0 10px 0; display:block;">Durations, Cost ($) & Selling Price (₹)</label>
                 <div id="price-container">
                     {price_fields}
                 </div>
@@ -1200,7 +1234,7 @@ def edit_product(p_id):
             const c = document.getElementById('price-container');
             const d = document.createElement('div');
             d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" name="price[]" placeholder="Price" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;">`;
+            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#fff;"><input type="number" step="0.01" name="cost_usd[]" placeholder="Cost ($)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#f59e0b;"><input type="number" name="price[]" placeholder="Sell (₹)" style="flex:1; padding:15px; border-radius:12px; background:#050810; border:2px solid #334155; color:#10b981;">`;
             c.appendChild(d);
         }}
     </script>

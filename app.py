@@ -69,7 +69,7 @@ def credit_balance(uid, amount):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ================== TELEGRAM BOT ==================
+# ================== TELEGRAM BOT (EXACT UI) ==================
 def get_main_menu(uid):
     text = (
         "(●) <b>WELCOME TO SAKSHAM PANEL SHOP - PRODUCT STATUS</b> [Shop]\n\n"
@@ -132,10 +132,17 @@ def bot_callbacks(call):
         if not categories:
             return bot.answer_callback_query(call.id, "❌ No categories added yet.", show_alert=True)
         
-        text = "📁 <b>CHOOSE A CATEGORY</b>\n\nChoose a product category below:"
+        text = (
+            "🛍️ <b>SAKSHAM PANEL SHOP</b>\n"
+            "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
+            "🔥 Premium Mods, Panels & Bypasses — all in one place!\n"
+            "⚡ Instant delivery • 🔒 Verified sellers • 💯 Trusted by 1000+ buyers\n\n"
+            "👇 <i>Tap a category below to get started:</i>"
+        )
+        
         kb = InlineKeyboardMarkup(row_width=1)
         for cat in categories:
-            kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()}", callback_data=f"bot_cat|{cat['_id']}"))
+            kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()} PANEL", callback_data=f"bot_cat|{cat['_id']}"))
         kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_main"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
 
@@ -147,10 +154,9 @@ def bot_callbacks(call):
         if not products:
             return bot.answer_callback_query(call.id, "❌ No products in this category right now.", show_alert=True)
         
-        text = f"📁 <b>SAKSHAM PANEL SHOP — {cat.get('name', 'Category').upper()}</b>\n\n➡️ Choose a product 🕊️❤️"
+        text = f"📁 <b>SAKSHAM PANEL SHOP — {cat.get('name', 'Category').upper()} PANEL</b>\n\n➡️ Choose a product 🕊️❤️"
         kb = InlineKeyboardMarkup(row_width=1)
         for p in products:
-            # Yahan hum product icon (emoji) use kar rahe hain
             icon = p.get('icon', '🔹')
             kb.add(InlineKeyboardButton(f"{icon} {p.get('name')}", callback_data=f"bot_view|{p['_id']}"))
         kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_shop"))
@@ -215,7 +221,7 @@ def bot_callbacks(call):
         if not orders:
             return bot.answer_callback_query(call.id, "No orders found.", show_alert=True)
         text = "📜 <b>Your Order History</b>\n\n"
-        for o in orders[:5]: # Last 5 orders
+        for o in orders[:5]: 
             text += f"📦 {o.get('product')}\n🔑 <code>{o.get('key')}</code>\n➖➖➖➖➖➖➖➖\n"
         bot.send_message(call.message.chat.id, text, parse_mode="HTML")
         
@@ -492,7 +498,6 @@ def delete_product(p_id):
 # User Web routes (Deposit/Login) required for FamGateway to work
 @app.route('/deposit', methods=['GET', 'POST'])
 def web_deposit():
-    # (Aapka purana deposit code yahan aayega, maine short rakha hai)
     return "<h2 style='color:white;text-align:center;'>Deposit Page Working (Implement your FamGateway here)</h2>"
 
 @app.route('/buy_reseller', methods=['GET', 'POST'])

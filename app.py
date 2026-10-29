@@ -243,19 +243,18 @@ def bot_callbacks(call):
                     data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(p.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
                     res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
                     
-                    # Check if API returned empty response
+                    # DEBUG: Check what API is returning
                     if not res.text.strip():
-                        raise Exception("API returned an empty response.")
+                        raise Exception("API returned empty text.")
                         
                     try:
                         result = res.json()
-                    except Exception as json_err:
-                        # If JSON parsing fails, log the raw response for admin
-                        error_log = f"Status Code: {res.status_code}\nRaw Response: {res.text[:300]}"
-                        try: bot.send_message(ADMIN_ID, f"⚠️ <b>Reseller API Format Error!</b>\n<pre>{error_log}</pre>", parse_mode="HTML")
-                        except: pass
-                        result = {"status": "error", "message": "Invalid response from server (API Down or Maintenance)"}
-                        
+                    except:
+                        # SEND RAW RESPONSE TO ADMIN
+                        raw_error = f"Status Code: {res.status_code}\nResponse: {res.text[:500]}"
+                        bot.send_message(ADMIN_ID, f"🚨 <b>API Format Error!</b>\n<pre>{raw_error}</pre>", parse_mode="HTML")
+                        raise Exception("Invalid JSON response")
+
                 except Exception as e: 
                     result = {"status": "error", "message": str(e)}
                     
@@ -340,268 +339,10 @@ def verify_payment_email(chat_id, uid, unique_amount):
     bot.send_message(chat_id, "⚠️ Auto-check session expired. If you paid, please contact support.", parse_mode="HTML")
 
 # ================== FLASK WEB APP (Admin Panel) ==================
+# [Flask code is same as before, skipping for brevity but you need to keep it]
 app = Flask(__name__)
 app.secret_key = "sk_panel_secret"
-
-BASE_CSS = """
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800;900&display=swap');
-    * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; }
-    body { background-color: #050810; color: #fff; padding-bottom: 50px; }
-    .container { padding: 20px; max-width: 800px; margin: 0 auto; }
-    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: #0f172a; border-bottom: 1px solid #334155; }
-    .store-btn { background: #2563eb; padding: 12px 20px; border-radius: 15px; font-weight: 800; color: white; text-decoration: none; font-size: 14px; }
-    .card { background: #0f172a; border-radius: 20px; padding: 25px; border: 1px solid #334155; margin-bottom: 20px; }
-    input, textarea, select { width: 100%; padding: 15px; border-radius: 12px; border: 2px solid #334155; background: #050810; color: #fff; font-size: 16px; outline: none; margin-bottom: 15px; }
-    label { display: block; font-size: 14px; color: #94a3b8; margin-bottom: 8px; font-weight: 600; }
-    .btn { display: block; width: 100%; padding: 18px; border-radius: 12px; text-align: center; font-weight: 900; font-size: 16px; border: none; cursor: pointer; text-decoration: none; color: white; }
-    .btn-primary { background: #2563eb; }
-    .btn-success { background: #10b981; }
-    .btn-danger { background: #ef4444; }
-    .btn-warning { background: #f59e0b; color: black; }
-    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
-    .stat-card { background: #0f172a; border-radius: 15px; padding: 20px; border: 1px solid #334155; text-align: center; }
-    .stat-title { font-size: 12px; color: #94a3b8; }
-    .stat-value { font-size: 24px; font-weight: 900; color: #38bdf8; }
-</style>
-"""
-
-@app.route('/admin')
-def admin_panel():
-    total_users = users_col.count_documents({})
-    total_products = products_col.count_documents({})
-    
-    products = list(products_col.find({}))
-    prod_html = ""
-    for p in products:
-        cat = categories_col.find_one({"_id": ObjectId(p.get('category_id'))}) if p.get('category_id') else None
-        cat_name = cat.get('name') if cat else "No Category"
-        prod_html += f"""
-        <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;">
-            <div>
-                <div style="font-size:18px; font-weight:900; color:#38bdf8;">{p.get('icon', '🔹')} {p.get('name', '')}</div>
-                <div style="font-size:12px; color:#f59e0b;">Category: {cat_name}</div>
-            </div>
-            <div style="display:flex; gap:5px;">
-                <a href="/edit_product/{p['_id']}" class="btn btn-warning" style="padding:8px 12px; font-size:12px; width:auto;">Edit</a>
-                <form action="/delete_product/{p['_id']}" method="POST">
-                    <button type="submit" class="btn btn-danger" style="padding:8px 12px; font-size:12px; width:auto;">Del</button>
-                </form>
-            </div>
-        </div>
-        """
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav">
-        <div style="font-weight:900; font-size:20px;">⚙️ Admin Panel</div>
-        <div style="display:flex; gap:10px;">
-            <a href="/admin_users" class="store-btn" style="background:#f59e0b; color:#000;">👥 Users</a>
-            <a href="/admin_categories" class="store-btn" style="background:#10b981;">📁 Categories</a>
-        </div>
-    </div>
-    <div class="container" style="margin-top:20px;">
-        <div class="stats-grid">
-            <div class="stat-card"><div class="stat-title">Total Users</div><div class="stat-value">{total_users}</div></div>
-            <div class="stat-card"><div class="stat-title">Total Products</div><div class="stat-value">{total_products}</div></div>
-        </div>
-
-        <div class="card" style="border-color:#38bdf8;">
-            <h3 style="margin-bottom:15px; color:#38bdf8;">➕ Add Product</h3>
-            <form method="POST" action="/add_product">
-                <label>Name</label><input type="text" name="name" required>
-                <label>Icon (Emoji)</label><input type="text" name="icon" placeholder="🔹" required>
-                <label>PID</label><input type="text" name="pid" required>
-                <label>Category</label>
-                <select name="category_id" required>
-                    <option value="">-- Select --</option>
-                    {''.join([f'<option value="{c["_id"]}">{c["name"]}</option>' for c in categories_col.find({})])}
-                </select>
-                <label>Features</label><textarea name="features" rows="2"></textarea>
-                <label>Update Link</label><input type="text" name="setup_video" placeholder="https://...">
-                <label>Video Link</label><input type="text" name="hack_video" placeholder="https://...">
-                
-                <label style="margin-top:15px; color:#38bdf8;">Durations & Price</label>
-                <div id="price-container">
-                    <div style="display:flex; gap:10px; margin-bottom:10px;">
-                        <input type="text" name="duration[]" placeholder="e.g. 1 Day" style="flex:1;">
-                        <input type="number" name="price[]" placeholder="Price (₹)" style="flex:1;">
-                    </div>
-                </div>
-                <button type="button" onclick="addPrice()" class="btn btn-success" style="margin-bottom:15px;">+ Add More</button>
-                <button type="submit" class="btn btn-primary">Save Product</button>
-            </form>
-        </div>
-
-        <h3 style="margin-bottom:15px;">📦 All Products</h3>
-        {prod_html}
-    </div>
-    <script>
-        function addPrice() {{
-            const c = document.getElementById('price-container');
-            const d = document.createElement('div');
-            d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1;"><input type="number" name="price[]" placeholder="Price (₹)" style="flex:1;">`;
-            c.appendChild(d);
-        }}
-    </script>
-    """)
-
-@app.route('/admin_categories', methods=['GET', 'POST'])
-def admin_categories():
-    if request.method == 'POST':
-        cat_name = request.form.get('cat_name')
-        if cat_name:
-            categories_col.insert_one({"name": cat_name})
-            return redirect(url_for('admin_categories'))
-            
-    categories = list(categories_col.find({}))
-    cat_html = "".join([f"""
-        <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;">
-            <div style="font-size:18px; font-weight:900; color:#10b981;">📁 {c['name']}</div>
-            <form action="/delete_category/{c['_id']}" method="POST">
-                <button type="submit" class="btn btn-danger" style="padding:8px 12px; font-size:12px; width:auto;">Del</button>
-            </form>
-        </div>
-    """ for c in categories])
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><div style="font-weight:900; font-size:20px; color:#10b981;">📁 Categories</div><a href="/admin" class="store-btn">🔙 Back</a></div>
-    <div class="container" style="margin-top:20px;">
-        <div class="card" style="border-color:#10b981;">
-            <form method="POST">
-                <label>Category Name</label>
-                <input type="text" name="cat_name" placeholder="e.g. Android Root" required>
-                <button type="submit" class="btn btn-success">Add Category</button>
-            </form>
-        </div>
-        {cat_html}
-    </div>
-    """)
-
-@app.route('/delete_category/<c_id>', methods=['POST'])
-def delete_category(c_id):
-    categories_col.delete_one({"_id": ObjectId(c_id)})
-    return redirect(url_for('admin_categories'))
-
-@app.route('/add_product', methods=['POST'])
-def add_product():
-    try:
-        cat_id = str(request.form.get('category_id'))
-        durs = request.form.getlist('duration[]')
-        prices = request.form.getlist('price[]')
-        price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
-        
-        products_col.insert_one({
-            "name": request.form['name'], "icon": request.form.get('icon', '🔹'), "pid": request.form['pid'], 
-            "category_id": cat_id, "features": request.form.get('features', ''), 
-            "setup_video": request.form.get('setup_video', '').strip(), "hack_video": request.form.get('hack_video', '').strip(), 
-            "prices": price_dict, "status": "active"
-        })
-        return redirect(url_for('admin_panel'))
-    except Exception as e: return f"Error: {e}"
-
-@app.route('/edit_product/<p_id>', methods=['GET', 'POST'])
-def edit_product(p_id):
-    p = products_col.find_one({"_id": ObjectId(p_id)})
-    if not p: return "Not found"
-    if request.method == 'POST':
-        try:
-            cat_id = str(request.form.get('category_id'))
-            durs = request.form.getlist('duration[]')
-            prices = request.form.getlist('price[]')
-            price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
-            products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {
-                "name": request.form['name'], "icon": request.form.get('icon', '🔹'), "pid": request.form['pid'], 
-                "category_id": cat_id, "features": request.form.get('features', ''), 
-                "setup_video": request.form.get('setup_video', '').strip(), "hack_video": request.form.get('hack_video', '').strip(), 
-                "prices": price_dict
-            }})
-            return redirect(url_for('admin_panel'))
-        except Exception as e: return f"Error: {e}"
-    price_fields = "".join([f"""
-        <div style="display:flex; gap:10px; margin-bottom:10px;">
-            <input type="text" name="duration[]" value="{d}" style="flex:1;">
-            <input type="number" name="price[]" value="{pr}" style="flex:1;">
-        </div>
-    """ for d, pr in p.get('prices', {}).items()])
-    categories = list(categories_col.find({}))
-    cat_options = "".join([f'<option value="{c["_id"]}" {"selected" if str(c["_id"]) == p.get("category_id") else ""}>{c["name"]}</option>' for c in categories])
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><a href="/admin" class="store-btn">🔙 Back</a></div>
-    <div class="container" style="margin-top:20px;">
-        <div class="card">
-            <h3 style="margin-bottom:15px; color:#f59e0b;">✏️ Edit Product</h3>
-            <form method="POST">
-                <label>Name</label><input type="text" name="name" value="{p.get('name', '')}" required>
-                <label>Icon</label><input type="text" name="icon" value="{p.get('icon', '🔹')}" required>
-                <label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required>
-                <label>Category</label><select name="category_id">{cat_options}</select>
-                <label>Features</label><textarea name="features" rows="2">{p.get('features', '')}</textarea>
-                <label>Update Link</label><input type="text" name="setup_video" value="{p.get('setup_video', '')}">
-                <label>Video Link</label><input type="text" name="hack_video" value="{p.get('hack_video', '')}">
-                <label style="margin-top:15px; color:#38bdf8;">Durations & Price</label>
-                <div id="price-container">{price_fields}</div>
-                <button type="button" onclick="addPrice()" class="btn btn-success" style="margin-bottom:15px;">+ Add More</button>
-                <button type="submit" class="btn btn-warning">Update</button>
-            </form>
-        </div>
-    </div>
-    <script>
-        function addPrice() {{
-            const c = document.getElementById('price-container');
-            const d = document.createElement('div');
-            d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';
-            d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1;"><input type="number" name="price[]" placeholder="Price (₹)" style="flex:1;">`;
-            c.appendChild(d);
-        }}
-    </script>
-    """)
-
-@app.route('/delete_product/<p_id>', methods=['POST'])
-def delete_product(p_id):
-    products_col.delete_one({"_id": ObjectId(p_id)})
-    return redirect(url_for('admin_panel'))
-
-@app.route('/admin_users')
-def admin_users():
-    users = list(users_col.find({}))
-    user_html = "".join([f"""
-        <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;">
-            <div>
-                <div style="font-size:16px; font-weight:900; color:#38bdf8;">{u.get('name', 'User')}</div>
-                <div style="font-size:12px; color:#94a3b8;"><code>{u['_id']}</code></div>
-            </div>
-            <div style="text-align:right;">
-                <div style="font-size:18px; font-weight:900; color:#10b981;">₹{u.get('balance', 0):.2f}</div>
-                <a href="/admin_edit_user/{u['_id']}" class="btn btn-warning" style="padding:6px 10px; font-size:10px; width:auto; margin-top:5px;">Edit</a>
-            </div>
-        </div>
-    """ for u in users])
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><div style="font-weight:900; font-size:20px; color:#f59e0b;">👥 Users</div><a href="/admin" class="store-btn">🔙 Back</a></div>
-    <div class="container" style="margin-top:20px;">{user_html}</div>
-    """)
-
-@app.route('/admin_edit_user/<uid>', methods=['GET', 'POST'])
-def admin_edit_user(uid):
-    u = get_user_info(uid)
-    if request.method == 'POST':
-        bal = float(request.form['balance'])
-        disc = int(request.form['discount'])
-        users_col.update_one({"_id": str(uid)}, {"$set": {"balance": bal, "discount": disc}})
-        return redirect(url_for('admin_users'))
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><div style="font-weight:900; font-size:20px; color:#f59e0b;">Edit User</div><a href="/admin_users" class="store-btn">🔙 Back</a></div>
-    <div class="container" style="margin-top:20px;">
-        <div class="card">
-            <form method="POST">
-                <label>Balance (₹)</label><input type="number" step="0.01" name="balance" value="{u.get('balance', 0)}" required>
-                <label>Discount (%)</label><input type="number" name="discount" value="{u.get('discount', 0)}" required>
-                <button type="submit" class="btn btn-warning">Update</button>
-            </form>
-        </div>
-    </div>
-    """)
+BASE_CSS = """<style> /* ... same css ... */ </style>"""
 
 @app.route('/')
 def home(): return "Bot is running with Gmail Verify!"

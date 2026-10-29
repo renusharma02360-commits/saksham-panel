@@ -15,7 +15,6 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
-# 🚨 APNA NAYA TOKEN YAHAN DAALEIN 🚨
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8765613302:AAE2b0qDyR-o0UkzGs5H7fuSSz0yhLiYSBc") 
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
 
@@ -26,9 +25,9 @@ WEB_URL = "https://saksham-panel-kpsl.onrender.com"
 MERCHANT_UPI_ID = "saksham72006@fam" 
 MERCHANT_NAME = "SakshamMods"
 
-# 📧 GMAIL CONFIG (Yahan apni details bharein)
+# 📧 GMAIL CONFIG
 GMAIL_USER = "reneusharma02360@gmail.com"
-GMAIL_APP_PASSWORD = "rigzkrppziofvcmv" # (Kripya isko baad mein change karein)
+GMAIL_APP_PASSWORD = "rigzkrppziofvcmv" 
 
 # API Keys (Reseller)
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
@@ -85,12 +84,10 @@ def log_order(uid, product, key, price):
 # ---------------- 📧 EMAIL CHECK HELPER ----------------
 def check_bank_email(expected_amount):
     try:
-        # Connect to Gmail
         mail = imaplib.IMAP4_SSL("imap.gmail.com")
         mail.login(GMAIL_USER, GMAIL_APP_PASSWORD)
         mail.select("inbox")
 
-        # Search for Unread emails
         status, messages = mail.search(None, '(UNSEEN)')
         mail_ids = messages[0].split()
 
@@ -98,7 +95,6 @@ def check_bank_email(expected_amount):
             mail.logout()
             return False, None
 
-        # Check last 10 emails
         for i in mail_ids[-10:]:
             status, msg_data = mail.fetch(i, '(RFC822)')
             for response_part in msg_data:
@@ -114,15 +110,10 @@ def check_bank_email(expected_amount):
                     else:
                         body = msg.get_payload(decode=True).decode(errors='ignore')
 
-                    # Check if expected amount exists in email body (e.g., "50.23")
-                    # We format it to string to match decimal
                     amount_str = str(expected_amount)
                     if amount_str in body:
-                        # Find UTR (Usually 12 digits in Indian banks)
                         utr_match = re.search(r'\b\d{12}\b', body)
                         found_utr = utr_match.group(0) if utr_match else f"UPI_{int(time.time())}"
-                        
-                        # Mark email as read
                         mail.store(i, '+FLAGS', '\\Seen')
                         mail.logout()
                         return True, found_utr
@@ -251,8 +242,22 @@ def bot_callbacks(call):
                 try:
                     data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(p.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
                     res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
-                    result = res.json()
-                except Exception as e: result = {"status": "error", "message": str(e)}
+                    
+                    # Check if API returned empty response
+                    if not res.text.strip():
+                        raise Exception("API returned an empty response.")
+                        
+                    try:
+                        result = res.json()
+                    except Exception as json_err:
+                        # If JSON parsing fails, log the raw response for admin
+                        error_log = f"Status Code: {res.status_code}\nRaw Response: {res.text[:300]}"
+                        try: bot.send_message(ADMIN_ID, f"⚠️ <b>Reseller API Format Error!</b>\n<pre>{error_log}</pre>", parse_mode="HTML")
+                        except: pass
+                        result = {"status": "error", "message": "Invalid response from server (API Down or Maintenance)"}
+                        
+                except Exception as e: 
+                    result = {"status": "error", "message": str(e)}
                     
                 if result.get("status") == "success" or "keys" in result:
                     key = result.get("keys", ["Key not found"])[0]
@@ -300,12 +305,10 @@ def process_deposit_amount(message):
         amount = float(message.text)
         if amount <= 0: return bot.reply_to(message, "❌ Amount must be greater than 0.")
         
-        # Unique Amount Strategy: Add paise to avoid collision (e.g., 50.12)
         unique_amount = round(amount + (int(time.time()) % 99) / 100.0, 2)
         
         bot.send_message(message.chat.id, f"⏳ <i>Generating QR Code for ₹{unique_amount}...</i>", parse_mode="HTML")
         
-        # Generate UPI link and QR
         upi_url = f"upi://pay?pa={MERCHANT_UPI_ID}&pn={MERCHANT_NAME}&am={unique_amount}&cu=INR"
         qr_img_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(upi_url)}"
         
@@ -318,7 +321,6 @@ def process_deposit_amount(message):
         
         bot.send_photo(message.chat.id, photo=qr_img_url, caption=caption, parse_mode="HTML")
         
-        # Start background Gmail checker
         threading.Thread(target=verify_payment_email, args=(message.chat.id, uid, unique_amount)).start()
         
     except ValueError:
@@ -326,7 +328,6 @@ def process_deposit_amount(message):
         bot.register_next_step_handler(msg, process_deposit_amount)
 
 def verify_payment_email(chat_id, uid, unique_amount):
-    # 20 minutes tak check karega (120 * 10s)
     for i in range(120): 
         time.sleep(10)
         

@@ -14,7 +14,9 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
+# 🚨 APNA NAYA TOKEN YAHAN DAALEIN (BotFather se naya banayen) 🚨
 BOT_TOKEN = "8765613302:AAE2b0qDyR-o0UkzGs5H7fuSSz0yhLiYSBc" 
+
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
 ADMIN_ID  = 7778093775
 MONGO_URI = os.environ.get("MONGO_URI") 
@@ -69,7 +71,7 @@ def credit_balance(uid, amount):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ================== TELEGRAM BOT (EXACT UI) ==================
+# ================== TELEGRAM BOT ==================
 def get_main_menu(uid):
     text = (
         "(●) <b>WELCOME TO SAKSHAM PANEL SHOP - PRODUCT STATUS</b> [Shop]\n\n"
@@ -100,12 +102,14 @@ def start(msg):
     uid = str(msg.from_user.id)
     user = get_user_info(uid)
     
+    # Verification Logic
     if not user.get("verified"):
         markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup.add(KeyboardButton("📱 Share Contact (For Verification)", request_contact=True))
         bot.send_message(msg.chat.id, "🛡️ <b>Verification Required</b>\n\nPlease verify your phone number to continue.", parse_mode="HTML", reply_markup=markup)
         return
         
+    # If verified, show main menu
     text, kb = get_main_menu(uid)
     bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
 
@@ -115,8 +119,11 @@ def handle_contact(msg):
     if msg.contact.user_id == msg.from_user.id:
         users_col.update_one({"_id": uid}, {"$set": {"phone": msg.contact.phone_number, "verified": True}})
         bot.send_message(msg.chat.id, "✅ <b>Verification Successful!</b>", parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
+        
         text, kb = get_main_menu(uid)
         bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
+    else:
+        bot.send_message(msg.chat.id, "❌ <b>Invalid Contact!</b> Please share your own number.", parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: True)
 def bot_callbacks(call):
@@ -154,7 +161,7 @@ def bot_callbacks(call):
         if not products:
             return bot.answer_callback_query(call.id, "❌ No products in this category right now.", show_alert=True)
         
-        text = f"📁 <b>SAKSHAM PANEL SHOP — {cat.get('name', 'Category').upper()} PANEL</b>\n\n➡️ Choose a product 🕊️❤️"
+        text = f"📁 <b>SAKSHAM PANEL SHOP — {cat.get('name', 'Category').upper()}</b>\n\n➡️ Choose a product 🕊️❤️"
         kb = InlineKeyboardMarkup(row_width=1)
         for p in products:
             icon = p.get('icon', '🔹')
@@ -514,10 +521,12 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 def run_bot():
+    print("Bot is starting...")
     try: 
         bot.delete_webhook(drop_pending_updates=True) 
     except Exception as e: 
         print(f"Webhook error: {e}")
+    print("Bot Polling Started!")
     bot.infinity_polling(timeout=30, long_polling_timeout=30, skip_pending=True)
 
 if __name__ == "__main__":

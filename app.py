@@ -106,12 +106,12 @@ def start(msg):
 @bot.callback_query_handler(func=lambda call: True)
 def bot_callbacks(call):
     uid = str(call.from_user.id)
-    bot.answer_callback_query(call.id)
     
     try:
         if call.data == "bot_main":
             text, kb = get_main_menu(uid)
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+            bot.answer_callback_query(call.id)
             
         elif call.data == "bot_shop":
             categories = list(categories_col.find({}))
@@ -124,6 +124,7 @@ def bot_callbacks(call):
                 kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()}", callback_data=f"cat_{cat['_id']}"))
             kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_main"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+            bot.answer_callback_query(call.id)
 
         elif call.data.startswith("cat_"):
             cat_id = call.data.split("_")[1]
@@ -141,6 +142,7 @@ def bot_callbacks(call):
                 kb.add(InlineKeyboardButton(f"{icon} {p.get('name')}", callback_data=f"view_{p['_id']}"))
             kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_shop"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+            bot.answer_callback_query(call.id)
 
         elif call.data.startswith("view_"):
             p_id = call.data.split("_")[1]
@@ -153,17 +155,15 @@ def bot_callbacks(call):
             
             kb = InlineKeyboardMarkup(row_width=2)
             
-            # Safe URL check
             update_link = str(p.get('setup_video', '')).strip()
             video_link = str(p.get('hack_video', '')).strip()
             
-            if update_link.startswith('http://') or update_link.startswith('https://'):
+            if update_link.startswith('http'):
                 kb.add(InlineKeyboardButton("📥 Update File", url=update_link))
                 
-            if video_link.startswith('http://') or video_link.startswith('https://'):
+            if video_link.startswith('http'):
                 kb.add(InlineKeyboardButton("▶️ Video/Feedback", url=video_link))
             
-            # Add Price Buttons
             for d, pr in p.get('prices', {}).items():
                 if not d.strip(): continue
                 final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
@@ -171,6 +171,7 @@ def bot_callbacks(call):
                 
             kb.add(InlineKeyboardButton("🔙 Back", callback_data=f"cat_{p.get('category_id')}"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+            bot.answer_callback_query(call.id)
 
         elif call.data.startswith("buy_"):
             parts = call.data.split("_")
@@ -178,21 +179,35 @@ def bot_callbacks(call):
             duration = "_".join(parts[2:])
             
             p = products_col.find_one({"_id": ObjectId(p_id)})
+            if not p:
+                return bot.answer_callback_query(call.id, "❌ Product not found.", show_alert=True)
+                
             u = get_user_info(uid)
             disc = u.get('discount', 0)
             
-            price = float(p['prices'][duration]) - (float(p['prices'][duration]) * disc / 100) if disc > 0 else float(p['prices'][duration])
-            
-            if get_balance(uid) < price:
-                return bot.answer_callback_query(call.id, "❌ Low Balance! Please add funds using 'Add Amount'.", show_alert=True)
+            if duration not in p.get('prices', {}):
+                return bot.answer_callback_query(call.id, "❌ Invalid duration.", show_alert=True)
                 
+            base_price = float(p['prices'][duration])
+            price = base_price - (base_price * disc / 100) if disc > 0 else base_price
+            
+            user_bal = get_balance(uid)
+            
+            # Yahan Low Balance alert show hoga kyunki pehle answer_callback_query call nahi hua
+            if user_bal < price:
+                return bot.answer_callback_query(call.id, f"❌ Low Balance!\n\nYour Balance: ₹{user_bal:.2f}\nRequired: ₹{price:.2f}\n\nPlease add funds using 'Add Amount'.", show_alert=True)
+                
+            # Sufficient balance, stop loading animation
+            bot.answer_callback_query(call.id)
+            
             if deduct_balance(uid, price):
-                bot.edit_message_text("⏳ <i>Processing your order...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+                bot.edit_message_text("⏳ <i>Processing your order from API...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
                 try:
                     data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(p.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
                     res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
                     result = res.json()
-                except Exception as e: result = {"status": "error"}
+                except Exception as e: 
+                    result = {"status": "error", "message": str(e)}
                     
                 if result.get("status") == "success" or "keys" in result:
                     key = result.get("keys", ["Key not found"])[0]
@@ -200,15 +215,18 @@ def bot_callbacks(call):
                     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main"))
                     bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
                 else:
+                    # Refund if API fails
                     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": price}})
+                    err_msg = result.get("message", "Out of Stock / API Error")
                     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop"))
-                    bot.edit_message_text(f"❌ <b>API Error (Out of Stock)</b>\n\n₹{price:.2f} Refunded to your wallet.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
-                    
+                    bot.edit_message_text(f"❌ <b>API Error</b>\n\nReason: {err_msg}\n\n₹{price:.2f} Refunded to your wallet.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+
         elif call.data == "bot_profile":
             u = get_user_info(uid)
             text = f"👤 <b>YOUR PROFILE</b>\n\n🆔 ID: <code>{uid}</code>\n💰 Balance: ₹{u.get('balance', 0.0):.2f}\n🏷️ Discount: {u.get('discount', 0)}%\n📅 Joined: {u.get('joined', time.strftime('%d-%m-%Y'))}"
             kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", callback_data="bot_add_bal"), InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+            bot.answer_callback_query(call.id)
             
         elif call.data == "bot_history":
             orders = list(orders_col.find({"uid": uid}).sort("_id", -1))
@@ -221,10 +239,12 @@ def bot_callbacks(call):
             
             kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
             bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=kb)
+            bot.answer_callback_query(call.id)
             
         elif call.data == "bot_add_bal":
             msg = bot.send_message(call.message.chat.id, "💸 <b>Enter Amount</b>\n\nPlease type the amount (in ₹) you want to add to your wallet (e.g., 50, 100):", parse_mode="HTML", reply_markup=ForceReply(selective=True))
             bot.register_next_step_handler(msg, process_deposit_amount)
+            bot.answer_callback_query(call.id)
             
     except Exception as e:
         error_msg = f"⚠️ <b>Bot Error Detected!</b>\n\nUser ID: <code>{uid}</code>\nButton: {call.data}\nError: <code>{str(e)}</code>"
@@ -374,7 +394,6 @@ def admin_panel():
     </script>
     """)
 
-# --- NEW: ADMIN DEPOSITS PAGE ---
 @app.route('/admin_deposits')
 def admin_deposits():
     deposits = list(orders_col.find({"type": "deposit"}).sort("_id", -1))

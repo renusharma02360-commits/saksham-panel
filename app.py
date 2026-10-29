@@ -14,7 +14,7 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
-# 🚨 APNA TOKEN YAHAN DAALEIN 🚨
+# 🚨 APNA NAYA TOKEN YAHAN DAALEIN 🚨
 BOT_TOKEN = "8765613302:AAE2b0qDyR-o0UkzGs5H7fuSSz0yhLiYSBc" 
 
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
@@ -23,9 +23,9 @@ MONGO_URI = os.environ.get("MONGO_URI")
 UPLOAD_FOLDER = "static/uploads"
 WEB_URL = "https://saksham-panel-kpsl.onrender.com" 
 
-ADMIN_WP = "918849507563" 
-SUPPORT_LINK = "https://wa.me/918849507563" 
-CHANNEL_LINK = "https://t.me/YourChannelLink" # Apna channel link yahan daalein
+# Agar aapke paas MongoDB URI nahi hai, toh ye local chalega (Render par env variable set karna)
+if not MONGO_URI:
+    MONGO_URI = "mongodb://localhost:27017/"
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
@@ -37,19 +37,26 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 client = MongoClient(MONGO_URI)
 db = client.saksham_panel
 users_col = db.users
-web_users_col = db.web_users 
 products_col = db.products
 categories_col = db.categories 
 orders_col = db.orders
+settings_col = db.settings # Naya collection settings ke liye
 
 bot = telebot.TeleBot(BOT_TOKEN)
 fg  = FamGateway(api_key=API_KEY)
 
-# ---------------- DB HELPERS ----------------
+# ---------------- DB & SETTINGS HELPERS ----------------
+def get_setting(key, default):
+    s = settings_col.find_one({"_id": key})
+    if not s:
+        settings_col.insert_one({"_id": key, "value": default})
+        return default
+    return s['value']
+
 def get_user_info(uid):
     u = users_col.find_one({"_id": str(uid)})
     if not u:
-        default_u = {"_id": str(uid), "balance": 0.0, "name": "User", "discount": 0}
+        default_u = {"_id": str(uid), "balance": 0.0, "name": "User", "discount": 0, "joined": time.strftime("%d-%m-%Y")}
         users_col.insert_one(default_u)
         return default_u
     return u
@@ -78,45 +85,32 @@ def credit_atomic(uid, amount, utr):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ================== TELEGRAM BOT ==================
+# ================== TELEGRAM BOT (DYNAMIC UI) ==================
 def get_main_menu(uid):
-    text = (
-        "(●) <b>WELCOME TO SAKSHAM PANEL SHOP\n"
-        "- PRODUCT STATUS</b> [Shop]\n\n"
-        "➡️ Buy Now : All Key Purchase & Instant Delivery\n"
-        "✅\n"
-        "➡️ Check Update : Check Setup And Update Apk\n"
-        "✅\n"
+    welcome_text = get_setting("welcome_text", 
+        "(●) <b>WELCOME TO SAKSHAM PANEL SHOP - PRODUCT STATUS</b> [Shop]\n\n"
+        "➡️ Buy Now : All Key Purchase & Instant Delivery ✅\n"
         "➡️ Add Balance : Secure Auto Payment System ✅\n"
-        "➡️ My Profile + All History : Check Your All History\n"
-        "✅\n"
-        "➡️ How To Use Bot : View Tutorial And Work This\n"
-        "Bot ✅\n"
-        "➡️ Support : Bot Problem Fixed For Support Admin\n"
-        "✅\n\n"
-        "⬇️ <b>SELECT AN OPTION FROM THE MENU\n"
-        "BELOW 🛒</b>"
+        "➡️ My Profile + All History : Check Your All History ✅\n"
+        "➡️ Support : Bot Problem Fixed For Support Admin ✅\n\n"
+        "⬇️ <b>SELECT AN OPTION FROM THE MENU BELOW 🛒</b>"
     )
-    
+    channel_link = get_setting("channel_link", "https://t.me/YourChannel")
+    support_link = get_setting("support_link", "https://wa.me/918849507563")
+
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("➡️ Shop Now 🛍️", callback_data="bot_shop"))
-    
     kb.add(InlineKeyboardButton("➡️ Add Amount 💸", callback_data="bot_add_bal"), 
            InlineKeyboardButton("➡️ My Profile 👤", callback_data="bot_profile"))
-           
     kb.add(InlineKeyboardButton("➡️ Order History 📄", callback_data="bot_history"), 
-           InlineKeyboardButton("➡️ Main Channel ⚡", url=CHANNEL_LINK))
-           
-    kb.add(InlineKeyboardButton("➡️ All Hack Update 📁", url=CHANNEL_LINK), 
-           InlineKeyboardButton("➡️ How To Buy Panel 🚀", url=SUPPORT_LINK))
-           
-    kb.add(InlineKeyboardButton("➡️ Become A Reseller 🤝", web_app=WebAppInfo(url=f"{WEB_URL}/buy_reseller")))
-    kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=SUPPORT_LINK))
+           InlineKeyboardButton("➡️ Main Channel ⚡", url=channel_link))
+    kb.add(InlineKeyboardButton("➡️ Become A Reseller 🤝", web_app=WebAppInfo(url=f"{WEB_URL}/buy_reseller?uid={uid}")))
+    kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=support_link))
     
     if str(uid) == str(ADMIN_ID):
         kb.add(InlineKeyboardButton("⚙️ Admin Panel", web_app=WebAppInfo(url=f"{WEB_URL}/admin")))
         
-    return text, kb
+    return welcome_text, kb
 
 @bot.message_handler(commands=["start"])
 def start(msg):
@@ -157,9 +151,8 @@ def bot_callbacks(call):
         cat_id = call.data.split("|")[1]
         cat = categories_col.find_one({"_id": ObjectId(cat_id)})
         
-        # Yahan filter hota hai ki product kis category ka hai
+        # Filter products by category
         products = list(products_col.find({"category_id": cat_id, "status": {"$ne": "out_of_stock"}}))
-        
         if not products:
             return bot.answer_callback_query(call.id, "❌ No products in this category right now.", show_alert=True)
         
@@ -250,7 +243,7 @@ BASE_CSS = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
     * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; }
     body { background-color: #050810; color: #fff; padding-bottom: 50px; }
-    .container { padding: 20px; max-width: 500px; margin: 0 auto; }
+    .container { padding: 20px; max-width: 1000px; margin: 0 auto; }
     .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: rgba(15, 23, 42, 0.85); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.1); }
     .store-btn { background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 15px 25px; border-radius: 25px; font-weight: 800; color: white; text-decoration: none; }
     .product-card { background: linear-gradient(145deg, #0f172a, #050810); border-radius: 25px; padding: 30px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
@@ -262,7 +255,7 @@ BASE_CSS = """
     .btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; }
     .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; }
     .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: black; }
-    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }
     .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.08); }
     .stat-title { font-size: 15px; color: #94a3b8; font-weight: 700; }
     .stat-value { font-size: 32px; font-weight: 900; }
@@ -313,11 +306,12 @@ def admin_panel():
     <div class="top-nav">
         <div style="font-weight:900; font-size:24px; color:#38bdf8;">⚙️ Admin Panel</div>
         <div style="display:flex; gap:10px;">
+            <a href="/admin_users" class="store-btn" style="background:#f59e0b;">👥 Users</a>
+            <a href="/admin_settings" class="store-btn" style="background:#8b5cf6;">⚙️ Bot Settings</a>
             <a href="/admin_categories" class="store-btn" style="background:#10b981;">📁 Categories</a>
-            <a href="/" class="store-btn" style="background:#ef4444;">Exit</a>
         </div>
     </div>
-    <div class="container" style="max-width: 1000px; margin-top:20px;">
+    <div class="container" style="margin-top:20px;">
         <div class="stats-grid">
             <div class="stat-card"><div class="stat-title">Users</div><div class="stat-value text-blue">{total_users}</div></div>
             <div class="stat-card"><div class="stat-title">Sales</div><div class="stat-value text-yellow">{total_sales}</div></div>
@@ -329,7 +323,7 @@ def admin_panel():
             <h3 style="margin-bottom:25px; color:#38bdf8; font-size:26px;">➕ Add New Product</h3>
             <form method="POST" action="/add_product">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" required></div>
-                <div class="input-group"><label>Product Icon (Emoji) - e.g. 💀 or ⚡</label><input type="text" name="icon" placeholder="🔹" required></div>
+                <div class="input-group"><label>Product Icon (Emoji)</label><input type="text" name="icon" placeholder="🔹" required></div>
                 <div class="input-group"><label>PID (API Product ID)</label><input type="text" name="pid" required></div>
                 
                 <div class="input-group">
@@ -370,6 +364,109 @@ def admin_panel():
     </script>
     """)
 
+# ---------------- NEW: ADMIN SETTINGS ----------------
+@app.route('/admin_settings', methods=['GET', 'POST'])
+def admin_settings():
+    if request.method == 'POST':
+        settings_col.update_one({"_id": "welcome_text"}, {"$set": {"value": request.form['welcome_text']}}, upsert=True)
+        settings_col.update_one({"_id": "channel_link"}, {"$set": {"value": request.form['channel_link']}}, upsert=True)
+        settings_col.update_one({"_id": "support_link"}, {"$set": {"value": request.form['support_link']}}, upsert=True)
+        return redirect(url_for('admin_settings'))
+
+    welcome = get_setting("welcome_text", "(●) <b>WELCOME...</b>")
+    channel = get_setting("channel_link", "https://t.me/YourChannel")
+    support = get_setting("support_link", "https://wa.me/918849507563")
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:900; font-size:24px; color:#8b5cf6;">⚙️ Bot Settings</div>
+        <a href="/admin" class="store-btn">🔙 Back</a>
+    </div>
+    <div class="container" style="margin-top:20px;">
+        <div class="product-card" style="border-color:#8b5cf6;">
+            <h3 style="margin-bottom:20px; color:#8b5cf6;">Edit Bot Messages & Links</h3>
+            <form method="POST">
+                <div class="input-group">
+                    <label>Welcome Message (Main Menu Text)</label>
+                    <textarea name="welcome_text" rows="8" required>{welcome}</textarea>
+                </div>
+                <div class="input-group">
+                    <label>Main Channel Link</label>
+                    <input type="url" name="channel_link" value="{channel}" required>
+                </div>
+                <div class="input-group">
+                    <label>Support Link (WhatsApp/Telegram)</label>
+                    <input type="url" name="support_link" value="{support}" required>
+                </div>
+                <button type="submit" class="action-btn btn-primary">Save Settings</button>
+            </form>
+        </div>
+    </div>
+    """)
+
+# ---------------- NEW: ADMIN USERS ----------------
+@app.route('/admin_users', methods=['GET'])
+def admin_users():
+    users = list(users_col.find({}))
+    user_html = ""
+    for u in users:
+        reseller = "Yes" if u.get('discount', 0) > 0 else "No"
+        user_html += f"""
+        <div class="product-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;">
+            <div>
+                <div style="font-size:18px; font-weight:900; color:#38bdf8;">{u.get('name', 'User')}</div>
+                <div style="font-size:14px; color:#94a3b8;">ID: <code>{u['_id']}</code></div>
+                <div style="font-size:12px; color:#f59e0b;">Joined: {u.get('joined', 'N/A')} | Reseller: {reseller}</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:20px; font-weight:900; color:#10b981;">₹{u.get('balance', 0):.2f}</div>
+                <a href="/admin_edit_user/{u['_id']}" class="action-btn btn-warning" style="padding:8px 15px; font-size:12px; width:auto; margin-top:5px;">Edit User</a>
+            </div>
+        </div>
+        """
+        
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:900; font-size:24px; color:#f59e0b;">👥 Users ({len(users)})</div>
+        <a href="/admin" class="store-btn">🔙 Back</a>
+    </div>
+    <div class="container" style="margin-top:20px;">
+        {user_html}
+    </div>
+    """)
+
+@app.route('/admin_edit_user/<uid>', methods=['GET', 'POST'])
+def admin_edit_user(uid):
+    u = get_user_info(uid)
+    if request.method == 'POST':
+        bal = float(request.form['balance'])
+        disc = int(request.form['discount'])
+        users_col.update_one({"_id": str(uid)}, {"$set": {"balance": bal, "discount": disc}})
+        return redirect(url_for('admin_users'))
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-weight:900; font-size:24px; color:#f59e0b;">✏️ Edit User: {u.get('name')}</div>
+        <a href="/admin_users" class="store-btn">🔙 Back</a>
+    </div>
+    <div class="container" style="margin-top:20px;">
+        <div class="product-card" style="border-color:#f59e0b;">
+            <form method="POST">
+                <div class="input-group">
+                    <label>Balance (₹)</label>
+                    <input type="number" step="0.01" name="balance" value="{u.get('balance', 0)}" required>
+                </div>
+                <div class="input-group">
+                    <label>Discount (%) - (0 for none, 56 for reseller)</label>
+                    <input type="number" name="discount" value="{u.get('discount', 0)}" required>
+                </div>
+                <button type="submit" class="action-btn btn-warning">Update User</button>
+            </form>
+        </div>
+    </div>
+    """)
+
+# ================== OTHER ADMIN ROUTES (Categories & Products) ==================
 @app.route('/admin_categories', methods=['GET', 'POST'])
 def admin_categories():
     if request.method == 'POST':
@@ -517,7 +614,6 @@ def delete_product(p_id):
 # ================== USER WEB APP (DEPOSIT & CALCULATOR) ==================
 @app.route('/deposit', methods=['GET', 'POST'])
 def web_deposit():
-    # Get UID from URL (passed from bot)
     uid = request.args.get('uid')
     if not uid:
         return "User ID not found. Please try again from bot."
@@ -529,7 +625,6 @@ def web_deposit():
             return "<h3 style='color:red; text-align:center;'>Minimum amount is ₹10</h3>"
 
         try:
-            # FamGateway ka use karke order create karna
             order = fg.create_order(amount=amount, customer_name=f"User_{uid}")
             
             QR_HTML = BASE_CSS + f"""
@@ -554,7 +649,6 @@ def web_deposit():
                         <div style="font-size:70px; margin-bottom:20px;">✅</div>
                         <h2 style="color:#10b981; font-size:32px; font-weight:900;">Payment Successful!</h2>
                         <p style="color:#cbd5e1; font-size:20px; margin-top:15px;">New Balance: <b id="new-balance" style="color:#38bdf8;">₹0.00</b></p>
-                        <p style="color:#94a3b8; margin-top:10px;">You can close this window now.</p>
                     </div>
                 </div>
             </div>
@@ -585,7 +679,6 @@ def web_deposit():
         except Exception as e: 
             return f"<h2 style='color:red; text-align:center; margin-top:50px;'>API Error: {e}</h2>"
 
-    # GET Request: Calculator UI dikhana
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav">
         <div style="font-weight:900; font-size:20px; color:#38bdf8;">💸 Add Balance</div>
@@ -598,7 +691,6 @@ def web_deposit():
                     <input type="number" id="amountInput" name="amount" required readonly style="font-size:32px; text-align:right; background:#000; color:#00f0ff; border:2px solid #00f0ff; border-radius:15px; padding:20px; font-weight:900;">
                 </div>
 
-                <!-- Calculator UI -->
                 <div class="calc-grid">
                     <button type="button" class="calc-btn" onclick="addDigit('1')">1</button>
                     <button type="button" class="calc-btn" onclick="addDigit('2')">2</button>

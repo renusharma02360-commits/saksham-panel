@@ -2,11 +2,10 @@ import os
 import time
 import threading
 import requests
-import urllib.parse
 import telebot
 import uuid
 from functools import wraps
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from famgateway import FamGateway
 from flask import Flask, request, render_template_string, redirect, url_for, session, jsonify
 from werkzeug.utils import secure_filename
@@ -15,7 +14,7 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
-# 🚨 APNA NAYA BOT TOKEN YAHAN DAALEIN 🚨
+# 🚨 APNA TOKEN YAHAN DAALEIN (BotFather se naya banayen) 🚨
 BOT_TOKEN = "8765613302:AAEHEgUQZc_Z1qa8SwCKKwWLgRe-ZgDKks4" 
 
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
@@ -26,7 +25,7 @@ WEB_URL = "https://saksham-panel-kpsl.onrender.com"
 
 ADMIN_WP = "918849507563" 
 SUPPORT_LINK = "https://wa.me/918849507563" 
-CHANNEL_LINK = "https://t.me/YourChannel" # Apna channel link yahan daalein
+CHANNEL_LINK = "https://t.me/YourChannelLink" # Apna channel link yahan daalein
 
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
@@ -50,7 +49,7 @@ fg  = FamGateway(api_key=API_KEY)
 def get_user_info(uid):
     u = users_col.find_one({"_id": str(uid)})
     if not u:
-        default_u = {"_id": str(uid), "balance": 0.0, "name": "User", "discount": 0}
+        default_u = {"_id": str(uid), "balance": 0.0, "name": "User", "discount": 0, "verified": False}
         users_col.insert_one(default_u)
         return default_u
     return u
@@ -79,10 +78,10 @@ def credit_atomic(uid, amount, utr):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ================== TELEGRAM BOT MENUS ==================
+# ================== TELEGRAM BOT ==================
 def get_main_menu(uid):
     text = (
-        "👋 <b>WELCOME TO SAKSHAM PANEL SHOP - PRODUCT STATUS 🛒</b>\n\n"
+        "👋 <b>WELCOME TO SAKSHAM PANEL SHOP 🛒</b>\n\n"
         "➡️ Buy Now : All Key Purchase & Instant Delivery ✅\n"
         "➡️ Check Update : Check Setup And Update Apk ✅\n"
         "➡️ Add Balance : Secure Auto Payment System ✅\n"
@@ -102,7 +101,6 @@ def get_main_menu(uid):
     kb.add(InlineKeyboardButton("➡️ Become A Reseller 🤝", web_app=WebAppInfo(url=f"{WEB_URL}/buy_reseller")))
     kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=SUPPORT_LINK))
     
-    # Admin panel button
     if str(uid) == str(ADMIN_ID):
         kb.add(InlineKeyboardButton("⚙️ Admin Panel", web_app=WebAppInfo(url=f"{WEB_URL}/admin")))
         
@@ -110,10 +108,44 @@ def get_main_menu(uid):
 
 @bot.message_handler(commands=["start"])
 def start(msg):
-    uid = msg.from_user.id
-    get_user_info(uid)
+    uid = str(msg.from_user.id)
+    user = get_user_info(uid)
+    
+    # Check if user is verified (Phone number shared or not)
+    if not user.get("verified"):
+        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        btn = KeyboardButton("📱 Share Contact (For Verification)", request_contact=True)
+        markup.add(btn)
+        
+        text = (
+            "🛡️ <b>Verification Required</b>\n\n"
+            "To prevent fake accounts, please verify your phone number. "
+            "Your number will be kept safe and used only for account security.\n\n"
+            "👇 <i>Click the button below to verify:</i>"
+        )
+        bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=markup)
+        return
+        
+    # If verified, show main menu
     text, kb = get_main_menu(uid)
     bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
+
+@bot.message_handler(content_types=['contact'])
+def handle_contact(msg):
+    uid = str(msg.from_user.id)
+    
+    # Make sure they shared their own number, not someone else's
+    if msg.contact.user_id == msg.from_user.id:
+        phone = msg.contact.phone_number
+        users_col.update_one({"_id": uid}, {"$set": {"phone": phone, "verified": True}})
+        
+        bot.send_message(msg.chat.id, "✅ <b>Verification Successful!</b>", parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
+        
+        # Show main menu
+        text, kb = get_main_menu(uid)
+        bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
+    else:
+        bot.send_message(msg.chat.id, "❌ <b>Invalid Contact!</b> Please share your own number using the button.", parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: True)
 def bot_callbacks(call):
@@ -125,10 +157,9 @@ def bot_callbacks(call):
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
         
     elif call.data == "bot_shop":
-        # Show Categories
         categories = list(categories_col.find({}))
         if not categories:
-            return bot.send_message(call.message.chat.id, "❌ No categories added yet. Please check back later.")
+            return bot.answer_callback_query(call.id, "❌ No categories added yet.", show_alert=True)
         
         text = "📁 <b>CHOOSE A CATEGORY</b>\n\nChoose a product category below:"
         kb = InlineKeyboardMarkup(row_width=1)
@@ -195,7 +226,7 @@ def bot_callbacks(call):
             if result.get("status") == "success" or "keys" in result:
                 key = result.get("keys", ["Key not found"])[0]
                 log_order(uid, p['name'], key, price)
-                kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
+                kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main"))
                 bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             else:
                 credit_balance(uid, price)
@@ -204,7 +235,7 @@ def bot_callbacks(call):
                 
     elif call.data == "bot_profile":
         u = get_user_info(uid)
-        bot.answer_callback_query(call.id, f"👤 Name: {u.get('name')}\n💰 Balance: ₹{u.get('balance'):.2f}\n🏷️ Discount: {u.get('discount')}%", show_alert=True)
+        bot.answer_callback_query(call.id, f"👤 Name: {u.get('name')}\n📱 Phone: {u.get('phone', 'N/A')}\n💰 Balance: ₹{u.get('balance'):.2f}\n🏷️ Discount: {u.get('discount')}%", show_alert=True)
     elif call.data == "bot_add_bal":
         bot.send_message(call.message.chat.id, "👇 Click here to add balance:", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", web_app=WebAppInfo(url=f"{WEB_URL}/deposit"))))
     else:
@@ -484,8 +515,14 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 def run_bot():
-    try: bot.delete_webhook(drop_pending_updates=True) 
-    except: pass
+    print("Bot is starting...")
+    try: 
+        # Webhook delete karna zaroori hai taaki polling start ho sake
+        bot.delete_webhook(drop_pending_updates=True) 
+    except Exception as e: 
+        print(f"Webhook error: {e}")
+        
+    print("Bot polling started!")
     bot.infinity_polling(timeout=30, long_polling_timeout=30, skip_pending=True)
 
 if __name__ == "__main__":

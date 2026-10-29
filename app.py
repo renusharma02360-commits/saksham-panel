@@ -11,10 +11,7 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
-# 🚨 APNA NAYA TOKEN YAHAN DAALEIN (BotFather se naya banayen) 🚨
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8765613302:AAE2b0qDyR-o0UkzGs5H7fuSSz0yhLiYSBc") 
-
-# Render pe MONGO_URI set karna zaroori hai
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
 
 ADMIN_ID = 7778093775
@@ -25,7 +22,7 @@ RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
 MASTER_KEY = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
 SUPPORT_LINK = "https://wa.me/918849507563"
-CHANNEL_LINK = "https://t.me/YourChannel" # Apna channel link daalein
+CHANNEL_LINK = "https://t.me/YourChannel"
 # ============================================
 
 try:
@@ -97,7 +94,6 @@ def get_main_menu(uid):
            InlineKeyboardButton("➡️ Main Channel ⚡", url=CHANNEL_LINK))
     kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=SUPPORT_LINK))
     
-    # Yahan se Admin Panel ka button hata diya gaya hai
     return text, kb
 
 @bot.message_handler(commands=["start"])
@@ -133,7 +129,7 @@ def bot_callbacks(call):
             cat_id = call.data.split("|")[1]
             cat = categories_col.find_one({"_id": ObjectId(cat_id)})
             
-            # STRICT CHECK: Sirf usi category ke products fetch karo
+            # Fetch only that category products
             products = list(products_col.find({"category_id": str(cat_id)}))
             
             if not products:
@@ -157,9 +153,18 @@ def bot_callbacks(call):
             text = f"📁 <b>{p['name']}</b>\n\n⚡ {features_text}\n\n"
             
             kb = InlineKeyboardMarkup(row_width=2)
-            kb.add(InlineKeyboardButton("📥 Update File", url=p.get('setup_video', '#')), 
-                   InlineKeyboardButton("▶️ Video/Feedback", url=p.get('hack_video', '#')))
             
+            # FIX: Check if URLs are valid before adding them to buttons
+            update_link = p.get('setup_video', '')
+            video_link = p.get('hack_video', '')
+            
+            if update_link and (update_link.startswith('http://') or update_link.startswith('https://')):
+                kb.add(InlineKeyboardButton("📥 Update File", url=update_link))
+                
+            if video_link and (video_link.startswith('http://') or video_link.startswith('https://')):
+                kb.add(InlineKeyboardButton("▶️ Video/Feedback", url=video_link))
+            
+            # Add Price Buttons
             for d, pr in p.get('prices', {}).items():
                 final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
                 kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"bot_buy|{p_id}|{d}"))
@@ -221,7 +226,6 @@ def bot_callbacks(call):
             bot.send_message(call.message.chat.id, "👇 Click below to add balance:", reply_markup=kb)
             
     except Exception as e:
-        # Agar code fat-ta hai, toh admin ko message jayega
         error_msg = f"⚠️ <b>Bot Error Detected!</b>\n\nUser ID: <code>{uid}</code>\nButton: {call.data}\nError: <code>{str(e)}</code>"
         try: bot.send_message(ADMIN_ID, error_msg, parse_mode="HTML")
         except: pass
@@ -393,8 +397,8 @@ def add_product():
             "pid": request.form['pid'], 
             "category_id": cat_id,
             "features": request.form.get('features', ''), 
-            "setup_video": request.form.get('setup_video', '#'), 
-            "hack_video": request.form.get('hack_video', '#'), 
+            "setup_video": request.form.get('setup_video', ''), 
+            "hack_video": request.form.get('hack_video', ''), 
             "prices": price_dict, 
             "status": "active"
         })
@@ -420,8 +424,8 @@ def edit_product(p_id):
                 "pid": request.form['pid'], 
                 "category_id": cat_id,
                 "features": request.form.get('features', ''), 
-                "setup_video": request.form.get('setup_video', '#'), 
-                "hack_video": request.form.get('hack_video', '#'), 
+                "setup_video": request.form.get('setup_video', ''), 
+                "hack_video": request.form.get('hack_video', ''), 
                 "prices": price_dict
             }})
             return redirect(url_for('admin_panel'))
@@ -449,8 +453,8 @@ def edit_product(p_id):
                 <label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required>
                 <label>Category</label><select name="category_id">{cat_options}</select>
                 <label>Features</label><textarea name="features" rows="2">{p.get('features', '')}</textarea>
-                <label>Update Link</label><input type="url" name="setup_video" value="{p.get('setup_video', '#')}">
-                <label>Video Link</label><input type="url" name="hack_video" value="{p.get('hack_video', '#')}">
+                <label>Update Link</label><input type="url" name="setup_video" value="{p.get('setup_video', '')}">
+                <label>Video Link</label><input type="url" name="hack_video" value="{p.get('hack_video', '')}">
                 <label style="margin-top:15px; color:#38bdf8;">Durations & Price</label>
                 <div id="price-container">{price_fields}</div>
                 <button type="button" onclick="addPrice()" class="btn btn-success" style="margin-bottom:15px;">+ Add More</button>
@@ -606,8 +610,6 @@ def home(): return redirect(url_for('admin_panel'))
 
 # ================== RUNNING ==================
 if __name__ == "__main__":
-    # Bot start in background
     threading.Thread(target=lambda: bot.infinity_polling(timeout=30, long_polling_timeout=30), daemon=True).start()
-    # Flask start
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)

@@ -4,7 +4,7 @@ import threading
 import requests
 import telebot
 from functools import wraps
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, ReplyKeyboardRemove, ForceReply
 from famgateway import FamGateway
 from flask import Flask, request, render_template_string, redirect, url_for
 from pymongo import MongoClient
@@ -121,15 +121,14 @@ def bot_callbacks(call):
             text = "📁 <b>CHOOSE A CATEGORY</b>\n\n🔥 Premium Mods, Panels & Bypasses\n\n👇 <i>Tap a category below:</i>"
             kb = InlineKeyboardMarkup(row_width=1)
             for cat in categories:
-                kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()}", callback_data=f"bot_cat|{cat['_id']}"))
+                kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()}", callback_data=f"cat_{cat['_id']}"))
             kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_main"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
 
-        elif call.data.startswith("bot_cat|"):
-            cat_id = call.data.split("|")[1]
+        elif call.data.startswith("cat_"):
+            cat_id = call.data.split("_")[1]
             cat = categories_col.find_one({"_id": ObjectId(cat_id)})
             
-            # Fetch only that category products
             products = list(products_col.find({"category_id": str(cat_id)}))
             
             if not products:
@@ -139,12 +138,12 @@ def bot_callbacks(call):
             kb = InlineKeyboardMarkup(row_width=1)
             for p in products:
                 icon = p.get('icon', '🔹')
-                kb.add(InlineKeyboardButton(f"{icon} {p.get('name')}", callback_data=f"bot_view|{p['_id']}"))
+                kb.add(InlineKeyboardButton(f"{icon} {p.get('name')}", callback_data=f"view_{p['_id']}"))
             kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_shop"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
 
-        elif call.data.startswith("bot_view|"):
-            p_id = call.data.split("|")[1]
+        elif call.data.startswith("view_"):
+            p_id = call.data.split("_")[1]
             p = products_col.find_one({"_id": ObjectId(p_id)})
             u = get_user_info(uid)
             disc = u.get('discount', 0)
@@ -155,26 +154,30 @@ def bot_callbacks(call):
             kb = InlineKeyboardMarkup(row_width=2)
             
             # FIX: Check if URLs are valid before adding them to buttons
-            update_link = p.get('setup_video', '')
-            video_link = p.get('hack_video', '')
+            update_link = str(p.get('setup_video', '')).strip()
+            video_link = str(p.get('hack_video', '')).strip()
             
-            if update_link and (update_link.startswith('http://') or update_link.startswith('https://')):
+            if update_link.startswith('http://') or update_link.startswith('https://'):
                 kb.add(InlineKeyboardButton("📥 Update File", url=update_link))
                 
-            if video_link and (video_link.startswith('http://') or video_link.startswith('https://')):
+            if video_link.startswith('http://') or video_link.startswith('https://'):
                 kb.add(InlineKeyboardButton("▶️ Video/Feedback", url=video_link))
             
             # Add Price Buttons
             for d, pr in p.get('prices', {}).items():
+                if not d.strip(): continue
                 final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
-                kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"bot_buy|{p_id}|{d}"))
+                # Using safe delimiter '_'
+                kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"buy_{p_id}_{d}"))
                 
-            kb.add(InlineKeyboardButton("🔙 Back", callback_data=f"bot_cat|{p.get('category_id')}"))
+            kb.add(InlineKeyboardButton("🔙 Back", callback_data=f"cat_{p.get('category_id')}"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
 
-        elif call.data.startswith("bot_buy|"):
-            parts = call.data.split("|")
-            p_id, duration = parts[1], parts[2]
+        elif call.data.startswith("buy_"):
+            parts = call.data.split("_")
+            p_id = parts[1]
+            duration = "_".join(parts[2:]) # Join back in case duration had underscores
+            
             p = products_col.find_one({"_id": ObjectId(p_id)})
             u = get_user_info(uid)
             disc = u.get('discount', 0)
@@ -182,10 +185,10 @@ def bot_callbacks(call):
             price = float(p['prices'][duration]) - (float(p['prices'][duration]) * disc / 100) if disc > 0 else float(p['prices'][duration])
             
             if get_balance(uid) < price:
-                return bot.answer_callback_query(call.id, "❌ Low Balance! Please add funds.", show_alert=True)
+                return bot.answer_callback_query(call.id, "❌ Low Balance! Please add funds using 'Add Amount'.", show_alert=True)
                 
             if deduct_balance(uid, price):
-                bot.edit_message_text("⏳ <i>Processing...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+                bot.edit_message_text("⏳ <i>Processing your order...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
                 try:
                     data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(p.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
                     res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
@@ -200,7 +203,7 @@ def bot_callbacks(call):
                 else:
                     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": price}})
                     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop"))
-                    bot.edit_message_text(f"❌ <b>API Error (Out of Stock)</b>\n\n₹{price:.2f} Refunded.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+                    bot.edit_message_text(f"❌ <b>API Error (Out of Stock)</b>\n\n₹{price:.2f} Refunded to your wallet.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
                     
         elif call.data == "bot_profile":
             u = get_user_info(uid)
@@ -220,10 +223,10 @@ def bot_callbacks(call):
             kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
             bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=kb)
             
+        # CHAT BASED ADD BALANCE (No Web App)
         elif call.data == "bot_add_bal":
-            web_app = WebAppInfo(url=f"{WEB_URL}/deposit?uid={uid}")
-            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Open Calculator", web_app=web_app))
-            bot.send_message(call.message.chat.id, "👇 Click below to add balance:", reply_markup=kb)
+            msg = bot.send_message(call.message.chat.id, "💸 <b>Enter Amount</b>\n\nPlease type the amount (in ₹) you want to add to your wallet (e.g., 50, 100):", parse_mode="HTML", reply_markup=ForceReply(selective=True))
+            bot.register_next_step_handler(msg, process_deposit_amount)
             
     except Exception as e:
         error_msg = f"⚠️ <b>Bot Error Detected!</b>\n\nUser ID: <code>{uid}</code>\nButton: {call.data}\nError: <code>{str(e)}</code>"
@@ -231,7 +234,48 @@ def bot_callbacks(call):
         except: pass
         print(f"Callback Error: {e}")
 
-# ================== FLASK WEB APP (Admin & Calculator) ==================
+# --- NEW: Chat Based Deposit Logic ---
+def process_deposit_amount(message):
+    uid = str(message.from_user.id)
+    try:
+        amount = float(message.text)
+        if amount < 10:
+            msg = bot.reply_to(message, "❌ Minimum amount is ₹10. Please enter again:")
+            bot.register_next_step_handler(msg, process_deposit_amount)
+            return
+        
+        bot.send_message(message.chat.id, "⏳ <i>Generating QR Code...</i>", parse_mode="HTML")
+        
+        # Create order
+        order = fg.create_order(amount=amount, customer_name=f"User_{uid}")
+        
+        # Send QR Image directly in chat
+        caption = f"💳 <b>Pay ₹{amount}</b>\n\nScan the QR code above using any UPI app.\n\n<i>Bot is checking for payment automatically. Please wait...</i>"
+        bot.send_photo(message.chat.id, photo=order.qr_url, caption=caption, parse_mode="HTML")
+        
+        # Start Background Verification
+        threading.Thread(target=verify_chat_payment, args=(message.chat.id, uid, order.order_id, amount)).start()
+        
+    except ValueError:
+        msg = bot.reply_to(message, "❌ Invalid amount. Please type numbers only (e.g., 50):")
+        bot.register_next_step_handler(msg, process_deposit_amount)
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Error creating order. Please try again later.")
+
+def verify_chat_payment(chat_id, uid, order_id, amount):
+    for _ in range(60): # Check for 3 minutes (60 * 3s)
+        time.sleep(3)
+        try:
+            status = fg.get_status(order_id)
+            if status.is_paid:
+                ok, new_bal = credit_atomic(uid, amount, status.utr)
+                bot.send_message(chat_id, f"✅ <b>Payment Successful!</b>\n\n₹{amount} has been added to your wallet.\n💰 New Balance: ₹{new_bal:.2f}", parse_mode="HTML")
+                return
+        except:
+            pass
+    bot.send_message(chat_id, "⚠️ Payment session expired. If you paid, please contact support.")
+
+# ================== FLASK WEB APP (Admin Only) ==================
 app = Flask(__name__)
 app.secret_key = "sk_panel_secret"
 
@@ -255,17 +299,9 @@ BASE_CSS = """
     .stat-card { background: #0f172a; border-radius: 15px; padding: 20px; border: 1px solid #334155; text-align: center; }
     .stat-title { font-size: 12px; color: #94a3b8; }
     .stat-value { font-size: 24px; font-weight: 900; color: #38bdf8; }
-    
-    /* Calculator */
-    .calc-display { background: #000; padding: 20px; border-radius: 15px; font-size: 40px; font-weight: 900; color: #00f0ff; text-align: right; margin-bottom: 20px; border: 2px solid #00f0ff; }
-    .calc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-    .calc-btn { background: #1e293b; color: white; border: none; padding: 20px; font-size: 24px; font-weight: 700; border-radius: 15px; cursor: pointer; }
-    .calc-btn.clear { background: #ef4444; }
-    .calc-btn.proceed { background: #10b981; grid-column: span 3; margin-top: 10px; font-size: 18px; }
 </style>
 """
 
-# --- ADMIN PANEL ROUTES ---
 @app.route('/admin')
 def admin_panel():
     total_users = users_col.count_documents({})
@@ -317,8 +353,8 @@ def admin_panel():
                     {''.join([f'<option value="{c["_id"]}">{c["name"]}</option>' for c in categories_col.find({})])}
                 </select>
                 <label>Features</label><textarea name="features" rows="2"></textarea>
-                <label>Update Link</label><input type="url" name="setup_video" placeholder="https://...">
-                <label>Video Link</label><input type="url" name="hack_video" placeholder="https://...">
+                <label>Update Link (Full URL)</label><input type="text" name="setup_video" placeholder="https://...">
+                <label>Video Link (Full URL)</label><input type="text" name="hack_video" placeholder="https://...">
                 
                 <label style="margin-top:15px; color:#38bdf8;">Durations & Price</label>
                 <div id="price-container">
@@ -397,8 +433,8 @@ def add_product():
             "pid": request.form['pid'], 
             "category_id": cat_id,
             "features": request.form.get('features', ''), 
-            "setup_video": request.form.get('setup_video', ''), 
-            "hack_video": request.form.get('hack_video', ''), 
+            "setup_video": request.form.get('setup_video', '').strip(), 
+            "hack_video": request.form.get('hack_video', '').strip(), 
             "prices": price_dict, 
             "status": "active"
         })
@@ -424,8 +460,8 @@ def edit_product(p_id):
                 "pid": request.form['pid'], 
                 "category_id": cat_id,
                 "features": request.form.get('features', ''), 
-                "setup_video": request.form.get('setup_video', ''), 
-                "hack_video": request.form.get('hack_video', ''), 
+                "setup_video": request.form.get('setup_video', '').strip(), 
+                "hack_video": request.form.get('hack_video', '').strip(), 
                 "prices": price_dict
             }})
             return redirect(url_for('admin_panel'))
@@ -453,8 +489,8 @@ def edit_product(p_id):
                 <label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required>
                 <label>Category</label><select name="category_id">{cat_options}</select>
                 <label>Features</label><textarea name="features" rows="2">{p.get('features', '')}</textarea>
-                <label>Update Link</label><input type="url" name="setup_video" value="{p.get('setup_video', '')}">
-                <label>Video Link</label><input type="url" name="hack_video" value="{p.get('hack_video', '')}">
+                <label>Update Link</label><input type="text" name="setup_video" value="{p.get('setup_video', '')}">
+                <label>Video Link</label><input type="text" name="hack_video" value="{p.get('hack_video', '')}">
                 <label style="margin-top:15px; color:#38bdf8;">Durations & Price</label>
                 <div id="price-container">{price_fields}</div>
                 <button type="button" onclick="addPrice()" class="btn btn-success" style="margin-bottom:15px;">+ Add More</button>
@@ -518,92 +554,6 @@ def admin_edit_user(uid):
         </div>
     </div>
     """)
-
-# --- DEPOSIT & PAYMENT ROUTES ---
-@app.route('/deposit', methods=['GET', 'POST'])
-def web_deposit():
-    uid = request.args.get('uid')
-    if not uid: return "UID missing"
-
-    if request.method == 'POST':
-        amount = float(request.form['amount'])
-        if amount < 10: return "<h3 style='color:red; text-align:center;'>Min ₹10</h3>"
-
-        try:
-            order = fg.create_order(amount=amount, customer_name=f"User_{uid}")
-            QR_HTML = BASE_CSS + f"""
-            <div class="container" style="margin-top:30px; text-align:center;">
-                <div class="card">
-                    <h2 style="color:#10b981; font-size:30px;">Pay ₹{amount}</h2>
-                    <div id="qr-section" style="margin-top:20px;">
-                        <img src="{order.qr_url}" style="width:250px; border-radius:15px; background:#fff; padding:10px;">
-                        <h3 style="color:#38bdf8; margin-top:20px;">Waiting for Payment...</h3>
-                    </div>
-                    <div id="success-section" style="display:none; margin-top:20px;">
-                        <h2 style="color:#10b981;">✅ Success!</h2>
-                        <p>Balance Added: <b id="new-balance"></b></p>
-                    </div>
-                </div>
-            </div>
-            <script>
-                setInterval(() => {{
-                    fetch('/check_payment/{order.order_id}/{amount}?uid={uid}')
-                    .then(r => r.json()).then(d => {{
-                        if (d.status === 'success') {{
-                            document.getElementById('qr-section').style.display = 'none';
-                            document.getElementById('success-section').style.display = 'block';
-                            document.getElementById('new-balance').innerText = '₹' + d.new_balance.toFixed(2);
-                        }}
-                    }});
-                }}, 3000);
-            </script>
-            """
-            return render_template_string(QR_HTML)
-        except Exception as e: return f"API Error: {e}"
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><div style="font-weight:900; font-size:20px; color:#38bdf8;">💸 Add Balance</div></div>
-    <div class="container" style="margin-top:20px;">
-        <div class="card" style="border-color:#0ea5e9;">
-            <form method="POST">
-                <input type="number" id="amountInput" name="amount" required readonly style="font-size:30px; text-align:right; background:#000; color:#00f0ff; border:2px solid #00f0ff; border-radius:15px; padding:20px; font-weight:900; margin-bottom:20px;">
-                <div class="calc-grid">
-                    <button type="button" class="calc-btn" onclick="addDigit('1')">1</button>
-                    <button type="button" class="calc-btn" onclick="addDigit('2')">2</button>
-                    <button type="button" class="calc-btn" onclick="addDigit('3')">3</button>
-                    <button type="button" class="calc-btn" onclick="addDigit('4')">4</button>
-                    <button type="button" class="calc-btn" onclick="addDigit('5')">5</button>
-                    <button type="button" class="calc-btn" onclick="addDigit('6')">6</button>
-                    <button type="button" class="calc-btn" onclick="addDigit('7')">7</button>
-                    <button type="button" class="calc-btn" onclick="addDigit('8')">8</button>
-                    <button type="button" class="calc-btn" onclick="addDigit('9')">9</button>
-                    <button type="button" class="calc-btn clear" onclick="document.getElementById('amountInput').value=''">C</button>
-                    <button type="button" class="calc-btn" onclick="addDigit('0')">0</button>
-                    <button type="button" class="calc-btn" onclick="document.getElementById('amountInput').value = document.getElementById('amountInput').value.slice(0,-1)">⌫</button>
-                    <button type="submit" class="calc-btn proceed">Proceed to Pay</button>
-                </div>
-            </form>
-        </div>
-    </div>
-    <script>
-        function addDigit(d) {{
-            const i = document.getElementById('amountInput');
-            if(i.value === '0') i.value = d;
-            else i.value += d;
-        }}
-    </script>
-    """)
-
-@app.route('/check_payment/<order_id>/<float:amount>')
-def check_payment(order_id, amount):
-    uid = request.args.get('uid')
-    try:
-        status = fg.get_status(order_id)
-        if status.is_paid:
-            ok, new_bal = credit_atomic(uid, amount, status.utr)
-            return jsonify({"status": "success", "new_balance": new_bal})
-        return jsonify({"status": "pending"})
-    except Exception as e: return jsonify({"status": "error"})
 
 @app.route('/')
 def home(): return redirect(url_for('admin_panel'))

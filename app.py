@@ -14,9 +14,7 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # ================== CONFIG ==================
-# 🚨 APNA TOKEN YAHAN DAALEIN (Agar bot start na ho toh BotFather se naya banayen) 🚨
-BOT_TOKEN = "8765613302:AAEHEgUQZc_Z1qa8SwCKKwWLgRe-ZgDKks4" 
-
+BOT_TOKEN = "8765613302:AAE2b0qDyR-o0UkzGs5H7fuSSz0yhLiYSBc" 
 API_KEY   = "fam_4c308a3f58df8f752e41770178d877982e4e1a58"
 ADMIN_ID  = 7778093775
 MONGO_URI = os.environ.get("MONGO_URI") 
@@ -68,17 +66,10 @@ def credit_balance(uid, amount):
     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
     return get_balance(uid)
 
-def credit_atomic(uid, amount, utr):
-    if orders_col.find_one({"utr": utr, "type": "deposit"}):
-        return True, get_balance(uid)
-    orders_col.insert_one({"utr": utr, "uid": str(uid), "amount": amount, "type": "deposit", "time": time.strftime("%d-%m-%Y %I:%M %p")})
-    users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": amount}}, upsert=True)
-    return True, get_balance(uid)
-
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ================== TELEGRAM BOT (EXACT SAME AS SCREENSHOT) ==================
+# ================== TELEGRAM BOT ==================
 def get_main_menu(uid):
     text = (
         "(●) <b>WELCOME TO SAKSHAM PANEL SHOP - PRODUCT STATUS</b> [Shop]\n\n"
@@ -86,21 +77,16 @@ def get_main_menu(uid):
         "➡️ Check Update : Check Setup And Update Apk ✅\n"
         "➡️ Add Balance : Secure Auto Payment System ✅\n"
         "➡️ My Profile + All History : Check Your All History ✅\n"
-        "➡️ Refer And Earn : Share Refer Link & Earn Money ✅\n"
         "➡️ How To Use Bot : View Tutorial And Work This Bot ✅\n"
         "➡️ Support : Bot Problem Fixed For Support Admin ✅\n\n"
         "⬇️ <b>SELECT AN OPTION FROM THE MENU BELOW 🛒</b>"
     )
     
     kb = InlineKeyboardMarkup(row_width=2)
-    # Full width button
     kb.add(InlineKeyboardButton("➡️ Shop Now 🛍️", callback_data="bot_shop"))
-    # Half width buttons (2 in a row)
     kb.add(InlineKeyboardButton("➡️ Add Amount 💸", callback_data="bot_add_bal"), InlineKeyboardButton("➡️ My Profile 👤", callback_data="bot_profile"))
     kb.add(InlineKeyboardButton("➡️ Order History 📄", callback_data="bot_history"), InlineKeyboardButton("➡️ Main Channel ⚡", url=CHANNEL_LINK))
-    kb.add(InlineKeyboardButton("➡️ Refer & Earn 💰", callback_data="bot_refer"), InlineKeyboardButton("➡️ All Hack Update 📁", url=CHANNEL_LINK))
-    kb.add(InlineKeyboardButton("➡️ How To Buy Panel 🚀", url=SUPPORT_LINK), InlineKeyboardButton("➡️ Special Gift 🎁", callback_data="bot_gift"))
-    # Full width buttons
+    kb.add(InlineKeyboardButton("➡️ All Hack Update 📁", url=CHANNEL_LINK), InlineKeyboardButton("➡️ How To Buy Panel 🚀", url=SUPPORT_LINK))
     kb.add(InlineKeyboardButton("➡️ Become A Reseller 🤝", web_app=WebAppInfo(url=f"{WEB_URL}/buy_reseller")))
     kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=SUPPORT_LINK))
     
@@ -114,39 +100,23 @@ def start(msg):
     uid = str(msg.from_user.id)
     user = get_user_info(uid)
     
-    # Verification Logic
     if not user.get("verified"):
         markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        btn = KeyboardButton("📱 Share Contact (For Verification)", request_contact=True)
-        markup.add(btn)
-        
-        text = (
-            "🛡️ <b>Verification Required</b>\n\n"
-            "To prevent fake accounts, please verify your phone number. "
-            "Your number will be kept safe and used only for account security.\n\n"
-            "👇 <i>Click the button below to verify:</i>"
-        )
-        bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=markup)
+        markup.add(KeyboardButton("📱 Share Contact (For Verification)", request_contact=True))
+        bot.send_message(msg.chat.id, "🛡️ <b>Verification Required</b>\n\nPlease verify your phone number to continue.", parse_mode="HTML", reply_markup=markup)
         return
         
-    # If verified, show main menu
     text, kb = get_main_menu(uid)
     bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
 
 @bot.message_handler(content_types=['contact'])
 def handle_contact(msg):
     uid = str(msg.from_user.id)
-    
     if msg.contact.user_id == msg.from_user.id:
-        phone = msg.contact.phone_number
-        users_col.update_one({"_id": uid}, {"$set": {"phone": phone, "verified": True}})
-        
+        users_col.update_one({"_id": uid}, {"$set": {"phone": msg.contact.phone_number, "verified": True}})
         bot.send_message(msg.chat.id, "✅ <b>Verification Successful!</b>", parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
-        
         text, kb = get_main_menu(uid)
         bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
-    else:
-        bot.send_message(msg.chat.id, "❌ <b>Invalid Contact!</b> Please share your own number using the button.", parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: True)
 def bot_callbacks(call):
@@ -158,19 +128,11 @@ def bot_callbacks(call):
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
         
     elif call.data == "bot_shop":
-        # EXACT SAME AS SCREENSHOT 2
         categories = list(categories_col.find({}))
         if not categories:
             return bot.answer_callback_query(call.id, "❌ No categories added yet.", show_alert=True)
         
-        text = (
-            "🛍️ <b>SAKSHAM PANEL SHOP</b>\n"
-            "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
-            "🔥 Premium Mods, Panels & Bypasses — all in one place!\n"
-            "⚡ Instant delivery • 🔒 Verified sellers • 💯 Trusted by 1000+ buyers\n\n"
-            "👇 <i>Tap a category below to get started:</i>"
-        )
-        
+        text = "📁 <b>CHOOSE A CATEGORY</b>\n\nChoose a product category below:"
         kb = InlineKeyboardMarkup(row_width=1)
         for cat in categories:
             kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()}", callback_data=f"bot_cat|{cat['_id']}"))
@@ -178,7 +140,6 @@ def bot_callbacks(call):
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
 
     elif call.data.startswith("bot_cat|"):
-        # EXACT SAME AS SCREENSHOT 3 & 4
         cat_id = call.data.split("|")[1]
         cat = categories_col.find_one({"_id": ObjectId(cat_id)})
         
@@ -189,7 +150,9 @@ def bot_callbacks(call):
         text = f"📁 <b>SAKSHAM PANEL SHOP — {cat.get('name', 'Category').upper()}</b>\n\n➡️ Choose a product 🕊️❤️"
         kb = InlineKeyboardMarkup(row_width=1)
         for p in products:
-            kb.add(InlineKeyboardButton(f"🔹 {p.get('name')}", callback_data=f"bot_view|{p['_id']}"))
+            # Yahan hum product icon (emoji) use kar rahe hain
+            icon = p.get('icon', '🔹')
+            kb.add(InlineKeyboardButton(f"{icon} {p.get('name')}", callback_data=f"bot_view|{p['_id']}"))
         kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_shop"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
 
@@ -246,15 +209,25 @@ def bot_callbacks(call):
     elif call.data == "bot_profile":
         u = get_user_info(uid)
         bot.answer_callback_query(call.id, f"👤 Name: {u.get('name')}\n📱 Phone: {u.get('phone', 'N/A')}\n💰 Balance: ₹{u.get('balance'):.2f}\n🏷️ Discount: {u.get('discount')}%", show_alert=True)
+        
+    elif call.data == "bot_history":
+        orders = list(orders_col.find({"uid": str(uid)}).sort("_id", -1))
+        if not orders:
+            return bot.answer_callback_query(call.id, "No orders found.", show_alert=True)
+        text = "📜 <b>Your Order History</b>\n\n"
+        for o in orders[:5]: # Last 5 orders
+            text += f"📦 {o.get('product')}\n🔑 <code>{o.get('key')}</code>\n➖➖➖➖➖➖➖➖\n"
+        bot.send_message(call.message.chat.id, text, parse_mode="HTML")
+        
     elif call.data == "bot_add_bal":
         bot.send_message(call.message.chat.id, "👇 Click here to add balance:", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", web_app=WebAppInfo(url=f"{WEB_URL}/deposit"))))
     else:
         bot.answer_callback_query(call.id, "🚧 This feature is coming soon!", show_alert=True)
 
 
-# ================== FLASK WEB APP ==================
+# ================== FLASK WEB APP (ADMIN PANEL) ==================
 app = Flask(__name__)
-app.secret_key = "sk_panel_secret_secure_now_12345"
+app.secret_key = "sk_panel_secret"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 BASE_CSS = """
@@ -274,43 +247,35 @@ BASE_CSS = """
     .btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; }
     .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; }
     .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: black; }
-    .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }
     .stat-card { background: linear-gradient(145deg, #0f172a, #1e293b); border-radius: 20px; padding: 25px; border: 1px solid rgba(255,255,255,0.08); }
     .stat-title { font-size: 15px; color: #94a3b8; font-weight: 700; }
     .stat-value { font-size: 32px; font-weight: 900; }
 </style>
 """
 
-# ================== ADMIN PANEL (NO LOGIN REQUIRED) ==================
 @app.route('/admin', methods=['GET'])
 def admin_panel():
     total_users = users_col.count_documents({})
     total_sales = orders_col.count_documents({"type": "purchase"})
     total_revenue = sum([o.get('price', 0) for o in orders_col.find({"type": "purchase"})])
     total_products = products_col.count_documents({})
-    total_categories = categories_col.count_documents({})
     
-    search_q = request.args.get('q', '')
-    if search_q:
-        products = list(products_col.find({"name": {"$regex": search_q, "$options": "i"}}))
-    else:
-        products = list(products_col.find({}))
+    products = list(products_col.find({}))
 
     prod_html = ""
     for p in products:
         cat = categories_col.find_one({"_id": ObjectId(p.get('category_id'))}) if p.get('category_id') else None
         cat_name = cat.get('name') if cat else "No Category"
-        
-        status_btn = f'<a href="/toggle_stock/{p["_id"]}" class="action-btn btn-warning" style="padding:10px; font-size:14px; width:auto;">In Stock</a>' if p.get('status') == 'out_of_stock' else f'<a href="/toggle_stock/{p["_id"]}" class="action-btn btn-danger" style="padding:10px; font-size:14px; width:auto;">Out of Stock</a>'
+        icon = p.get('icon', '🔹')
         
         prod_html += f"""
         <div class="product-card" style="display:flex; justify-content:space-between; align-items:center;">
             <div>
-                <div style="font-size:22px; font-weight:900; color:#38bdf8;">{p.get('name', '')}</div>
+                <div style="font-size:22px; font-weight:900; color:#38bdf8;">{icon} {p.get('name', '')}</div>
                 <div style="font-size:14px; color:#f59e0b;">Category: {cat_name}</div>
             </div>
             <div style="display:flex; gap:10px;">
-                {status_btn}
                 <a href="/edit_product/{p['_id']}" class="action-btn btn-warning" style="padding:10px; font-size:14px; width:auto;">Edit</a>
                 <form action="/delete_product/{p['_id']}" method="POST">
                     <button type="submit" class="action-btn btn-danger" style="padding:10px; font-size:14px; width:auto;">Del</button>
@@ -333,13 +298,13 @@ def admin_panel():
             <div class="stat-card"><div class="stat-title">Sales</div><div class="stat-value text-yellow">{total_sales}</div></div>
             <div class="stat-card"><div class="stat-title">Revenue</div><div class="stat-value text-green">₹{total_revenue}</div></div>
             <div class="stat-card"><div class="stat-title">Products</div><div class="stat-value">{total_products}</div></div>
-            <div class="stat-card"><div class="stat-title">Categories</div><div class="stat-value">{total_categories}</div></div>
         </div>
 
         <div class="product-card" style="border-color:#0ea5e9;">
             <h3 style="margin-bottom:25px; color:#38bdf8; font-size:26px;">➕ Add New Product</h3>
-            <form method="POST" action="/add_product" enctype="multipart/form-data">
+            <form method="POST" action="/add_product">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" required></div>
+                <div class="input-group"><label>Product Icon (Emoji) - e.g. 💀 or ⚡</label><input type="text" name="icon" placeholder="🔹" required></div>
                 <div class="input-group"><label>PID (API Product ID)</label><input type="text" name="pid" required></div>
                 
                 <div class="input-group">
@@ -433,9 +398,15 @@ def add_product():
         price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
         
         products_col.insert_one({
-            "name": request.form['name'], "pid": request.form['pid'], "category_id": cat_id,
-            "features": request.form.get('features', ''), "setup_video": request.form.get('setup_video', '#'), 
-            "hack_video": request.form.get('hack_video', '#'), "prices": price_dict, "status": "active"
+            "name": request.form['name'], 
+            "icon": request.form.get('icon', '🔹'),
+            "pid": request.form['pid'], 
+            "category_id": cat_id,
+            "features": request.form.get('features', ''), 
+            "setup_video": request.form.get('setup_video', '#'), 
+            "hack_video": request.form.get('hack_video', '#'), 
+            "prices": price_dict, 
+            "status": "active"
         })
         return redirect(url_for('admin_panel'))
     except Exception as e: 
@@ -454,9 +425,14 @@ def edit_product(p_id):
             price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
             
             products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {
-                "name": request.form['name'], "pid": request.form['pid'], "category_id": cat_id,
-                "features": request.form.get('features', ''), "setup_video": request.form.get('setup_video', '#'), 
-                "hack_video": request.form.get('hack_video', '#'), "prices": price_dict
+                "name": request.form['name'], 
+                "icon": request.form.get('icon', '🔹'),
+                "pid": request.form['pid'], 
+                "category_id": cat_id,
+                "features": request.form.get('features', ''), 
+                "setup_video": request.form.get('setup_video', '#'), 
+                "hack_video": request.form.get('hack_video', '#'), 
+                "prices": price_dict
             }})
             return redirect(url_for('admin_panel'))
         except Exception as e: 
@@ -481,6 +457,7 @@ def edit_product(p_id):
             <h3 style="margin-bottom:20px; color:#f59e0b;">✏️ Edit Product</h3>
             <form method="POST">
                 <div class="input-group"><label>Product Name</label><input type="text" name="name" value="{p.get('name', '')}" required></div>
+                <div class="input-group"><label>Product Icon (Emoji)</label><input type="text" name="icon" value="{p.get('icon', '🔹')}" required></div>
                 <div class="input-group"><label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required></div>
                 <div class="input-group">
                     <label>Category</label>
@@ -512,11 +489,18 @@ def delete_product(p_id):
     products_col.delete_one({"_id": ObjectId(p_id)})
     return redirect(url_for('admin_panel'))
 
-@app.route('/toggle_stock/<p_id>')
-def toggle_stock(p_id):
-    p = products_col.find_one({"_id": ObjectId(p_id)})
-    new_status = 'active' if p.get('status') == 'out_of_stock' else 'out_of_stock'
-    products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {"status": new_status}})
+# User Web routes (Deposit/Login) required for FamGateway to work
+@app.route('/deposit', methods=['GET', 'POST'])
+def web_deposit():
+    # (Aapka purana deposit code yahan aayega, maine short rakha hai)
+    return "<h2 style='color:white;text-align:center;'>Deposit Page Working (Implement your FamGateway here)</h2>"
+
+@app.route('/buy_reseller', methods=['GET', 'POST'])
+def buy_reseller():
+    return "<h2 style='color:white;text-align:center;'>Reseller Page Working</h2>"
+
+@app.route('/')
+def home():
     return redirect(url_for('admin_panel'))
 
 # ================== RUNNING ==================
@@ -525,14 +509,10 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 def run_bot():
-    print("Starting Bot...")
     try: 
-        # Webhook delete karna zaroori hai
         bot.delete_webhook(drop_pending_updates=True) 
     except Exception as e: 
         print(f"Webhook error: {e}")
-        
-    print("Bot Polling Started!")
     bot.infinity_polling(timeout=30, long_polling_timeout=30, skip_pending=True)
 
 if __name__ == "__main__":

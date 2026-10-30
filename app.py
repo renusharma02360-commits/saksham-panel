@@ -22,7 +22,7 @@ WEB_URL = "https://saksham-panel-kpsl.onrender.com"
 # 💳 FAMGATEWAY CONFIG
 API_KEY = "fam_c8a61c94c53cd1cd51dc5a16d019626ddc7da1c5"
 
-# RESELLER API (Fallback ke liye)
+# RESELLER API (Fallback)
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
 MASTER_KEY = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
@@ -36,7 +36,7 @@ try:
     categories_col = db.categories
     orders_col = db.orders
     settings_col = db.settings
-    key_stock_col = db.key_stock # NAYA: Manual Keys ke liye
+    key_stock_col = db.key_stock # Manual Keys Collection
     print("✅ Database Connected")
 except Exception as e:
     print(f"❌ Database Error: {e}")
@@ -202,7 +202,7 @@ def bot_callbacks(call):
             if deduct_balance(uid, price):
                 bot.edit_message_text("⏳ <i>Processing your order...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
                 
-                # 1. CHECK MANUAL KEY STOCK FIRST
+                # 1. CHECK MANUAL KEY STOCK
                 manual_key = key_stock_col.find_one_and_delete({"product_id": str(p_id)})
                 
                 if manual_key:
@@ -322,7 +322,7 @@ def verify_chat_payment_famgateway(chat_id, uid, order_id, amount, msg_id):
                 return
         except Exception as e: pass 
 
-# ================== FLASK WEB APP (PROFESSIONAL ADMIN PANEL) ==================
+# ================== FLASK WEB APP (COMPLETE PROFESSIONAL ADMIN PANEL) ==================
 app = Flask(__name__)
 app.secret_key = "sk_panel_secret"
 
@@ -395,10 +395,8 @@ def admin_keys():
     products = list(products_col.find({}))
     keys = list(key_stock_col.find({}))
     
-    # Format Products for Dropdown
     prod_options = "".join([f'<option value="{p["_id"]}">{p.get("name")}</option>' for p in products])
     
-    # Format Keys for List
     keys_html = ""
     for k in keys:
         p_name = "Unknown"
@@ -443,9 +441,188 @@ def delete_key(k_id):
     key_stock_col.delete_one({"_id": ObjectId(k_id)})
     return redirect(url_for('admin_keys'))
 
-# --- OTHER ADMIN ROUTES (Users, Products, Categories, Settings) ---
-# (Yahan wo saare routes aayenge jo pichle code mein the, jaise /admin_settings, /admin_users, /admin_products, etc.)
-# Maine message chota rakhne ke liye unhe skip kiya hai, par aapko pichle code se unhe copy-paste karna hai.
+@app.route('/admin_settings', methods=['GET', 'POST'])
+def admin_settings():
+    if request.method == 'POST':
+        for key in request.form: settings_col.update_one({"_id": key}, {"$set": {"value": request.form[key]}}, upsert=True)
+        return redirect(url_for('admin_settings'))
+
+    settings = {
+        "welcome_text": get_setting("welcome_text", "🛍️ <b>SAKSHAM PANEL SHOP</b>\n─────────────────\n\n🔥 Premium Mods, Panels & Bypasses — all in one place!\n⚡ Instant delivery • 🔒 Verified sellers • 💯 Trusted by 1000+ buyers\n\n👇 <i>Tap a category below to get started:</i>"),
+        "btn_shop": get_setting("btn_shop", "➡️ Shop Now 🛍️"), "btn_add": get_setting("btn_add", "➡️ Add Amount 💸"),
+        "btn_profile": get_setting("btn_profile", "➡️ My Profile 👤"), "btn_history": get_setting("btn_history", "➡️ Order History 📄"),
+        "btn_channel": get_setting("btn_channel", "➡️ Main Channel ⚡"), "channel_link": get_setting("channel_link", "https://t.me/YourChannel"),
+        "support_link": get_setting("support_link", "https://wa.me/918849507563")
+    }
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products">Products</a><a href="/admin_keys">Keys</a><a href="/admin_categories">Categories</a><a href="/admin_settings" class="active">Bot Settings</a></div></div>
+    <div class="container">
+        <div class="card">
+            <h3 style="margin-bottom:20px; color:#fff;">Edit Bot Text & Links</h3>
+            <form method="POST">
+                <label>Welcome Message</label><textarea name="welcome_text" rows="5">{settings['welcome_text']}</textarea>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Shop Button</label><input type="text" name="btn_shop" value="{settings['btn_shop']}"></div>
+                    <div><label>Add Amount Button</label><input type="text" name="btn_add" value="{settings['btn_add']}"></div>
+                    <div><label>Profile Button</label><input type="text" name="btn_profile" value="{settings['btn_profile']}"></div>
+                    <div><label>History Button</label><input type="text" name="btn_history" value="{settings['btn_history']}"></div>
+                    <div><label>Channel Button</label><input type="text" name="btn_channel" value="{settings['btn_channel']}"></div>
+                    <div><label>Channel Link</label><input type="text" name="channel_link" value="{settings['channel_link']}"></div>
+                    <div><label>Support Link</label><input type="text" name="support_link" value="{settings['support_link']}"></div>
+                </div>
+                <button type="submit" class="btn btn-blue" style="width:100%; margin-top:20px;">Save Settings</button>
+            </form>
+        </div>
+    </div>
+    """)
+
+@app.route('/admin_users')
+def admin_users():
+    users = list(users_col.find({}))
+    user_html = "".join([f"""
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;">
+            <div><div style="font-size:16px; font-weight:700; color:#58a6ff;">{u.get('name', 'User')}</div><div style="font-size:12px; color:#8b949e;"><code>{u['_id']}</code></div></div>
+            <div style="text-align:right;"><div style="font-size:18px; font-weight:800; color:#2ea043;">₹{u.get('balance', 0):.2f}</div><a href="/admin_edit_user/{u['_id']}" class="btn btn-warning" style="padding:6px 12px; font-size:12px; margin-top:5px;">Edit</a></div>
+        </div>
+    """ for u in users])
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users" class="active">Users</a><a href="/admin_products">Products</a><a href="/admin_keys">Keys</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
+    <div class="container"><h3 style="color:#fff; margin-bottom:15px;">All Users</h3>{user_html if user_html else '<p>No users found.</p>'}</div>
+    """)
+
+@app.route('/admin_edit_user/<uid>', methods=['GET', 'POST'])
+def admin_edit_user(uid):
+    u = get_user_info(uid)
+    if request.method == 'POST':
+        bal = float(request.form['balance'])
+        disc = int(request.form['discount'])
+        try:
+            import json
+            custom_prices = json.loads(request.form.get('custom_prices', '{}'))
+        except: custom_prices = {}
+        users_col.update_one({"_id": str(uid)}, {"$set": {"balance": bal, "discount": disc, "custom_prices": custom_prices}})
+        return redirect(url_for('admin_users'))
+    import json
+    custom_prices_str = json.dumps(u.get('custom_prices', {}), indent=2)
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users" class="active">Users</a><a href="/admin_products">Products</a><a href="/admin_keys">Keys</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
+    <div class="container">
+        <div class="card">
+            <h3 style="margin-bottom:20px; color:#fff;">Edit User: {u.get('name')}</h3>
+            <form method="POST">
+                <label>Balance (₹)</label><input type="number" step="0.01" name="balance" value="{u.get('balance', 0)}" required>
+                <label>Global Discount (%)</label><input type="number" name="discount" value="{u.get('discount', 0)}" required>
+                <label style="margin-top:20px; color:#f59e0b;">Custom Prices (JSON - Overrides Default)</label>
+                <textarea name="custom_prices" rows="6" style="font-family:monospace; font-size:13px; background:#0d1117;">{custom_prices_str}</textarea>
+                <p style="font-size:12px; color:#8b949e; margin-bottom:15px;">Example: <code>{"PRODUCT_ID_HERE": {"1 Day": 50, "7 Days": 300}}</code></p>
+                <button type="submit" class="btn btn-blue" style="width:100%;">Update User</button>
+            </form>
+        </div>
+    </div>
+    """)
+
+@app.route('/admin_products')
+def admin_products():
+    products = list(products_col.find({}))
+    prod_html = ""
+    for p in products:
+        cat = categories_col.find_one({"_id": ObjectId(p.get('category_id'))}) if p.get('category_id') else None
+        cat_name = cat.get('name') if cat else "No Category"
+        prod_html += f"""
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;">
+            <div><div style="font-size:18px; font-weight:800; color:#58a6ff;">{p.get('icon', '🔹')} {p.get('name', '')}</div><div style="font-size:12px; color:#8b949e;">ID: <code>{p['_id']}</code> | Cat: {cat_name}</div></div>
+            <div style="display:flex; gap:10px;"><a href="/admin_edit_product/{p['_id']}" class="btn btn-warning" style="padding:8px 12px; font-size:12px;">Edit</a><form action="/delete_product/{p['_id']}" method="POST"><button type="submit" class="btn btn-danger" style="padding:8px 12px; font-size:12px;">Del</button></form></div>
+        </div>
+        """
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products" class="active">Products</a><a href="/admin_keys">Keys</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
+    <div class="container">
+        <div class="card" style="border-color:#238636;">
+            <h3 style="margin-bottom:20px; color:#fff;">➕ Add New Product</h3>
+            <form method="POST" action="/add_product">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Name</label><input type="text" name="name" required></div><div><label>Icon</label><input type="text" name="icon" placeholder="🔹" required></div>
+                    <div><label>PID</label><input type="text" name="pid" required></div><div><label>Category</label><select name="category_id" required><option value="">-- Select --</option>{''.join([f'<option value="{c["_id"]}">{c["name"]}</option>' for c in categories_col.find({})])}</select></div>
+                </div>
+                <label>Features</label><textarea name="features" rows="3"></textarea>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Update Link</label><input type="text" name="setup_video"></div><div><label>Video Link</label><input type="text" name="hack_video"></div>
+                </div>
+                <label style="margin-top:15px; color:#58a6ff;">Durations & Price</label>
+                <div id="price-container"><div style="display:flex; gap:10px; margin-bottom:10px;"><input type="text" name="duration[]" placeholder="e.g. 1 Day" style="flex:1;"><input type="number" name="price[]" placeholder="Price (₹)" style="flex:1;"></div></div>
+                <button type="button" onclick="addPrice()" class="btn btn-warning" style="margin-bottom:15px;">+ Add More</button><button type="submit" class="btn btn-primary" style="width:100%;">Save Product</button>
+            </form>
+        </div>
+        <h3 style="color:#fff; margin-bottom:15px;">All Products</h3>{prod_html}
+    </div>
+    <script>function addPrice() {{const c = document.getElementById('price-container');const d = document.createElement('div');d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1;"><input type="number" name="price[]" placeholder="Price (₹)" style="flex:1;">`;c.appendChild(d);}}</script>
+    """)
+
+@app.route('/admin_edit_product/<p_id>', methods=['GET', 'POST'])
+def admin_edit_product(p_id):
+    p = products_col.find_one({"_id": ObjectId(p_id)})
+    if request.method == 'POST':
+        cat_id = str(request.form.get('category_id'))
+        durs = request.form.getlist('duration[]')
+        prices = request.form.getlist('price[]')
+        price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
+        products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {"name": request.form['name'], "icon": request.form.get('icon', '🔹'), "pid": request.form['pid'], "category_id": cat_id, "features": request.form.get('features', ''), "setup_video": request.form.get('setup_video', ''), "hack_video": request.form.get('hack_video', ''), "prices": price_dict}})
+        return redirect(url_for('admin_products'))
+    price_fields = "".join([f'<div style="display:flex; gap:10px; margin-bottom:10px;"><input type="text" name="duration[]" value="{d}" style="flex:1;"><input type="number" name="price[]" value="{pr}" style="flex:1;"></div>' for d, pr in p.get('prices', {}).items()])
+    categories = list(categories_col.find({}))
+    cat_options = "".join([f'<option value="{c["_id"]}" {"selected" if str(c["_id"]) == p.get("category_id") else ""}>{c["name"]}</option>' for c in categories])
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products" class="active">Products</a><a href="/admin_keys">Keys</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
+    <div class="container">
+        <div class="card">
+            <h3 style="margin-bottom:20px; color:#fff;">Edit Product: {p.get('name')}</h3>
+            <form method="POST">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Name</label><input type="text" name="name" value="{p.get('name', '')}" required></div><div><label>Icon</label><input type="text" name="icon" value="{p.get('icon', '🔹')}" required></div>
+                    <div><label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required></div><div><label>Category</label><select name="category_id">{cat_options}</select></div>
+                </div>
+                <label>Features</label><textarea name="features" rows="3">{p.get('features', '')}</textarea>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Update Link</label><input type="text" name="setup_video" value="{p.get('setup_video', '')}"></div><div><label>Video Link</label><input type="text" name="hack_video" value="{p.get('hack_video', '')}"></div>
+                </div>
+                <label style="margin-top:15px; color:#58a6ff;">Durations & Price</label><div id="price-container">{price_fields}</div>
+                <button type="button" onclick="addPrice()" class="btn btn-warning" style="margin-bottom:15px;">+ Add More</button><button type="submit" class="btn btn-primary" style="width:100%;">Update Product</button>
+            </form>
+        </div>
+    </div>
+    <script>function addPrice() {{const c = document.getElementById('price-container');const d = document.createElement('div');d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1;"><input type="number" name="price[]" placeholder="Price (₹)" style="flex:1;">`;c.appendChild(d);}}</script>
+    """)
+
+@app.route('/add_product', methods=['POST'])
+def add_product():
+    cat_id = str(request.form.get('category_id'))
+    durs = request.form.getlist('duration[]')
+    prices = request.form.getlist('price[]')
+    price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
+    products_col.insert_one({"name": request.form['name'], "icon": request.form.get('icon', '🔹'), "pid": request.form['pid'], "category_id": cat_id, "features": request.form.get('features', ''), "setup_video": request.form.get('setup_video', ''), "hack_video": request.form.get('hack_video', ''), "prices": price_dict, "status": "active"})
+    return redirect(url_for('admin_products'))
+
+@app.route('/delete_product/<p_id>', methods=['POST'])
+def delete_product(p_id):
+    products_col.delete_one({"_id": ObjectId(p_id)})
+    return redirect(url_for('admin_products'))
+
+@app.route('/admin_categories', methods=['GET', 'POST'])
+def admin_categories():
+    if request.method == 'POST':
+        if request.form.get('cat_name'): categories_col.insert_one({"name": request.form.get('cat_name')})
+        return redirect(url_for('admin_categories'))
+    cat_html = "".join([f'<div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div style="font-size:16px; font-weight:700; color:#2ea043;">📁 {c["name"]}</div><form action="/delete_category/{c["_id"]}" method="POST"><button type="submit" class="btn btn-danger" style="padding:6px 12px; font-size:12px;">Del</button></form></div>' for c in categories_col.find({})])
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products">Products</a><a href="/admin_keys">Keys</a><a href="/admin_categories" class="active">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
+    <div class="container"><div class="card"><h3 style="margin-bottom:20px; color:#fff;">➕ Add Category</h3><form method="POST" style="display:flex; gap:10px;"><input type="text" name="cat_name" placeholder="Category Name" required style="flex:1; margin:0;"><button type="submit" class="btn btn-primary" style="margin:0;">Save</button></form></div>{cat_html}</div>
+    """)
+
+@app.route('/delete_category/<c_id>', methods=['POST'])
+def delete_category(c_id):
+    categories_col.delete_one({"_id": ObjectId(c_id)})
+    return redirect(url_for('admin_categories'))
 
 # ================== RUNNING ==================
 if __name__ == "__main__":

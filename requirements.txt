@@ -1,7 +1,7 @@
+pyTelegramBotAPI
+Flask
 pymongo
 dnspython
-pyTelegramBotAPI
-flask
-werkzeug
 requests
-fampay-verify
+famgateway
+Werkzeug

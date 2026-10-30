@@ -94,7 +94,6 @@ def auto_delete_message(chat_id, message_id, delay=300):
 
 # ================== TELEGRAM BOT ==================
 def get_main_menu(uid):
-    # MAINTENANCE CHECK
     if is_maintenance() and str(uid) != str(ADMIN_ID):
         maint_text = (
             "🛠️ <b>BOT IS UNDER MAINTENANCE</b>\n"
@@ -129,16 +128,9 @@ def get_main_menu(uid):
 
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton(btn_shop, callback_data="bot_shop", style="danger"))
-    
-    kb.add(InlineKeyboardButton(btn_add, callback_data="bot_add_bal", style="danger"), 
-           InlineKeyboardButton(btn_profile, callback_data="bot_profile", style="danger"))
-           
-    kb.add(InlineKeyboardButton(btn_history, callback_data="bot_history", style="danger"), 
-           InlineKeyboardButton(btn_hack, url=hack_update_link, style="danger"))
-           
-    kb.add(InlineKeyboardButton(btn_reseller, callback_data="bot_make_reseller", style="danger"),
-           InlineKeyboardButton(btn_channel, url=channel_link, style="danger"))
-           
+    kb.add(InlineKeyboardButton(btn_add, callback_data="bot_add_bal", style="danger"), InlineKeyboardButton(btn_profile, callback_data="bot_profile", style="danger"))
+    kb.add(InlineKeyboardButton(btn_history, callback_data="bot_history", style="danger"), InlineKeyboardButton(btn_hack, url=hack_update_link, style="danger"))
+    kb.add(InlineKeyboardButton(btn_reseller, callback_data="bot_make_reseller", style="danger"), InlineKeyboardButton(btn_channel, url=channel_link, style="danger"))
     kb.add(InlineKeyboardButton(btn_support, url=support_link, style="danger"))
     
     return welcome_text, kb
@@ -154,8 +146,6 @@ def start(msg):
 @bot.callback_query_handler(func=lambda call: True)
 def bot_callbacks(call):
     uid = str(call.from_user.id)
-    
-    # Agar maintenance on hai aur admin nahi hai, toh kuch mat karo
     if is_maintenance() and str(uid) != str(ADMIN_ID):
         bot.answer_callback_query(call.id, "🛠️ Bot is under maintenance. Please try later.", show_alert=True)
         return
@@ -420,34 +410,28 @@ BASE_CSS = """
     * { box-sizing: border-box; font-family: 'Outfit', sans-serif; margin: 0; padding: 0; }
     body { background-color: #050505; color: #e5e7eb; display: flex; min-height: 100vh; }
     
-    /* SIDEBAR */
-    .sidebar { width: 260px; background: #0f1115; border-right: 1px solid #1f2937; padding: 20px; display: flex; flex-direction: column; position: fixed; height: 100vh; }
-    .brand { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 40px; text-align: center; letter-spacing: 1px; }
+    .sidebar { width: 260px; background: #0f1115; border-right: 1px solid #1f2937; padding: 20px; display: flex; flex-direction: column; position: fixed; height: 100vh; overflow-y: auto; }
+    .brand { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 30px; text-align: center; letter-spacing: 1px; }
     .brand span { color: #ef4444; }
     .nav-item { display: flex; align-items: center; padding: 14px 20px; color: #9ca3af; text-decoration: none; border-radius: 10px; margin-bottom: 8px; font-weight: 600; transition: all 0.3s ease; }
     .nav-item:hover, .nav-item.active { background: #1f2937; color: #fff; transform: translateX(5px); }
     .nav-item.active { border-left: 4px solid #ef4444; }
     
-    /* MAIN CONTENT */
     .main-content { margin-left: 260px; padding: 40px; width: calc(100% - 260px); }
     .page-title { font-size: 32px; font-weight: 800; margin-bottom: 30px; color: #fff; display: flex; align-items: center; gap: 15px; }
     
-    /* CARDS */
     .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 40px; }
     .stat-card { background: #0f1115; border-radius: 16px; padding: 25px; border: 1px solid #1f2937; position: relative; overflow: hidden; transition: 0.3s; }
     .stat-card:hover { transform: translateY(-5px); border-color: #ef4444; box-shadow: 0 10px 30px rgba(239,68,68,0.1); }
     .stat-title { font-size: 14px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin-bottom: 10px; }
     .stat-value { font-size: 36px; font-weight: 800; color: #fff; }
-    .stat-icon { position: absolute; right: 20px; bottom: 20px; font-size: 40px; opacity: 0.1; }
     
-    /* FORMS & INPUTS */
     .card { background: #0f1115; border-radius: 16px; padding: 30px; border: 1px solid #1f2937; margin-bottom: 30px; }
     .card-header { font-size: 20px; font-weight: 700; margin-bottom: 25px; color: #fff; border-bottom: 1px solid #1f2937; padding-bottom: 15px; }
     input, textarea, select { width: 100%; padding: 14px 16px; border-radius: 10px; border: 1px solid #374151; background: #111827; color: #fff; font-size: 15px; outline: none; margin-bottom: 20px; transition: 0.2s; font-family: 'Outfit'; }
     input:focus, textarea:focus, select:focus { border-color: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.2); }
     label { display: block; font-size: 14px; color: #9ca3af; margin-bottom: 8px; font-weight: 600; }
     
-    /* BUTTONS */
     .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 24px; border-radius: 10px; font-weight: 700; font-size: 15px; border: none; cursor: pointer; text-decoration: none; color: #fff; transition: 0.2s; }
     .btn-primary { background: linear-gradient(135deg, #ef4444, #b91c1c); box-shadow: 0 4px 15px rgba(239,68,68,0.3); }
     .btn-primary:hover { transform: scale(1.02); box-shadow: 0 6px 20px rgba(239,68,68,0.4); }
@@ -455,11 +439,9 @@ BASE_CSS = """
     .btn-warning { background: #d97706; }
     .btn-blue { background: #2563eb; }
     
-    /* TABLES & LISTS */
     .list-item { display: flex; justify-content: space-between; align-items: center; background: #111827; padding: 18px 20px; border-radius: 12px; margin-bottom: 12px; border: 1px solid #1f2937; transition: 0.2s; }
     .list-item:hover { border-color: #374151; }
     
-    /* TOGGLE SWITCH */
     .switch { position: relative; display: inline-block; width: 60px; height: 34px; }
     .switch input { opacity: 0; width: 0; height: 0; }
     .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #374151; transition: .4s; border-radius: 34px; }
@@ -474,6 +456,7 @@ def get_sidebar():
     <div class="sidebar">
         <div class="brand">SAKSHAM<span>X</span></div>
         <a href="/admin" class="nav-item">📊 Dashboard</a>
+        <a href="/admin_history" class="nav-item">📜 History</a>
         <a href="/admin_users" class="nav-item">👥 Users</a>
         <a href="/admin_products" class="nav-item">📦 Products</a>
         <a href="/admin_keys" class="nav-item">🔑 Stock Keys</a>
@@ -499,10 +482,10 @@ def admin_dashboard():
         <div class="page-title">📊 Dashboard Overview</div>
         
         <div class="stats-grid">
-            <div class="stat-card"><div class="stat-title">Total Revenue</div><div class="stat-value">₹{total_revenue:.2f}</div><div class="stat-icon">💰</div></div>
-            <div class="stat-card"><div class="stat-title">Total Users</div><div class="stat-value">{total_users}</div><div class="stat-icon">👥</div></div>
-            <div class="stat-card"><div class="stat-title">Total Sales</div><div class="stat-value">{total_sales}</div><div class="stat-icon">🛒</div></div>
-            <div class="stat-card"><div class="stat-title">Keys in Stock</div><div class="stat-value">{total_keys}</div><div class="stat-icon">🔑</div></div>
+            <div class="stat-card"><div class="stat-title">Total Revenue</div><div class="stat-value">₹{total_revenue:.2f}</div></div>
+            <div class="stat-card"><div class="stat-title">Total Users</div><div class="stat-value">{total_users}</div></div>
+            <div class="stat-card"><div class="stat-title">Total Sales</div><div class="stat-value">{total_sales}</div></div>
+            <div class="stat-card"><div class="stat-title">Keys in Stock</div><div class="stat-value">{total_keys}</div></div>
         </div>
 
         <div class="card" style="border-color: #ef4444;">
@@ -516,14 +499,54 @@ def admin_dashboard():
     </div>
     """)
 
+# --- NAYA: COMPLETE HISTORY ROUTE ---
+@app.route('/admin_history')
+def admin_history():
+    orders = list(orders_col.find({}).sort("_id", -1))
+    
+    history_html = ""
+    for o in orders:
+        if o.get('type') == 'deposit':
+            icon = "💰"
+            color = "#10b981"
+            title = "Wallet Top-up"
+            detail = f"UTR: {o.get('utr', 'N/A')}"
+            amount = f"+₹{o.get('amount', 0):.2f}"
+        else:
+            icon = "🛒"
+            color = "#ef4444"
+            title = f"Bought: {o.get('product', 'Unknown')}"
+            detail = f"Key: {o.get('key', 'N/A')}"
+            amount = f"-₹{o.get('price', 0):.2f}"
+            
+        user = users_col.find_one({"_id": o['uid']})
+        uname = user.get('name', 'User') if user else o['uid']
+
+        history_html += f"""
+        <div class="list-item" style="border-left: 4px solid {color};">
+            <div>
+                <div style="font-size:16px; font-weight:700; color:#fff;">{icon} {title}</div>
+                <div style="font-size:13px; color:#9ca3af;">User: {uname} (<code>{o['uid']}</code>) | {detail}</div>
+                <div style="font-size:12px; color:#6b7280; margin-top:5px;">{o.get('time')}</div>
+            </div>
+            <div style="font-size:20px; font-weight:800; color:{color};">{amount}</div>
+        </div>
+        """
+
+    return render_template_string(BASE_CSS + get_sidebar() + f"""
+    <div class="main-content">
+        <div class="page-title">📜 All Transactions History</div>
+        <div class="card">
+            {history_html if history_html else '<p style="color:#9ca3af;">No transactions found yet.</p>'}
+        </div>
+    </div>
+    """)
+
 @app.route('/admin_settings', methods=['GET', 'POST'])
 def admin_settings():
     if request.method == 'POST':
-        # Handle Maintenance Toggle
         maint_status = "on" if request.form.get('maintenance') == "on" else "off"
         settings_col.update_one({"_id": "maintenance_mode"}, {"$set": {"value": maint_status}}, upsert=True)
-        
-        # Handle other settings
         for key in request.form:
             if key != 'maintenance':
                 settings_col.update_one({"_id": key}, {"$set": {"value": request.form[key]}}, upsert=True)
@@ -548,12 +571,11 @@ def admin_settings():
     return render_template_string(BASE_CSS + get_sidebar() + f"""
     <div class="main-content">
         <div class="page-title">⚙️ Bot Settings</div>
-        
         <div class="card" style="border-color: #ef4444; background: rgba(239,68,68,0.05);">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
                     <h3 style="color:#ef4444; margin-bottom:5px;">🛠️ Maintenance Mode</h3>
-                    <p style="color:#9ca3af; font-size:14px;">Turn ON to stop the bot for all users. Only you can access it.</p>
+                    <p style="color:#9ca3af; font-size:14px;">Turn ON to stop the bot for all users.</p>
                 </div>
                 <form method="POST" style="margin:0;">
                     <label class="switch">
@@ -599,7 +621,7 @@ def admin_broadcast():
                 try:
                     bot.send_message(u['_id'], msg_text, parse_mode="HTML")
                     count += 1
-                    time.sleep(0.05) # Anti-spam delay
+                    time.sleep(0.05) 
                 except: pass
             msg_status = f'<div style="background:#10b981; color:#fff; padding:15px; border-radius:10px; margin-bottom:20px; font-weight:bold;">✅ Broadcast sent to {count} users!</div>'
 
@@ -738,18 +760,52 @@ def admin_products():
     <script>function addPrice() {{const c = document.getElementById('price-container');const d = document.createElement('div');d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1;"><input type="number" name="price[]" placeholder="Price (₹)" style="flex:1;">`;c.appendChild(d);}}</script>
     """)
 
-# [Baki routes: admin_edit_product, admin_keys, admin_categories, add_product, delete_product etc same rahenge]
-# Space bachane ke liye maine unhe yahan skip kiya hai, aap pichle code se unhe copy kar sakte hain. 
-# Bas unke HTML me BASE_CSS + get_sidebar() add kar dena.
-
 @app.route('/admin_edit_product/<p_id>', methods=['GET', 'POST'])
 def admin_edit_product(p_id):
-    # Same logic as previous code
-    return "Edit Product (Copy from previous code)"
+    p = products_col.find_one({"_id": ObjectId(p_id)})
+    if not p: return "Not found"
+    if request.method == 'POST':
+        cat_id = str(request.form.get('category_id'))
+        durs = request.form.getlist('duration[]')
+        prices = request.form.getlist('price[]')
+        price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
+        products_col.update_one({"_id": ObjectId(p_id)}, {"$set": {"name": request.form['name'], "icon": request.form.get('icon', '🔹'), "pid": request.form['pid'], "category_id": cat_id, "features": request.form.get('features', ''), "setup_video": request.form.get('setup_video', ''), "hack_video": request.form.get('hack_video', ''), "prices": price_dict}})
+        return redirect(url_for('admin_products'))
+    price_fields = "".join([f'<div style="display:flex; gap:10px; margin-bottom:10px;"><input type="text" name="duration[]" value="{d}" style="flex:1;"><input type="number" name="price[]" value="{pr}" style="flex:1;"></div>' for d, pr in p.get('prices', {}).items()])
+    categories = list(categories_col.find({}))
+    cat_options = "".join([f'<option value="{c["_id"]}" {"selected" if str(c["_id"]) == p.get("category_id") else ""}>{c["name"]}</option>' for c in categories])
+    return render_template_string(BASE_CSS + get_sidebar() + f"""
+    <div class="main-content">
+        <div class="page-title">✏️ Edit Product: {p.get('name')}</div>
+        <div class="card">
+            <form method="POST">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+                    <div><label>Name</label><input type="text" name="name" value="{p.get('name', '')}" required></div>
+                    <div><label>Icon</label><input type="text" name="icon" value="{p.get('icon', '🔹')}" required></div>
+                    <div><label>PID</label><input type="text" name="pid" value="{p.get('pid', '')}" required></div>
+                    <div><label>Category</label><select name="category_id">{cat_options}</select></div>
+                </div>
+                <label>Features</label><textarea name="features" rows="3">{p.get('features', '')}</textarea>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+                    <div><label>Update Link</label><input type="text" name="setup_video" value="{p.get('setup_video', '')}"></div>
+                    <div><label>Video Link</label><input type="text" name="hack_video" value="{p.get('hack_video', '')}"></div>
+                </div>
+                <label style="margin-top:15px; color:#ef4444;">Durations & Price</label><div id="price-container">{price_fields}</div>
+                <button type="button" onclick="addPrice()" class="btn btn-warning" style="margin-bottom:20px;">+ Add More</button>
+                <button type="submit" class="btn btn-primary" style="width:100%;">Update Product</button>
+            </form>
+        </div>
+    </div>
+    <script>function addPrice() {{const c = document.getElementById('price-container');const d = document.createElement('div');d.style.display = 'flex'; d.style.gap = '10px'; d.style.marginBottom = '10px';d.innerHTML = `<input type="text" name="duration[]" placeholder="Duration" style="flex:1;"><input type="number" name="price[]" placeholder="Price (₹)" style="flex:1;">`;c.appendChild(d);}}</script>
+    """)
 
 @app.route('/add_product', methods=['POST'])
 def add_product():
-    # Same logic
+    cat_id = str(request.form.get('category_id'))
+    durs = request.form.getlist('duration[]')
+    prices = request.form.getlist('price[]')
+    price_dict = {d.strip(): float(p.strip()) for d, p in zip(durs, prices) if d.strip() and p.strip()}
+    products_col.insert_one({"name": request.form['name'], "icon": request.form.get('icon', '🔹'), "pid": request.form['pid'], "category_id": cat_id, "features": request.form.get('features', ''), "setup_video": request.form.get('setup_video', ''), "hack_video": request.form.get('hack_video', ''), "prices": price_dict, "status": "active"})
     return redirect(url_for('admin_products'))
 
 @app.route('/delete_product/<p_id>', methods=['POST'])

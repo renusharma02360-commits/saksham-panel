@@ -3,6 +3,9 @@ import time
 import threading
 import requests
 import telebot
+import imaplib
+import email
+from email.header import decode_header
 import re
 import urllib.parse
 from functools import wraps
@@ -19,10 +22,10 @@ MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
 ADMIN_ID = 7778093775
 WEB_URL = "https://saksham-panel-kpsl.onrender.com"
 
-# 💳 FAMGATEWAY CONFIG (Aapki Key)
+# 💳 FAMGATEWAY CONFIG
 API_KEY = "fam_c8a61c94c53cd1cd51dc5a16d019626ddc7da1c5"
 
-# RESELLER API (Keys nikalne ke liye)
+# RESELLER API
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
 MASTER_KEY = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
@@ -42,7 +45,6 @@ except Exception as e:
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# FamGateway Initialize
 try:
     fg = FamGateway(api_key=API_KEY)
     print("✅ FamGateway Connected")
@@ -98,12 +100,13 @@ def get_main_menu(uid):
     support_link = get_setting("support_link", "https://wa.me/918849507563")
 
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton(btn_shop, callback_data="bot_shop"))
-    kb.add(InlineKeyboardButton(btn_add, callback_data="bot_add_bal"), 
-           InlineKeyboardButton(btn_profile, callback_data="bot_profile"))
-    kb.add(InlineKeyboardButton(btn_history, callback_data="bot_history"), 
-           InlineKeyboardButton(btn_channel, url=channel_link))
-    kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=support_link))
+    # Main menu buttons (Red color for a premium look)
+    kb.add(InlineKeyboardButton(btn_shop, callback_data="bot_shop", style="danger"))
+    kb.add(InlineKeyboardButton(btn_add, callback_data="bot_add_bal", style="danger"), 
+           InlineKeyboardButton(btn_profile, callback_data="bot_profile", style="danger"))
+    kb.add(InlineKeyboardButton(btn_history, callback_data="bot_history", style="danger"), 
+           InlineKeyboardButton(btn_channel, url=channel_link, style="danger"))
+    kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=support_link, style="danger"))
     
     return welcome_text, kb
 
@@ -131,8 +134,8 @@ def bot_callbacks(call):
             text = "📁 <b>CHOOSE A CATEGORY</b>\n\n🔥 Premium Mods, Panels & Bypasses\n\n👇 <i>Tap a category below:</i>"
             kb = InlineKeyboardMarkup(row_width=1)
             for cat in categories:
-                kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()}", callback_data=f"cat_{cat['_id']}"))
-            kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_main"))
+                kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()}", callback_data=f"cat_{cat['_id']}", style="danger"))
+            kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_main", style="danger"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             bot.answer_callback_query(call.id)
 
@@ -145,8 +148,9 @@ def bot_callbacks(call):
             text = f"📁 <b>{cat.get('name', 'Category').upper()}</b>\n\n➡️ Choose a product 🕊️❤️"
             kb = InlineKeyboardMarkup(row_width=1)
             for p in products:
-                kb.add(InlineKeyboardButton(f"{p.get('icon', '🔹')} {p.get('name')}", callback_data=f"view_{p['_id']}"))
-            kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_shop"))
+                # Product Buttons (Red)
+                kb.add(InlineKeyboardButton(f"{p.get('icon', '🔹')} {p.get('name')}", callback_data=f"view_{p['_id']}", style="danger"))
+            kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_shop", style="danger"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             bot.answer_callback_query(call.id)
 
@@ -163,16 +167,17 @@ def bot_callbacks(call):
             kb = InlineKeyboardMarkup(row_width=2)
             update_link = str(p.get('setup_video', '')).strip()
             video_link = str(p.get('hack_video', '')).strip()
-            if update_link.startswith('http'): kb.add(InlineKeyboardButton("📥 Update File", url=update_link))
-            if video_link.startswith('http'): kb.add(InlineKeyboardButton("▶️ Video/Feedback", url=video_link))
+            if update_link.startswith('http'): kb.add(InlineKeyboardButton("📥 Update File", url=update_link, style="danger"))
+            if video_link.startswith('http'): kb.add(InlineKeyboardButton("▶️ Video/Feedback", url=video_link, style="danger"))
             
             for d, pr in p.get('prices', {}).items():
                 if not d.strip(): continue
                 if d in custom_prices: final_pr = custom_prices[d]
                 else: final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
-                kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"buy_{p_id}_{d}"))
+                # Buy Buttons (Red)
+                kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"buy_{p_id}_{d}", style="danger"))
                 
-            kb.add(InlineKeyboardButton("🔙 Back", callback_data=f"cat_{p.get('category_id')}"))
+            kb.add(InlineKeyboardButton("🔙 Back", callback_data=f"cat_{p.get('category_id')}", style="danger"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             bot.answer_callback_query(call.id)
 
@@ -209,17 +214,17 @@ def bot_callbacks(call):
                 if result.get("status") == "success" or "keys" in result:
                     key = result.get("keys", ["Key not found"])[0]
                     log_order(uid, p['name'], key, price)
-                    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main"))
+                    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main", style="danger"))
                     bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
                 else:
                     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": price}})
                     err_msg = result.get("message", "Out of Stock / API Error")
-                    bot.edit_message_text(f"❌ <b>API Error</b>\n\nReason: {err_msg}\n\n₹{price:.2f} Refunded.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop")))
+                    bot.edit_message_text(f"❌ <b>API Error</b>\n\nReason: {err_msg}\n\n₹{price:.2f} Refunded.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop", style="danger")))
 
         elif call.data == "bot_profile":
             u = get_user_info(uid)
             text = f"👤 <b>YOUR PROFILE</b>\n\n🆔 ID: <code>{uid}</code>\n💰 Balance: ₹{u.get('balance', 0.0):.2f}\n🏷️ Discount: {u.get('discount', 0)}%\n📅 Joined: {u.get('joined')}"
-            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", callback_data="bot_add_bal"), InlineKeyboardButton("🔙 Back", callback_data="bot_main"))
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💸 Add Balance", callback_data="bot_add_bal", style="danger"), InlineKeyboardButton("🔙 Back", callback_data="bot_main", style="danger"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             bot.answer_callback_query(call.id)
             
@@ -229,7 +234,7 @@ def bot_callbacks(call):
             text = "📜 <b>Your Order History</b>\n\n"
             for o in orders[:5]:
                 text += f"📦 {o.get('product', 'Deposit')}\n🔑 <code>{o.get('key', 'N/A')}</code>\n📅 {o.get('time')}\n➖➖➖➖➖➖➖➖\n"
-            bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main")))
+            bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main", style="danger")))
             bot.answer_callback_query(call.id)
             
         elif call.data == "bot_add_bal":
@@ -250,7 +255,6 @@ def process_deposit_amount(message):
         
         bot.send_message(message.chat.id, "⏳ <i>Generating FamGateway QR Code...</i>", parse_mode="HTML")
         try:
-            # FamGateway se order banwa rahe hain
             order = fg.create_order(amount=amount, customer_name=f"User_{uid}")
         except Exception as e:
             bot.send_message(message.chat.id, "❌ Failed to create order via FamGateway. Please try again.")
@@ -260,7 +264,6 @@ def process_deposit_amount(message):
         caption = f"💳 <b>Pay ₹{amount}</b>\n\nScan the QR code above using any UPI app.\n\n<i>Bot is checking with FamGateway in the background...</i>"
         bot.send_photo(message.chat.id, photo=order.qr_url, caption=caption, parse_mode="HTML")
         
-        # Sirf FamGateway check karega (No Gmail)
         threading.Thread(target=verify_chat_payment_famgateway, args=(message.chat.id, uid, order.order_id, amount)).start()
         
     except ValueError:
@@ -268,7 +271,6 @@ def process_deposit_amount(message):
         bot.register_next_step_handler(msg, process_deposit_amount)
 
 def verify_chat_payment_famgateway(chat_id, uid, order_id, amount):
-    # 20 minutes tak FamGateway check karega
     for i in range(240): 
         time.sleep(5)
         try:
@@ -278,7 +280,7 @@ def verify_chat_payment_famgateway(chat_id, uid, order_id, amount):
                 bot.send_message(chat_id, f"✅ <b>Payment Successful!</b>\n\n₹{amount} has been added to your wallet.\n💰 New Balance: ₹{new_bal:.2f}", parse_mode="HTML")
                 return
         except Exception as e: 
-            pass # Error ko ignore kar raha hai taaki bot crash na ho
+            pass 
 
 # ================== FLASK WEB APP (PROFESSIONAL ADMIN PANEL) ==================
 app = Flask(__name__)

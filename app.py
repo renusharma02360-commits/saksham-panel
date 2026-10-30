@@ -22,7 +22,7 @@ WEB_URL = "https://saksham-panel-kpsl.onrender.com"
 # 💳 FAMGATEWAY CONFIG
 API_KEY = "fam_c8a61c94c53cd1cd51dc5a16d019626ddc7da1c5"
 
-# RESELLER API (Fallback)
+# RESELLER API
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
 MASTER_KEY = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
@@ -36,7 +36,7 @@ try:
     categories_col = db.categories
     orders_col = db.orders
     settings_col = db.settings
-    key_stock_col = db.key_stock # Manual Keys Collection
+    key_stock_col = db.key_stock 
     print("✅ Database Connected")
 except Exception as e:
     print(f"❌ Database Error: {e}")
@@ -158,7 +158,7 @@ def bot_callbacks(call):
             p = products_col.find_one({"_id": ObjectId(p_id)})
             u = get_user_info(uid)
             disc = u.get('discount', 0)
-            custom_prices = u.get('custom_prices', {}).get(str(p_id), {})
+            custom_prices = u.get('custom_prices', {}).get(str(p_id), {}) # Custom prices for this specific user
             
             features_text = p.get('features', '').replace('\n', '\n⚡ ') if p.get('features') else ''
             text = f"📁 <b>{p['name']}</b>\n\n⚡ {features_text}\n\n"
@@ -171,8 +171,14 @@ def bot_callbacks(call):
             
             for d, pr in p.get('prices', {}).items():
                 if not d.strip(): continue
-                if d in custom_prices: final_pr = custom_prices[d]
-                else: final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
+                
+                # === PRICE CALCULATION LOGIC ===
+                if d in custom_prices: 
+                    final_pr = custom_prices[d] # Use specific price if set by admin
+                else: 
+                    final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
+                # ===============================
+                
                 kb.add(InlineKeyboardButton(f"{d.upper()} - ₹{final_pr:.1f}", callback_data=f"buy_{p_id}_{d}", style="danger"))
                 
             kb.add(InlineKeyboardButton("⬅️ Back", callback_data=f"cat_{p.get('category_id')}", style="danger"))
@@ -202,7 +208,6 @@ def bot_callbacks(call):
             if deduct_balance(uid, price):
                 bot.edit_message_text("⏳ <i>Processing your order...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
                 
-                # 1. CHECK MANUAL KEY STOCK
                 manual_key = key_stock_col.find_one_and_delete({"product_id": str(p_id)})
                 
                 if manual_key:
@@ -211,7 +216,6 @@ def bot_callbacks(call):
                     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main", style="danger"))
                     bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
                 else:
-                    # 2. IF NO MANUAL KEY, CALL API
                     try:
                         data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(p.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
                         res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
@@ -247,7 +251,6 @@ def bot_callbacks(call):
             threading.Thread(target=auto_delete_message, args=(sent.chat.id, sent.message_id)).start()
             bot.answer_callback_query(call.id)
             
-        # ================== CALCULATOR LOGIC ==================
         elif call.data == "bot_add_bal":
             calc_data[uid] = "" 
             show_calculator(call.message.chat.id, call.message.message_id, uid)
@@ -351,6 +354,7 @@ BASE_CSS = """
     .btn-warning:hover { background: #e3b341; }
     .btn-blue { background: #1f6feb; }
     .btn-blue:hover { background: #388bfd; }
+    .custom-price-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
 </style>
 """
 
@@ -377,24 +381,21 @@ def admin_dashboard():
         </div>
         <div class="card" style="border-color:#58a6ff; text-align:center;">
             <h2 style="color:#58a6ff; margin-bottom:10px;">Welcome to Saksham Panel</h2>
-            <p style="color:#8b949e;">All systems operational. You can manage Manual Keys for specific products.</p>
+            <p style="color:#8b949e;">All systems operational. You can manage Manual Keys and Custom Prices for specific users.</p>
         </div>
     </div>
     """)
 
-# --- MANUAL KEY STOCK ROUTE ---
 @app.route('/admin_keys', methods=['GET', 'POST'])
 def admin_keys():
     if request.method == 'POST':
         p_id = request.form.get('product_id')
         key_val = request.form.get('key_val')
-        if p_id and key_val:
-            key_stock_col.insert_one({"product_id": str(p_id), "key": key_val})
+        if p_id and key_val: key_stock_col.insert_one({"product_id": str(p_id), "key": key_val})
         return redirect(url_for('admin_keys'))
         
     products = list(products_col.find({}))
     keys = list(key_stock_col.find({}))
-    
     prod_options = "".join([f'<option value="{p["_id"]}">{p.get("name")}</option>' for p in products])
     
     keys_html = ""
@@ -402,37 +403,24 @@ def admin_keys():
         p_name = "Unknown"
         try: p_name = products_col.find_one({"_id": ObjectId(k['product_id'])})['name']
         except: pass
-        
         keys_html += f"""
         <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; border-left: 4px solid #238636;">
-            <div>
-                <div style="font-size:16px; font-weight:700; color:#58a6ff;">📦 {p_name}</div>
-                <div style="font-size:14px; color:#fff; font-family:monospace; margin-top:5px;">{k['key']}</div>
-            </div>
-            <form action="/delete_key/{k['_id']}" method="POST">
-                <button type="submit" class="btn btn-danger" style="padding:6px 12px; font-size:12px;">Delete</button>
-            </form>
+            <div><div style="font-size:16px; font-weight:700; color:#58a6ff;">📦 {p_name}</div><div style="font-size:14px; color:#fff; font-family:monospace; margin-top:5px;">{k['key']}</div></div>
+            <form action="/delete_key/{k['_id']}" method="POST"><button type="submit" class="btn btn-danger" style="padding:6px 12px; font-size:12px;">Delete</button></form>
         </div>
         """
-
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products">Products</a><a href="/admin_keys" class="active">Keys</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
     <div class="container">
         <div class="card" style="border-color:#238636;">
             <h3 style="margin-bottom:20px; color:#fff;">➕ Add Manual Key</h3>
             <form method="POST">
-                <label>Select Product</label>
-                <select name="product_id" required>
-                    <option value="">-- Select Product --</option>
-                    {prod_options}
-                </select>
-                <label>Enter Key</label>
-                <input type="text" name="key_val" placeholder="e.g. XREG-XXXX-XXXX" required>
+                <label>Select Product</label><select name="product_id" required><option value="">-- Select Product --</option>{prod_options}</select>
+                <label>Enter Key</label><input type="text" name="key_val" placeholder="e.g. XREG-XXXX-XXXX" required>
                 <button type="submit" class="btn btn-primary" style="width:100%;">Add Key to Stock</button>
             </form>
         </div>
-        <h3 style="color:#fff; margin-bottom:15px;">Available Keys in Stock</h3>
-        {keys_html if keys_html else '<p style="color:#8b949e;">No manual keys in stock.</p>'}
+        <h3 style="color:#fff; margin-bottom:15px;">Available Keys in Stock</h3>{keys_html if keys_html else '<p style="color:#8b949e;">No manual keys in stock.</p>'}
     </div>
     """)
 
@@ -446,7 +434,6 @@ def admin_settings():
     if request.method == 'POST':
         for key in request.form: settings_col.update_one({"_id": key}, {"$set": {"value": request.form[key]}}, upsert=True)
         return redirect(url_for('admin_settings'))
-
     settings = {
         "welcome_text": get_setting("welcome_text", "🛍️ <b>SAKSHAM PANEL SHOP</b>\n─────────────────\n\n🔥 Premium Mods, Panels & Bypasses — all in one place!\n⚡ Instant delivery • 🔒 Verified sellers • 💯 Trusted by 1000+ buyers\n\n👇 <i>Tap a category below to get started:</i>"),
         "btn_shop": get_setting("btn_shop", "➡️ Shop Now 🛍️"), "btn_add": get_setting("btn_add", "➡️ Add Amount 💸"),
@@ -454,7 +441,6 @@ def admin_settings():
         "btn_channel": get_setting("btn_channel", "➡️ Main Channel ⚡"), "channel_link": get_setting("channel_link", "https://t.me/YourChannel"),
         "support_link": get_setting("support_link", "https://wa.me/918849507563")
     }
-
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products">Products</a><a href="/admin_keys">Keys</a><a href="/admin_categories">Categories</a><a href="/admin_settings" class="active">Bot Settings</a></div></div>
     <div class="container">
@@ -491,32 +477,80 @@ def admin_users():
     <div class="container"><h3 style="color:#fff; margin-bottom:15px;">All Users</h3>{user_html if user_html else '<p>No users found.</p>'}</div>
     """)
 
+# ================== NAYA: VISUAL CUSTOM PRICES EDITOR ==================
 @app.route('/admin_edit_user/<uid>', methods=['GET', 'POST'])
 def admin_edit_user(uid):
     u = get_user_info(uid)
+    
     if request.method == 'POST':
-        bal = float(request.form['balance'])
-        disc = int(request.form['discount'])
-        try:
-            import json
-            custom_prices = json.loads(request.form.get('custom_prices', '{}'))
-        except: custom_prices = {}
+        # 1. Update Balance & Discount
+        bal = float(request.form.get('balance', 0))
+        disc = int(request.form.get('discount', 0))
+        
+        # 2. Build Custom Prices Dictionary from Form
+        custom_prices = {}
+        for key, value in request.form.items():
+            if key.startswith("custom_"):
+                # Format: custom_<product_id>_<duration>
+                parts = key.split("_")
+                p_id = parts[1]
+                duration = "_".join(parts[2:])
+                
+                if value.strip(): # Agar admin ne koi price daala hai
+                    if p_id not in custom_prices:
+                        custom_prices[p_id] = {}
+                    custom_prices[p_id][duration] = float(value)
+                    
         users_col.update_one({"_id": str(uid)}, {"$set": {"balance": bal, "discount": disc, "custom_prices": custom_prices}})
         return redirect(url_for('admin_users'))
-    import json
-    custom_prices_str = json.dumps(u.get('custom_prices', {}), indent=2)
+    
+    # --- GET Request: Form Generate Karna ---
+    # Saare products fetch karo
+    products = list(products_col.find({}))
+    user_custom = u.get('custom_prices', {})
+    
+    custom_prices_html = ""
+    for p in products:
+        p_id = str(p['_id'])
+        p_custom = user_custom.get(p_id, {})
+        
+        price_inputs = ""
+        for d, default_pr in p.get('prices', {}).items():
+            # Agar custom price set hai toh wahi dikhao, warna khali chhod do
+            current_custom_val = p_custom.get(d, "")
+            price_inputs += f"""
+            <div>
+                <label style="font-size:12px; margin-bottom:4px;">{d} (Default: ₹{default_pr})</label>
+                <input type="number" step="0.1" name="custom_{p_id}_{d}" value="{current_custom_val}" placeholder="Enter custom price" style="margin-bottom:10px; padding:8px; font-size:14px;">
+            </div>
+            """
+            
+        custom_prices_html += f"""
+        <div class="card" style="padding:15px; margin-bottom:15px; background:#0d1117;">
+            <h4 style="color:#58a6ff; margin-bottom:10px;">{p.get('icon', '🔹')} {p.get('name')}</h4>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                {price_inputs}
+            </div>
+        </div>
+        """
+
     return render_template_string(BASE_CSS + f"""
     <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users" class="active">Users</a><a href="/admin_products">Products</a><a href="/admin_keys">Keys</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
     <div class="container">
-        <div class="card">
+        <div class="card" style="border-color:#58a6ff;">
             <h3 style="margin-bottom:20px; color:#fff;">Edit User: {u.get('name')}</h3>
             <form method="POST">
-                <label>Balance (₹)</label><input type="number" step="0.01" name="balance" value="{u.get('balance', 0)}" required>
-                <label>Global Discount (%)</label><input type="number" name="discount" value="{u.get('discount', 0)}" required>
-                <label style="margin-top:20px; color:#f59e0b;">Custom Prices (JSON - Overrides Default)</label>
-                <textarea name="custom_prices" rows="6" style="font-family:monospace; font-size:13px; background:#0d1117;">{custom_prices_str}</textarea>
-                <p style="font-size:12px; color:#8b949e; margin-bottom:15px;">Example: <code>{"PRODUCT_ID_HERE": {"1 Day": 50, "7 Days": 300}}</code></p>
-                <button type="submit" class="btn btn-blue" style="width:100%;">Update User</button>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Balance (₹)</label><input type="number" step="0.01" name="balance" value="{u.get('balance', 0)}" required></div>
+                    <div><label>Global Discount (%)</label><input type="number" name="discount" value="{u.get('discount', 0)}" required></div>
+                </div>
+                
+                <h4 style="margin-top:25px; margin-bottom:15px; color:#f59e0b; border-top:1px solid #30363d; padding-top:20px;">🛠️ Custom Prices for this User Only</h4>
+                <p style="font-size:12px; color:#8b949e; margin-bottom:15px;">Niche kisi bhi product ka naya price likh do. Sirf is user ko wahi price dikhega. Khali chhodne par default price lagega.</p>
+                
+                {custom_prices_html}
+                
+                <button type="submit" class="btn btn-blue" style="width:100%; margin-top:20px;">Update User & Custom Prices</button>
             </form>
         </div>
     </div>

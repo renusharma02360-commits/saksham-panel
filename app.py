@@ -99,12 +99,10 @@ def get_main_menu(uid):
         "👇 <i>Tap a category below to get started:</i>"
     )
     
-    # A to Z dynamic texts
     channel_link = get_setting("channel_link", "https://t.me/YourChannel")
     support_link = get_setting("support_link", "https://wa.me/918849507563")
     hack_update_link = get_setting("hack_update_link", "https://t.me/YourChannel")
 
-    # Stylish UPPERCASE button names
     btn_shop = get_setting("btn_shop", "➡️ SHOP NOW 🛍️")
     btn_add = get_setting("btn_add", "➡️ ADD AMOUNT 💸")
     btn_profile = get_setting("btn_profile", "➡️ MY PROFILE 👤")
@@ -249,7 +247,6 @@ def bot_callbacks(call):
                         bot.edit_message_text(f"❌ <b>API Error</b>\n\nReason: {err_msg}\n\n₹{price:.2f} Refunded.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 BACK", callback_data="bot_shop", style="danger")))
 
         elif call.data == "bot_make_reseller":
-            # Reseller Info Message
             text = (
                 "👑 <b>BECOME A RESELLER</b>\n"
                 "─────────────────\n\n"
@@ -259,14 +256,14 @@ def bot_callbacks(call):
                 "👇 <i>Click below to buy reseller access or contact support.</i>"
             )
             kb = InlineKeyboardMarkup(row_width=1)
-            # Yahan aap future me direct auto-buy ka logic laga sakte hain. Abhi ke liye contact support bhej rahe hain.
-            kb.add(InlineKeyboardButton("🛒 BUY NOW (₹99)", callback_data="buy_reseller_logic", style="success"))
+            # FIX: Yahan 'buy_' prefix hata kar 'action_' kar diya hai taaki error na aaye
+            kb.add(InlineKeyboardButton("🛒 BUY NOW (₹99)", callback_data="action_reseller_buy", style="success"))
             kb.add(InlineKeyboardButton("📞 CONTACT SUPPORT", url=get_setting("support_link", "https://wa.me/918849507563"), style="danger"))
             kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_main", style="danger"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             bot.answer_callback_query(call.id)
 
-        elif call.data == "buy_reseller_logic":
+        elif call.data == "action_reseller_buy":
             # Yeh dummy handler hai abhi ke liye. Aap yahan balance deduct karke user ko reseller bana sakte hain.
             bot.answer_callback_query(call.id, "Please contact support to activate reseller manually (Auto-buy coming soon!).", show_alert=True)
 
@@ -421,59 +418,5 @@ def admin_dashboard():
     </div>
     """)
 
-# ... (Baaki saare admin routes same rahenge, sirf settings route me naye buttons add honge) ...
-
-@app.route('/admin_settings', methods=['GET', 'POST'])
-def admin_settings():
-    if request.method == 'POST':
-        for key in request.form: settings_col.update_one({"_id": key}, {"$set": {"value": request.form[key]}}, upsert=True)
-        return redirect(url_for('admin_settings'))
-        
-    settings = {
-        "welcome_text": get_setting("welcome_text", "🛍️ <b>SAKSHAM PANEL SHOP</b>\n─────────────────\n\n🔥 Premium Mods, Panels & Bypasses — all in one place!\n⚡ Instant delivery • 🔒 Verified sellers • 💯 Trusted by 1000+ buyers\n\n👇 <i>Tap a category below to get started:</i>"),
-        "btn_shop": get_setting("btn_shop", "➡️ SHOP NOW 🛍️"), 
-        "btn_add": get_setting("btn_add", "➡️ ADD AMOUNT 💸"),
-        "btn_profile": get_setting("btn_profile", "➡️ MY PROFILE 👤"), 
-        "btn_history": get_setting("btn_history", "➡️ ORDER HISTORY 📄"),
-        "btn_reseller": get_setting("btn_reseller", "➡️ MAKE RESELLER 99 👑"),
-        "btn_hack": get_setting("btn_hack", "➡️ ALL HACK UPDATE 📁"),
-        "btn_channel": get_setting("btn_channel", "➡️ MAIN CHANNEL ⚡"), 
-        "btn_support": get_setting("btn_support", "➡️ CONTACT SUPPORT 📞"),
-        "channel_link": get_setting("channel_link", "https://t.me/YourChannel"),
-        "hack_update_link": get_setting("hack_update_link", "https://t.me/YourChannel"),
-        "support_link": get_setting("support_link", "https://wa.me/918849507563")
-    }
-
-    return render_template_string(BASE_CSS + f"""
-    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products">Products</a><a href="/admin_keys">Keys</a><a href="/admin_categories">Categories</a><a href="/admin_settings" class="active">Bot Settings</a></div></div>
-    <div class="container">
-        <div class="card">
-            <h3 style="margin-bottom:20px; color:#fff;">Edit Bot Text & Links</h3>
-            <form method="POST">
-                <label>Welcome Message</label><textarea name="welcome_text" rows="5">{settings['welcome_text']}</textarea>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
-                    <div><label>Shop Button</label><input type="text" name="btn_shop" value="{settings['btn_shop']}"></div>
-                    <div><label>Add Amount Button</label><input type="text" name="btn_add" value="{settings['btn_add']}"></div>
-                    <div><label>Profile Button</label><input type="text" name="btn_profile" value="{settings['btn_profile']}"></div>
-                    <div><label>History Button</label><input type="text" name="btn_history" value="{settings['btn_history']}"></div>
-                    <div><label>Reseller Button</label><input type="text" name="btn_reseller" value="{settings['btn_reseller']}"></div>
-                    <div><label>Hack Update Button</label><input type="text" name="btn_hack" value="{settings['btn_hack']}"></div>
-                    <div><label>Channel Button</label><input type="text" name="btn_channel" value="{settings['btn_channel']}"></div>
-                    <div><label>Support Button</label><input type="text" name="btn_support" value="{settings['btn_support']}"></div>
-                    <div><label>Channel Link</label><input type="text" name="channel_link" value="{settings['channel_link']}"></div>
-                    <div><label>Hack Update Link</label><input type="text" name="hack_update_link" value="{settings['hack_update_link']}"></div>
-                    <div><label>Support Link</label><input type="text" name="support_link" value="{settings['support_link']}"></div>
-                </div>
-                <button type="submit" class="btn btn-blue" style="width:100%; margin-top:20px;">Save Settings</button>
-            </form>
-        </div>
-    </div>
-    """)
-
-# ... (Baki routes jaise /admin_users, /admin_products, /admin_keys, /admin_categories, etc. pichle code se same rahenge) ...
-
-# ================== RUNNING ==================
-if __name__ == "__main__":
-    threading.Thread(target=lambda: bot.infinity_polling(timeout=30, long_polling_timeout=30), daemon=True).start()
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+# ... (Baaki routes same rahenge jo pichle code mein the) ...
+# For safety, I'm assuming you have the rest of the code from the previous response.

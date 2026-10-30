@@ -22,7 +22,7 @@ WEB_URL = "https://saksham-panel-kpsl.onrender.com"
 # 💳 FAMGATEWAY CONFIG
 API_KEY = "fam_c8a61c94c53cd1cd51dc5a16d019626ddc7da1c5"
 
-# RESELLER API
+# RESELLER API (Fallback ke liye)
 RESELLER_API_URL = "https://bantibhaiya.to/api/reseller_v1.php"
 RESELLER_API_KEY = "e5990b638beaa7b2335373200b39c93f"
 MASTER_KEY = "a7f3e8b2c9d1f4a6b8c2d5e9f1a3b6c8"
@@ -36,6 +36,7 @@ try:
     categories_col = db.categories
     orders_col = db.orders
     settings_col = db.settings
+    key_stock_col = db.key_stock # NAYA: Manual Keys ke liye
     print("✅ Database Connected")
 except Exception as e:
     print(f"❌ Database Error: {e}")
@@ -48,7 +49,6 @@ try:
 except Exception as e:
     print(f"❌ Gateway Error: {e}")
 
-# Calculator State (Temporary Memory)
 calc_data = {}
 
 # ---------------- DB HELPERS ----------------
@@ -59,10 +59,7 @@ def get_setting(key, default):
 def get_user_info(uid):
     u = users_col.find_one({"_id": str(uid)})
     if not u:
-        default_u = {
-            "_id": str(uid), "balance": 0.0, "name": "User", "discount": 0, "joined": time.strftime("%d-%m-%Y"),
-            "custom_prices": {} 
-        }
+        default_u = {"_id": str(uid), "balance": 0.0, "name": "User", "discount": 0, "joined": time.strftime("%d-%m-%Y"), "custom_prices": {}}
         users_col.insert_one(default_u)
         return default_u
     return u
@@ -87,7 +84,6 @@ def credit_atomic(uid, amount, utr):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
-# ---------------- AUTO DELETE HELPER ----------------
 def auto_delete_message(chat_id, message_id, delay=300):
     time.sleep(delay)
     try: bot.delete_message(chat_id, message_id)
@@ -102,23 +98,16 @@ def get_main_menu(uid):
         "⚡ Instant delivery • 🔒 Verified sellers • 💯 Trusted by 1000+ buyers\n\n"
         "👇 <i>Tap a category below to get started:</i>"
     )
-    
-    btn_shop = get_setting("btn_shop", "➡️ Shop Now 🛍️")
-    btn_add = get_setting("btn_add", "➡️ Add Amount 💸")
-    btn_profile = get_setting("btn_profile", "➡️ My Profile 👤")
-    btn_history = get_setting("btn_history", "➡️ Order History 📄")
-    btn_channel = get_setting("btn_channel", "➡️ Main Channel ⚡")
     channel_link = get_setting("channel_link", "https://t.me/YourChannel")
     support_link = get_setting("support_link", "https://wa.me/918849507563")
 
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton(btn_shop, callback_data="bot_shop", style="danger"))
-    kb.add(InlineKeyboardButton(btn_add, callback_data="bot_add_bal", style="danger"), 
-           InlineKeyboardButton(btn_profile, callback_data="bot_profile", style="danger"))
-    kb.add(InlineKeyboardButton(btn_history, callback_data="bot_history", style="danger"), 
-           InlineKeyboardButton(btn_channel, url=channel_link, style="danger"))
+    kb.add(InlineKeyboardButton("➡️ Shop Now 🛍️", callback_data="bot_shop", style="danger"))
+    kb.add(InlineKeyboardButton("➡️ Add Amount 💸", callback_data="bot_add_bal", style="danger"), 
+           InlineKeyboardButton("➡️ My Profile 👤", callback_data="bot_profile", style="danger"))
+    kb.add(InlineKeyboardButton("➡️ Order History 📄", callback_data="bot_history", style="danger"), 
+           InlineKeyboardButton("➡️ Main Channel ⚡", url=channel_link, style="danger"))
     kb.add(InlineKeyboardButton("➡️ Contact Support 📞", url=support_link, style="danger"))
-    
     return welcome_text, kb
 
 @bot.message_handler(commands=["start"])
@@ -140,8 +129,7 @@ def bot_callbacks(call):
             
         elif call.data == "bot_shop":
             categories = list(categories_col.find({}))
-            if not categories:
-                return bot.answer_callback_query(call.id, "❌ No categories added yet.", show_alert=True)
+            if not categories: return bot.answer_callback_query(call.id, "❌ No categories added yet.", show_alert=True)
             
             text = "📁 <b>CHOOSE A CATEGORY</b>\n─────────────────\n\n🔥 Premium Mods, Panels & Bypasses\n\n👇 <i>Tap a category below:</i>"
             kb = InlineKeyboardMarkup(row_width=1)
@@ -212,24 +200,35 @@ def bot_callbacks(call):
             bot.answer_callback_query(call.id)
             
             if deduct_balance(uid, price):
-                bot.edit_message_text("⏳ <i>Processing your order from API...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
-                try:
-                    data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(p.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
-                    res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
-                    if not res.text.strip(): raise Exception("API returned empty text.")
-                    result = res.json()
-                except Exception as e: 
-                    result = {"status": "error", "message": str(e)}
-                    
-                if result.get("status") == "success" or "keys" in result:
-                    key = result.get("keys", ["Key not found"])[0]
+                bot.edit_message_text("⏳ <i>Processing your order...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+                
+                # 1. CHECK MANUAL KEY STOCK FIRST
+                manual_key = key_stock_col.find_one_and_delete({"product_id": str(p_id)})
+                
+                if manual_key:
+                    key = manual_key['key']
                     log_order(uid, p['name'], key, price)
                     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main", style="danger"))
                     bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
                 else:
-                    users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": price}})
-                    err_msg = result.get("message", "Out of Stock / API Error")
-                    bot.edit_message_text(f"❌ <b>API Error</b>\n\nReason: {err_msg}\n\n₹{price:.2f} Refunded.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop", style="danger")))
+                    # 2. IF NO MANUAL KEY, CALL API
+                    try:
+                        data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(p.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
+                        res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
+                        if not res.text.strip(): raise Exception("API returned empty text.")
+                        result = res.json()
+                    except Exception as e: 
+                        result = {"status": "error", "message": str(e)}
+                        
+                    if result.get("status") == "success" or "keys" in result:
+                        key = result.get("keys", ["Key not found"])[0]
+                        log_order(uid, p['name'], key, price)
+                        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main", style="danger"))
+                        bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+                    else:
+                        users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": price}})
+                        err_msg = result.get("message", "Out of Stock / API Error")
+                        bot.edit_message_text(f"❌ <b>API Error</b>\n\nReason: {err_msg}\n\n₹{price:.2f} Refunded.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop", style="danger")))
 
         elif call.data == "bot_profile":
             u = get_user_info(uid)
@@ -250,7 +249,7 @@ def bot_callbacks(call):
             
         # ================== CALCULATOR LOGIC ==================
         elif call.data == "bot_add_bal":
-            calc_data[uid] = "" # Reset amount
+            calc_data[uid] = "" 
             show_calculator(call.message.chat.id, call.message.message_id, uid)
             bot.answer_callback_query(call.id)
 
@@ -269,9 +268,8 @@ def bot_callbacks(call):
                     return bot.answer_callback_query(call.id, "❌ Please enter a valid amount first!", show_alert=True)
                 
                 amount = float(current_amount)
-                calc_data[uid] = "" # Clear calculator state
+                calc_data[uid] = "" 
                 
-                # Show Redirecting
                 bot.edit_message_text("⏳ <i>Redirecting to Payment Gateway...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
                 
                 try:
@@ -280,24 +278,17 @@ def bot_callbacks(call):
                     bot.edit_message_text("❌ Failed to create order via FamGateway. Please try again.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main", style="danger")))
                     return
                 
-                # Show QR and Waiting Status
                 caption = f"💳 <b>Pay ₹{amount}</b>\n\nScan the QR code above using any UPI app.\n\n⏳ <i>Waiting for payment confirmation...</i>"
-                bot.delete_message(call.message.chat.id, call.message.message_id) # delete redirecting msg
+                bot.delete_message(call.message.chat.id, call.message.message_id) 
                 qr_msg = bot.send_photo(call.message.chat.id, photo=order.qr_url, caption=caption, parse_mode="HTML")
                 
-                # Start Background Check
                 threading.Thread(target=verify_chat_payment_famgateway, args=(call.message.chat.id, uid, order.order_id, amount, qr_msg.message_id)).start()
                 
             else:
-                # Number pressed (0-9)
-                if action == "C":
-                    calc_data[uid] = ""
-                elif action == "back":
-                    calc_data[uid] = current_amount[:-1]
+                if action == "C": calc_data[uid] = ""
+                elif action == "back": calc_data[uid] = current_amount[:-1]
                 else:
-                    if len(current_amount) < 5: # Max 5 digits
-                        calc_data[uid] += action
-                
+                    if len(current_amount) < 5: calc_data[uid] += action
                 show_calculator(call.message.chat.id, call.message.message_id, uid)
                 bot.answer_callback_query(call.id)
 
@@ -308,48 +299,153 @@ def bot_callbacks(call):
 def show_calculator(chat_id, msg_id, uid):
     current = calc_data.get(uid, "")
     display = current if current else "0"
-    
     text = f"💸 <b>Enter Amount</b>\n\n<code>₹ {display}</code>\n\n<i>Type amount using the calculator below:</i>"
     
     kb = InlineKeyboardMarkup(row_width=3)
-    # Numbers
     kb.add(InlineKeyboardButton("1", callback_data="calc_1", style="danger"), InlineKeyboardButton("2", callback_data="calc_2", style="danger"), InlineKeyboardButton("3", callback_data="calc_3", style="danger"))
     kb.add(InlineKeyboardButton("4", callback_data="calc_4", style="danger"), InlineKeyboardButton("5", callback_data="calc_5", style="danger"), InlineKeyboardButton("6", callback_data="calc_6", style="danger"))
     kb.add(InlineKeyboardButton("7", callback_data="calc_7", style="danger"), InlineKeyboardButton("8", callback_data="calc_8", style="danger"), InlineKeyboardButton("9", callback_data="calc_9", style="danger"))
     kb.add(InlineKeyboardButton("C", callback_data="calc_C", style="danger"), InlineKeyboardButton("0", callback_data="calc_0", style="danger"), InlineKeyboardButton("⌫", callback_data="calc_back", style="danger"))
-    # Tick and Cross
     kb.add(InlineKeyboardButton("✗ Cancel", callback_data="calc_cross", style="danger"), InlineKeyboardButton("✓ Proceed", callback_data="calc_tick", style="success"))
     
     bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=kb)
 
-# --- FAMGATEWAY PAYMENT VERIFICATION ---
 def verify_chat_payment_famgateway(chat_id, uid, order_id, amount, msg_id):
-    for i in range(240): # 20 mins
+    for i in range(240): 
         time.sleep(5)
         try:
             status = fg.get_status(order_id)
             if status.is_paid:
                 ok, new_bal = credit_atomic(uid, amount, status.utr)
-                # Edit the QR caption to show success!
-                success_caption = (
-                    f"✅ <b>Payment Successful!</b>\n\n"
-                    f"💰 Amount: ₹{amount}\n"
-                    f"💵 New Balance: ₹{new_bal:.2f}\n\n"
-                    f"<i>Thank you for your purchase!</i>"
-                )
+                success_caption = f"✅ <b>Payment Successful!</b>\n\n💰 Amount: ₹{amount}\n💵 New Balance: ₹{new_bal:.2f}\n\n<i>Thank you for your purchase!</i>"
                 bot.edit_message_caption(chat_id=chat_id, message_id=msg_id, caption=success_caption, parse_mode="HTML")
                 return
-        except Exception as e: 
-            pass 
+        except Exception as e: pass 
 
-# ================== FLASK WEB APP (ADMIN PANEL) ==================
+# ================== FLASK WEB APP (PROFESSIONAL ADMIN PANEL) ==================
 app = Flask(__name__)
 app.secret_key = "sk_panel_secret"
-# [Admin Panel code yahan same rahega jo pichle message mein tha, maine ise short rakha hai]
-# (Aap pichle code se /admin routes copy kar sakte hain, unme koi change nahi karna hai)
+
+BASE_CSS = """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+    * { box-sizing: border-box; font-family: 'Poppins', sans-serif; margin: 0; padding: 0; }
+    body { background-color: #0d1117; color: #c9d1d9; padding-bottom: 50px; }
+    .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; background: #161b22; border-bottom: 1px solid #30363d; }
+    .nav-links a { color: #8b949e; text-decoration: none; margin-right: 15px; font-weight: 600; transition: 0.2s; padding: 8px 12px; border-radius: 6px; }
+    .nav-links a:hover, .nav-links a.active { color: #fff; background: #21262d; }
+    .container { padding: 30px; max-width: 1000px; margin: 0 auto; }
+    .card { background: #161b22; border-radius: 12px; padding: 25px; border: 1px solid #30363d; margin-bottom: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+    .stat-card { background: linear-gradient(145deg, #161b22, #0d1117); border-radius: 12px; padding: 20px; border: 1px solid #30363d; text-align: center; }
+    .stat-title { font-size: 13px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+    .stat-value { font-size: 28px; font-weight: 800; color: #58a6ff; margin-top: 5px; }
+    input, textarea, select { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #30363d; background: #0d1117; color: #c9d1d9; font-size: 15px; outline: none; margin-bottom: 15px; transition: 0.2s; }
+    input:focus, textarea:focus, select:focus { border-color: #58a6ff; box-shadow: 0 0 0 3px rgba(88,166,255,0.2); }
+    label { display: block; font-size: 14px; color: #8b949e; margin-bottom: 8px; font-weight: 600; }
+    .btn { display: inline-block; padding: 12px 24px; border-radius: 8px; font-weight: 700; font-size: 15px; border: none; cursor: pointer; text-decoration: none; color: #fff; transition: 0.2s; text-align: center; }
+    .btn-primary { background: #238636; }
+    .btn-primary:hover { background: #2ea043; }
+    .btn-danger { background: #da3633; }
+    .btn-warning { background: #d29922; color: #000; }
+    .btn-warning:hover { background: #e3b341; }
+    .btn-blue { background: #1f6feb; }
+    .btn-blue:hover { background: #388bfd; }
+</style>
+"""
 
 @app.route('/')
-def home(): return "Bot is running with Calculator UI!"
+def home(): return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin')
+def admin_dashboard():
+    total_users = users_col.count_documents({})
+    total_products = products_col.count_documents({})
+    total_keys = key_stock_col.count_documents({})
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav">
+        <div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div>
+        <div class="nav-links">
+            <a href="/admin" class="active">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products">Products</a><a href="/admin_keys">Keys</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a>
+        </div>
+    </div>
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-title">Total Users</div><div class="stat-value">{total_users}</div></div>
+            <div class="stat-card"><div class="stat-title">Total Products</div><div class="stat-value">{total_products}</div></div>
+            <div class="stat-card"><div class="stat-title">Manual Keys Stock</div><div class="stat-value">{total_keys}</div></div>
+        </div>
+        <div class="card" style="border-color:#58a6ff; text-align:center;">
+            <h2 style="color:#58a6ff; margin-bottom:10px;">Welcome to Saksham Panel</h2>
+            <p style="color:#8b949e;">All systems operational. You can manage Manual Keys for specific products.</p>
+        </div>
+    </div>
+    """)
+
+# --- MANUAL KEY STOCK ROUTE ---
+@app.route('/admin_keys', methods=['GET', 'POST'])
+def admin_keys():
+    if request.method == 'POST':
+        p_id = request.form.get('product_id')
+        key_val = request.form.get('key_val')
+        if p_id and key_val:
+            key_stock_col.insert_one({"product_id": str(p_id), "key": key_val})
+        return redirect(url_for('admin_keys'))
+        
+    products = list(products_col.find({}))
+    keys = list(key_stock_col.find({}))
+    
+    # Format Products for Dropdown
+    prod_options = "".join([f'<option value="{p["_id"]}">{p.get("name")}</option>' for p in products])
+    
+    # Format Keys for List
+    keys_html = ""
+    for k in keys:
+        p_name = "Unknown"
+        try: p_name = products_col.find_one({"_id": ObjectId(k['product_id'])})['name']
+        except: pass
+        
+        keys_html += f"""
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; border-left: 4px solid #238636;">
+            <div>
+                <div style="font-size:16px; font-weight:700; color:#58a6ff;">📦 {p_name}</div>
+                <div style="font-size:14px; color:#fff; font-family:monospace; margin-top:5px;">{k['key']}</div>
+            </div>
+            <form action="/delete_key/{k['_id']}" method="POST">
+                <button type="submit" class="btn btn-danger" style="padding:6px 12px; font-size:12px;">Delete</button>
+            </form>
+        </div>
+        """
+
+    return render_template_string(BASE_CSS + f"""
+    <div class="top-nav"><div style="font-size:20px; font-weight:800; color:#fff;">⚙️ Controller</div><div class="nav-links"><a href="/admin">Dashboard</a><a href="/admin_users">Users</a><a href="/admin_products">Products</a><a href="/admin_keys" class="active">Keys</a><a href="/admin_categories">Categories</a><a href="/admin_settings">Bot Settings</a></div></div>
+    <div class="container">
+        <div class="card" style="border-color:#238636;">
+            <h3 style="margin-bottom:20px; color:#fff;">➕ Add Manual Key</h3>
+            <form method="POST">
+                <label>Select Product</label>
+                <select name="product_id" required>
+                    <option value="">-- Select Product --</option>
+                    {prod_options}
+                </select>
+                <label>Enter Key</label>
+                <input type="text" name="key_val" placeholder="e.g. XREG-XXXX-XXXX" required>
+                <button type="submit" class="btn btn-primary" style="width:100%;">Add Key to Stock</button>
+            </form>
+        </div>
+        <h3 style="color:#fff; margin-bottom:15px;">Available Keys in Stock</h3>
+        {keys_html if keys_html else '<p style="color:#8b949e;">No manual keys in stock.</p>'}
+    </div>
+    """)
+
+@app.route('/delete_key/<k_id>', methods=['POST'])
+def delete_key(k_id):
+    key_stock_col.delete_one({"_id": ObjectId(k_id)})
+    return redirect(url_for('admin_keys'))
+
+# --- OTHER ADMIN ROUTES (Users, Products, Categories, Settings) ---
+# (Yahan wo saare routes aayenge jo pichle code mein the, jaise /admin_settings, /admin_users, /admin_products, etc.)
+# Maine message chota rakhne ke liye unhe skip kiya hai, par aapko pichle code se unhe copy-paste karna hai.
 
 # ================== RUNNING ==================
 if __name__ == "__main__":

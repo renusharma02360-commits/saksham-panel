@@ -3,9 +3,6 @@ import time
 import threading
 import requests
 import telebot
-import imaplib
-import email
-from email.header import decode_header
 import re
 import urllib.parse
 from functools import wraps
@@ -87,9 +84,25 @@ def credit_atomic(uid, amount, utr):
 def log_order(uid, product, key, price):
     orders_col.insert_one({"uid": str(uid), "product": product, "key": key, "price": price, "type": "purchase", "time": time.strftime("%d-%m-%Y %I:%M %p")})
 
+# ---------------- AUTO DELETE HELPER ----------------
+def auto_delete_message(chat_id, message_id, delay=300):
+    """Deletes the bot's message after 5 minutes (300 seconds)"""
+    time.sleep(delay)
+    try:
+        bot.delete_message(chat_id, message_id)
+    except:
+        pass # Ignore if already deleted or edited
+
 # ================== TELEGRAM BOT ==================
 def get_main_menu(uid):
-    welcome_text = get_setting("welcome_text", "(●) <b>WELCOME TO SAKSHAM PANEL SHOP</b>\n\n➡️ Buy Now : All Key Purchase & Instant Delivery ✅\n➡️ Add Balance : Secure Auto Payment System ✅\n\n⬇️ <b>SELECT AN OPTION FROM THE MENU BELOW 🛒</b>")
+    # Exact Premium Text from your screenshot
+    welcome_text = (
+        "🛍️ <b>SAKSHAM PANEL SHOP</b>\n"
+        "─────────────────\n\n"
+        "🔥 Premium Mods, Panels & Bypasses — all in one place!\n"
+        "⚡ Instant delivery • 🔒 Verified sellers • 💯 Trusted by 1000+ buyers\n\n"
+        "👇 <i>Tap a category below to get started:</i>"
+    )
     
     btn_shop = get_setting("btn_shop", "➡️ Shop Now 🛍️")
     btn_add = get_setting("btn_add", "➡️ Add Amount 💸")
@@ -100,7 +113,7 @@ def get_main_menu(uid):
     support_link = get_setting("support_link", "https://wa.me/918849507563")
 
     kb = InlineKeyboardMarkup(row_width=2)
-    # Main menu buttons (Red color for a premium look)
+    # Main menu buttons (Red color)
     kb.add(InlineKeyboardButton(btn_shop, callback_data="bot_shop", style="danger"))
     kb.add(InlineKeyboardButton(btn_add, callback_data="bot_add_bal", style="danger"), 
            InlineKeyboardButton(btn_profile, callback_data="bot_profile", style="danger"))
@@ -115,7 +128,10 @@ def start(msg):
     uid = str(msg.from_user.id)
     get_user_info(uid)
     text, kb = get_main_menu(uid)
-    bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
+    sent_msg = bot.send_message(msg.chat.id, text, parse_mode="HTML", reply_markup=kb)
+    
+    # Auto delete after 5 mins
+    threading.Thread(target=auto_delete_message, args=(msg.chat.id, sent_msg.message_id)).start()
 
 @bot.callback_query_handler(func=lambda call: True)
 def bot_callbacks(call):
@@ -131,10 +147,17 @@ def bot_callbacks(call):
             if not categories:
                 return bot.answer_callback_query(call.id, "❌ No categories added yet.", show_alert=True)
             
-            text = "📁 <b>CHOOSE A CATEGORY</b>\n\n🔥 Premium Mods, Panels & Bypasses\n\n👇 <i>Tap a category below:</i>"
+            # Exact Text
+            text = (
+                "📁 <b>CHOOSE A CATEGORY</b>\n"
+                "─────────────────\n\n"
+                "🔥 Premium Mods, Panels & Bypasses\n\n"
+                "👇 <i>Tap a category below:</i>"
+            )
             kb = InlineKeyboardMarkup(row_width=1)
             for cat in categories:
-                kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()}", callback_data=f"cat_{cat['_id']}", style="danger"))
+                # Added blue arrow
+                kb.add(InlineKeyboardButton(f"➡️ {cat.get('name').upper()} PANEL", callback_data=f"cat_{cat['_id']}", style="danger"))
             kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_main", style="danger"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             bot.answer_callback_query(call.id)
@@ -148,7 +171,6 @@ def bot_callbacks(call):
             text = f"📁 <b>{cat.get('name', 'Category').upper()}</b>\n\n➡️ Choose a product 🕊️❤️"
             kb = InlineKeyboardMarkup(row_width=1)
             for p in products:
-                # Product Buttons (Red)
                 kb.add(InlineKeyboardButton(f"{p.get('icon', '🔹')} {p.get('name')}", callback_data=f"view_{p['_id']}", style="danger"))
             kb.add(InlineKeyboardButton("⬅️ BACK", callback_data="bot_shop", style="danger"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
@@ -170,14 +192,16 @@ def bot_callbacks(call):
             if update_link.startswith('http'): kb.add(InlineKeyboardButton("📥 Update File", url=update_link, style="danger"))
             if video_link.startswith('http'): kb.add(InlineKeyboardButton("▶️ Video/Feedback", url=video_link, style="danger"))
             
+            # EXACT UI from screenshot for prices
             for d, pr in p.get('prices', {}).items():
                 if not d.strip(): continue
                 if d in custom_prices: final_pr = custom_prices[d]
                 else: final_pr = float(pr) - (float(pr) * disc / 100) if disc > 0 else float(pr)
-                # Buy Buttons (Red)
-                kb.add(InlineKeyboardButton(f"⏱ {d} - ₹{final_pr:.2f}", callback_data=f"buy_{p_id}_{d}", style="danger"))
                 
-            kb.add(InlineKeyboardButton("🔙 Back", callback_data=f"cat_{p.get('category_id')}", style="danger"))
+                # Formatting: 1 DAY - ₹55.0
+                kb.add(InlineKeyboardButton(f"{d.upper()} - ₹{final_pr:.1f}", callback_data=f"buy_{p_id}_{d}", style="danger"))
+                
+            kb.add(InlineKeyboardButton("⬅️ Back", callback_data=f"cat_{p.get('category_id')}", style="danger"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
             bot.answer_callback_query(call.id)
 
@@ -202,7 +226,7 @@ def bot_callbacks(call):
             bot.answer_callback_query(call.id)
             
             if deduct_balance(uid, price):
-                bot.edit_message_text("⏳ <i>Processing your order from API...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+                msg = bot.edit_message_text("⏳ <i>Processing your order from API...</i>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
                 try:
                     data = {'api_key': RESELLER_API_KEY, 'action': 'buy', 'product_id': str(p.get("pid", "")).strip(), 'duration': str(duration).strip(), 'quantity': 1}
                     res = requests.post(RESELLER_API_URL, data=data, headers={'x-master-key': MASTER_KEY}, timeout=20)
@@ -215,11 +239,11 @@ def bot_callbacks(call):
                     key = result.get("keys", ["Key not found"])[0]
                     log_order(uid, p['name'], key, price)
                     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back to Menu", callback_data="bot_main", style="danger"))
-                    bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
+                    sent = bot.edit_message_text(f"✅ <b>PURCHASE SUCCESSFUL!</b>\n\n📦 Product: {p['name']}\n⏱ Duration: {duration}\n🔑 Key:\n<code>{key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=kb)
                 else:
                     users_col.update_one({"_id": str(uid)}, {"$inc": {"balance": price}})
                     err_msg = result.get("message", "Out of Stock / API Error")
-                    bot.edit_message_text(f"❌ <b>API Error</b>\n\nReason: {err_msg}\n\n₹{price:.2f} Refunded.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop", style="danger")))
+                    sent = bot.edit_message_text(f"❌ <b>API Error</b>\n\nReason: {err_msg}\n\n₹{price:.2f} Refunded.", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_shop", style="danger")))
 
         elif call.data == "bot_profile":
             u = get_user_info(uid)
@@ -234,12 +258,13 @@ def bot_callbacks(call):
             text = "📜 <b>Your Order History</b>\n\n"
             for o in orders[:5]:
                 text += f"📦 {o.get('product', 'Deposit')}\n🔑 <code>{o.get('key', 'N/A')}</code>\n📅 {o.get('time')}\n➖➖➖➖➖➖➖➖\n"
-            bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main", style="danger")))
+            sent = bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Back", callback_data="bot_main", style="danger")))
+            threading.Thread(target=auto_delete_message, args=(sent.chat.id, sent.message_id)).start()
             bot.answer_callback_query(call.id)
             
         elif call.data == "bot_add_bal":
-            msg = bot.send_message(call.message.chat.id, "💸 <b>Enter Amount</b>\n\nPlease type the amount (in ₹) you want to add to your wallet:", parse_mode="HTML", reply_markup=ForceReply(selective=True))
-            bot.register_next_step_handler(msg, process_deposit_amount)
+            sent = bot.send_message(call.message.chat.id, "💸 <b>Enter Amount</b>\n\nPlease type the amount (in ₹) you want to add to your wallet:", parse_mode="HTML", reply_markup=ForceReply(selective=True))
+            threading.Thread(target=auto_delete_message, args=(sent.chat.id, sent.message_id)).start()
             bot.answer_callback_query(call.id)
 
     except Exception as e:
@@ -253,7 +278,9 @@ def process_deposit_amount(message):
         amount = float(message.text)
         if amount <= 0: return bot.reply_to(message, "❌ Amount must be greater than 0.")
         
-        bot.send_message(message.chat.id, "⏳ <i>Generating FamGateway QR Code...</i>", parse_mode="HTML")
+        sent_thinking = bot.send_message(message.chat.id, "⏳ <i>Generating FamGateway QR Code...</i>", parse_mode="HTML")
+        threading.Thread(target=auto_delete_message, args=(sent_thinking.chat.id, sent_thinking.message_id)).start()
+        
         try:
             order = fg.create_order(amount=amount, customer_name=f"User_{uid}")
         except Exception as e:
@@ -262,7 +289,8 @@ def process_deposit_amount(message):
             return
         
         caption = f"💳 <b>Pay ₹{amount}</b>\n\nScan the QR code above using any UPI app.\n\n<i>Bot is checking with FamGateway in the background...</i>"
-        bot.send_photo(message.chat.id, photo=order.qr_url, caption=caption, parse_mode="HTML")
+        sent_qr = bot.send_photo(message.chat.id, photo=order.qr_url, caption=caption, parse_mode="HTML")
+        threading.Thread(target=auto_delete_message, args=(sent_qr.chat.id, sent_qr.message_id)).start()
         
         threading.Thread(target=verify_chat_payment_famgateway, args=(message.chat.id, uid, order.order_id, amount)).start()
         
@@ -277,7 +305,9 @@ def verify_chat_payment_famgateway(chat_id, uid, order_id, amount):
             status = fg.get_status(order_id)
             if status.is_paid:
                 ok, new_bal = credit_atomic(uid, amount, status.utr)
-                bot.send_message(chat_id, f"✅ <b>Payment Successful!</b>\n\n₹{amount} has been added to your wallet.\n💰 New Balance: ₹{new_bal:.2f}", parse_mode="HTML")
+                sent = bot.send_message(chat_id, f"✅ <b>Payment Successful!</b>\n\n₹{amount} has been added to your wallet.\n💰 New Balance: ₹{new_bal:.2f}", parse_mode="HTML")
+                # Delete success message after 5 mins
+                threading.Thread(target=auto_delete_message, args=(chat_id, sent.message_id)).start()
                 return
         except Exception as e: 
             pass 
@@ -347,7 +377,7 @@ def admin_settings():
         return redirect(url_for('admin_settings'))
 
     settings = {
-        "welcome_text": get_setting("welcome_text", "(●) <b>WELCOME TO SAKSHAM PANEL SHOP</b>\n\n➡️ Buy Now : All Key Purchase & Instant Delivery ✅\n➡️ Add Balance : Secure Auto Payment System ✅\n\n⬇️ <b>SELECT AN OPTION FROM THE MENU BELOW 🛒</b>"),
+        "welcome_text": get_setting("welcome_text", "🛍️ <b>SAKSHAM PANEL SHOP</b>\n─────────────────\n\n🔥 Premium Mods, Panels & Bypasses — all in one place!\n⚡ Instant delivery • 🔒 Verified sellers • 💯 Trusted by 1000+ buyers\n\n👇 <i>Tap a category below to get started:</i>"),
         "btn_shop": get_setting("btn_shop", "➡️ Shop Now 🛍️"), "btn_add": get_setting("btn_add", "➡️ Add Amount 💸"),
         "btn_profile": get_setting("btn_profile", "➡️ My Profile 👤"), "btn_history": get_setting("btn_history", "➡️ Order History 📄"),
         "btn_channel": get_setting("btn_channel", "➡️ Main Channel ⚡"), "channel_link": get_setting("channel_link", "https://t.me/YourChannel"),
